@@ -2,7 +2,19 @@
 
 ## Overview
 
-Automaton is built on Elixir/Phoenix LiveView. The BEAM VM provides lightweight isolated processes, supervision trees, and fault tolerance — a natural fit for running many concurrent agents.
+Automaton is built as a durable agent runtime with a chat-first control surface. It is designed for reliability under load, fault-tolerant execution, and clear operational visibility across many concurrent agents.
+
+### Design inspiration: Temporal-style runtime semantics
+
+Automaton’s execution model is heavily inspired by Temporal’s primitives:
+
+- **Agent run context ≈ Workflow** — durable execution context with persisted history
+- **Signals** — asynchronous external input delivered to an active agent run
+- **Queries** — read-only inspection of current agent state without mutating execution
+- **Activities** — side-effecting integration work (API calls, notifications, external actions)
+- **History + replay** — deterministic event trail for debugging, audit, and recovery
+
+This is a semantic influence for runtime design, not a dependency claim.
 
 ## Agent Lifecycle
 
