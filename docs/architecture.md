@@ -28,11 +28,15 @@ Idle agents consume no compute resources. When a trigger fires, the agent is hyd
 
 ## Agent Model
 
+Agents are **AI-enabled workflows**, not prompt wrappers.
+
 Creating an agent requires:
 
 - **Name** — identifier for the agent
-- **Purpose** — what the agent does
-- **Prompt** — the base system prompt that drives the agent's behavior
+- **Purpose** — what the workflow does
+- **Workflow backbone** — deterministic step graph/state machine
+- **Prompt bundle** — versioned prompts used in agentic steps
+- **Policy config** — gates, thresholds, escalation behavior
 
 Agents also accumulate **memory** — an append-only log of past interactions and runs that gives them context across invocations.
 
@@ -58,6 +62,59 @@ Agents can receive input from the outside world:
 - **Webhooks** — generic HTTP triggers
 
 All integrations follow a common pattern: receive external event → route to agent → deliver as input. A shared `Inbound` behaviour defines the interface; each integration is a concrete implementation.
+
+## Runtime Gate Semantics
+
+Separate deterministic policy failures from probabilistic quality signals:
+
+1. **Policy compliance gate (deterministic)**
+   - Missing required fields, forbidden content, invalid transition, or policy violation
+   - Default behavior: **hard block** until fixed or explicitly overridden
+
+2. **Confidence/risk gate (probabilistic)**
+   - Low confidence, ambiguous classification, weak evidence
+   - Behavior is risk-tiered: suggest review, require review, or escalate depending on workflow risk profile
+
+This split keeps enforcement predictable while allowing flexible risk tolerance by workflow type.
+
+## Loop Boundaries: Pause vs Async Enrichment
+
+When an agent needs additional context mid-run, the workflow must choose one of two explicit paths:
+
+- **Durable pause (`awaiting_input`)**
+  - Used for blocking dependencies
+  - Safest and easiest to reason about
+  - Increases end-to-end latency
+
+- **Async enrichment sub-task**
+  - Used for non-blocking context improvements
+  - Faster end-to-end completion
+  - Requires clear merge/deadline semantics
+
+The boundary must be explicit in each workflow backbone to avoid ambiguous state transitions.
+
+## Version Pinning and Reproducibility
+
+Every workflow run should pin and persist immutable version references:
+
+- `agent_version` — deterministic workflow backbone/state machine version
+- `policy_version` — gate rules, thresholds, escalation config
+- `prompt_bundle_version` — all prompts/templates used in agentic steps
+- `model_config_version` — model/provider/runtime parameters
+- `tooling_config_version` — connector and tool behavior snapshot
+
+This enables reliable replay and post-incident analysis, and cleanly answers whether behavior changed due to workflow logic, policy, or prompt updates.
+
+## Audit Record Requirements
+
+For each run, store more than final output:
+
+- Inputs and normalized context
+- Intermediate decisions and classifier results
+- Gate results (`block|escalate|allow`) with reason codes
+- Escalations/approvals/overrides with actor + timestamp
+- Final output and delivery targets
+- Full replay pointer/history
 
 ## Background Work
 
