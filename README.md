@@ -18,6 +18,17 @@ Automaton combines deterministic workflow backbones with agentic reasoning loops
 - `docs/decision-log.md` — decided architecture choices and open questions
 - `docs/ux.md` — chat-first UX and interaction model
 
+## Local Development Bootstrap
+
+```bash
+cp .env.example .env
+# edit secrets in .env
+
+docker compose up -d
+mix deps.get
+mix ecto.setup
+```
+
 ## Tech Stack (implementation detail)
 
 - Elixir / Phoenix LiveView

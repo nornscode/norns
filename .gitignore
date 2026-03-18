@@ -1,1 +1,11 @@
+# Local env files
 .env
+.env.local
+
+# Elixir build artifacts
+/_build/
+/deps/
+/cover/
+
+# Generated static assets
+/priv/static/assets/
