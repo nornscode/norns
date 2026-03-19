@@ -2,29 +2,50 @@
 
 ## Project Overview
 
-Agent builder and hosting platform. Users build, test, debug, and interact with AI agents through a chat-first interface.
+Agent builder and hosting platform. Currently a working backend that can define agents, execute them against the Anthropic API, and log the results. No UI yet.
 
 ## Tech Stack
 
-- **Backend/Frontend:** Elixir, Phoenix LiveView
-- **Database:** PostgreSQL
-- **Styling:** Tailwind CSS (Phoenix default)
+- **Backend:** Elixir, Phoenix (endpoint not yet wired up)
+- **Database:** PostgreSQL (via Ecto)
 - **Background Jobs:** Oban
-- **Agent Processes:** OTP GenServers with supervision trees
+- **LLM:** Anthropic Messages API via Req
+- **Dev Environment:** Docker Compose (all mix commands run in containers)
+
+## Running Commands
+
+All Elixir/mix commands must run through docker compose:
+
+```bash
+docker compose run --rm app mix test
+docker compose run --rm app mix ecto.migrate
+docker compose run --rm -e MIX_ENV=test -e POSTGRES_HOST=db app mix test
+```
+
+## Project Structure
+
+```
+lib/automaton/
+  tenants/          — Tenant schema + context (multi-tenancy)
+  agents/           — Agent schema, CRUD context, Runner (execution logic)
+  runs/             — Run + RunEvent schemas, Runs context (event log)
+  workers/          — Oban workers (RunAgent)
+  llm.ex            — Anthropic API client (Req-based)
+lib/mix/tasks/      — Mix tasks (gen_release_notes)
+```
 
 ## Conventions
 
 - Follow standard Phoenix project conventions
-- Use LiveView for all interactive UI — no separate frontend framework
 - Keep contexts (Ecto schemas + business logic) in `lib/automaton/`
-- Keep web layer (controllers, live views, components) in `lib/automaton_web/`
+- Keep web layer (controllers, live views, components) in `lib/automaton_web/` (not yet used)
 - Minimal, clean code — avoid over-engineering
+- Every table has `tenant_id` — multi-tenancy is enforced at the data model level
 
 ## Architecture Notes
 
-- Sleeping/idle agents are database rows, not running processes
-- Agents are hydrated into GenServers on trigger, terminate when done
-- Oban handles scheduled triggers and long-running deterministic work
-- OTP supervision trees provide fault tolerance
-- All external integrations implement a common inbound behaviour
-- Agent-to-agent trigger chains must have depth limits to prevent loops
+- Agents are currently synchronous — no GenServers yet
+- Runner.execute/3 is the core path: create run → log events → call LLM → store output
+- Oban workers wrap Runner for async/scheduled execution
+- Run events provide an append-only audit trail of each execution step
+- Agent lifecycle: inactive (off), idle (listening), running (doing work)

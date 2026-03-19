@@ -14,3 +14,12 @@ config :automaton, Oban,
   repo: Automaton.Repo,
   plugins: [Oban.Plugins.Pruner],
   queues: [default: 10]
+
+# Disable live-reload file watcher — no web UI yet, and containers lack inotify-tools.
+config :phoenix_live_view, enable_expensive_runtime_checks: false
+
+# No web UI yet — skip tailwind.
+config :tailwind, version: "4.1.12"
+
+# Default logger to info to avoid noisy SQL debug output in mix tasks.
+config :logger, level: :info

@@ -1,39 +1,33 @@
 # UX Design
 
-## Principles
+**Status: Not yet implemented.**
 
-- **Chat-first** — the chat interface is the primary way to build, configure, and interact with agents
-- **Minimal** — sparse, clean, no clutter
-- **Monochrome** — simple color scheme with sparse, intentional color accents
-- **Blueprint aesthetic** — subtle grid influence, like an architectural drawing or engineer's blueprint
+## Core Concept
 
-## Chat Interface
+The primary interface is a chat-based workflow builder. Users describe what they want; the system generates and deploys workflow code.
 
-The chat interface serves three roles:
+## Chat Builder (the product)
 
-1. **Builder** — create and configure agents through conversation ("create an agent that monitors my PRs")
-2. **Configuration** — modify agent settings via chat ("add this Slack token to the PR agent")
-3. **Interaction** — talk directly to a running agent ("summarize yesterday's activity")
+The chat interface is where workflows are created:
 
-### Context Switching
+- "Make an agent that summarizes open PRs every morning and posts to Slack"
+- "Add a step that checks for security vulnerabilities before posting"
+- "Change it to run at 8am instead of 9am"
 
-The chat defaults to a **builder context**. To talk to a specific agent, you explicitly enter that agent's context — like SSH-ing into a machine. This keeps the boundary clear between "I'm configuring things" and "I'm talking to an agent."
+The builder LLM translates these into Elixir workflow modules, wires up triggers and integrations, and deploys them. The user doesn't need to write code.
 
 ## Agent Management
 
-Agents can also be configured through a simple web UI:
+A web UI for viewing and managing what the builder creates:
 
 - View agent status (inactive / idle / running)
-- Edit name, purpose, prompt
-- Configure integrations (add Slack token, set up GitHub webhook, etc.)
-- View run history and logs
+- View run history and step-by-step event logs
+- Edit name, purpose, trigger schedule
 - Start / stop agents
-
-The web UI and chat interface are equivalent — anything you can do in one, you can do in the other.
+- View and edit the generated workflow code directly
 
 ## Visual Language
 
 - Monochrome base with minimal accent colors for status indicators
-- Subtle grid lines as a background texture
 - Clean typography, generous whitespace
-- Status colors: muted and functional, not flashy
+- Blueprint aesthetic — subtle grid influence

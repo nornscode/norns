@@ -1,72 +1,72 @@
 # Decision Log
 
-Last updated: 2026-03-17
+Last updated: 2026-03-18
 
-## Decided
+## Product Decisions
 
-### 1) Replay determinism
-- Replays use **stored outputs/artifacts**.
-- Do not re-run model calls during replay.
+### The product is the chat builder, not the engine
+- The workflow engine is infrastructure; the differentiator is an LLM that generates workflows from conversation
+- The builder needs the engine to exist first — hand-write workflows to understand what generated code should look like
+- Ship the engine, validate with hand-written workflows, then build the builder
 
-### 2) Human override model
-- Override behavior is **agent-configurable**.
-- Supports:
-  - single-step override
-  - approval-chain override
+### Workflows are Elixir modules, not configuration
+- Real code with loops, conditionals, pattern matching — not JSON steps or YAML
+- The chat builder generates these modules
+- LLM steps are just another action type within the code (like `http` or `shell`)
 
-### 3) Override drift controls (adopted)
-- Require override reason on every override.
-- Capture actor identity + timestamp.
-- Weekly override-rate report by agent and policy.
-- Threshold alerts when override rate exceeds configured limit.
+### Don't build integrations
+- Use managed integration platforms (Nango, Composio) or plain HTTP
+- Build zero connectors until the workflow builder is proven valuable
+- The `http` step type covers most REST APIs
 
-### 4) Policy ownership and validation
-- Every policy must have an explicit owner.
-- Policy changes require testing against historical runs in a staging harness.
-- Shadow/staged rollout is optional in early phase.
-
-### 5) Version governance
-- Prompt changes are the most granular change unit.
-- Prompt/policy updates can roll into an agent version.
-- Runs should pin effective versions at run start.
-
-### 6) Canonical run state shape (recommended)
-Adopt **Typed core + extension bag**:
-- Typed core runtime fields (status, step, budgets, pending signals, etc.)
-- Bounded extension context for agent-specific data
-
-This balances flexibility with operational safety.
-
-### 7) Runtime safety controls
-- Circuit breakers are required.
-- Per-agent budgets are required.
-- Max loop iterations deferred for now.
-
-### 8) Audit UX baseline
-- Workflow execution views must support filtering by:
-  - policy-adherent runs
-  - attempted policy violations
-
-### 9) Multi-tenant boundaries
-- Row-level tenant boundaries.
-- Secrets stored per tenant.
-- Noisy-neighbor controls deferred.
-
-### 10) Early GTM validation workflows
-- Release notes generator from GitHub PRs/changes.
-- Slack Q&A agent over docs, codebase, and prior answers.
+### LLM has two roles in the system
+1. **Builder LLM** — translates natural language into workflow modules (the product)
+2. **In-workflow LLM steps** — reasoning actions within a workflow (summarize, classify, decide)
 
 ---
 
-## TBD / Open
+## Implemented
+
+### Multi-tenancy from day one
+- Every table has `tenant_id` (NOT NULL, FK to tenants).
+- Agent names unique per tenant.
+- API keys stored per tenant.
+
+### Schema simplification — defer version pinning
+- Removed all version columns from runs, removed `run_decisions` table.
+- Add back when policy gates or versioning logic exist.
+
+### Synchronous agent execution via Oban
+- `Runner.execute/3` is a plain function, Oban worker wraps it.
+- No GenServers until multi-step or long-running workflows justify them.
+
+### Anthropic API via Req
+- `LLM.complete/5` wraps the Messages API. No streaming, no tool use.
+- API key passed explicitly from tenant.
+
+### Event-sourced run audit trail
+- Every step logged as a `RunEvent` with sequence, event_type, payload.
+- Unique constraint on (run_id, sequence).
+
+### Docker Compose for all dev tooling
+- No local Elixir install. `Dockerfile.dev` + app service in docker-compose.
+
+---
+
+## Open
 
 ### A) Failure semantics
-- Define retriable vs terminal failure taxonomy.
-- Define idempotency guarantees for side effects under retries.
+- Retriable vs terminal failure taxonomy.
+- Idempotency for side effects under retries.
 
-### B) Canonical run-state schema details
-- Finalize exact typed core field set.
-- Define max extension context size and rollover behavior.
+### B) LLM reflection within workflows
+- Periodic checkpoints where the LLM reviews execution and can adjust the plan.
+- Design is fuzzy — needs concrete workflow examples first.
 
-### C) Version packaging policy
-- Define when prompt/policy updates require new agent version vs patch-level metadata update.
+### C) LLM provider abstraction
+- Currently Anthropic-only. When/how to support multiple providers.
+
+### D) Chat builder architecture
+- How the builder LLM understands available integrations and step types.
+- How generated workflow modules are validated, tested, and deployed.
+- How auth flows for integrations are handled in the builder conversation.

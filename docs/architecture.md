@@ -1,139 +1,100 @@
 # Architecture
 
-## Overview
+## Product Vision
 
-Automaton is built as a durable agent runtime with a chat-first control surface. It is designed for reliability under load, fault-tolerant execution, and clear operational visibility across many concurrent agents.
+Automaton is a chat-based builder for AI-enabled workflows. The core loop:
 
-### Design inspiration: Temporal-style runtime semantics
+1. User describes a workflow in natural language via chat
+2. A builder LLM generates a workflow module — real Elixir code with loops, conditionals, integrations
+3. The workflow engine executes it, logging every step
+4. Some workflow steps are deterministic (HTTP calls, shell commands, data transforms); some call an LLM for reasoning (summarize, classify, extract, decide)
 
-Automaton’s execution model is heavily inspired by Temporal’s primitives:
+**The product is the builder.** The engine is infrastructure. Integrations are third-party (Nango/Composio or plain HTTP) — we build none ourselves.
 
-- **Agent run context ≈ Workflow** — durable execution context with persisted history
-- **Signals** — asynchronous external input delivered to an active agent run
-- **Queries** — read-only inspection of current agent state without mutating execution
-- **Activities** — side-effecting integration work (API calls, notifications, external actions)
-- **History + replay** — deterministic event trail for debugging, audit, and recovery
+## Current State
 
-This is a semantic influence for runtime design, not a dependency claim.
-
-## Agent Lifecycle
-
-Agents have three states:
-
-- **Inactive** — turned off, will not respond to triggers
-- **Idle** — listening for triggers, no process running (just a database row)
-- **Running** — actively doing work in a GenServer process
-
-Idle agents consume no compute resources. When a trigger fires, the agent is hydrated from the database into a GenServer, does its work, and terminates back to idle.
-
-## Agent Model
-
-Agents are **AI-enabled workflows**, not prompt wrappers.
-
-Creating an agent requires:
-
-- **Name** — identifier for the agent
-- **Purpose** — what the workflow does
-- **Workflow backbone** — deterministic step graph/state machine
-- **Prompt bundle** — versioned prompts used in agentic steps
-- **Policy config** — gates, thresholds, escalation behavior
-
-Agents also accumulate **memory** — an append-only log of past interactions and runs that gives them context across invocations.
-
-## Triggers
-
-Agents can be started by:
-
-- **Absolute date/time** — "run at 9am on March 20"
-- **Elapsed time** — "run every 30 minutes" or "run 2 hours after last run"
-- **External trigger** — API call or webhook
-- **Another agent** — agent-to-agent invocation (with depth limits to prevent loops)
-
-Scheduled triggers are managed by Oban. External triggers hit Phoenix endpoints that route to the target agent. Agent-to-agent triggers are direct GenServer messages with a chain depth counter.
-
-## External Integrations
-
-Agents can receive input from the outside world:
-
-- **Slack** — DMs or thread mentions
-- **GitHub** — comment mentions
-- **Email** — inbound email processing
-- **Phone** — inbound calls (Twilio)
-- **Webhooks** — generic HTTP triggers
-
-All integrations follow a common pattern: receive external event → route to agent → deliver as input. A shared `Inbound` behaviour defines the interface; each integration is a concrete implementation.
-
-## Runtime Gate Semantics
-
-Separate deterministic policy failures from probabilistic quality signals:
-
-1. **Policy compliance gate (deterministic)**
-   - Missing required fields, forbidden content, invalid transition, or policy violation
-   - Default behavior: **hard block** until fixed or explicitly overridden
-
-2. **Confidence/risk gate (probabilistic)**
-   - Low confidence, ambiguous classification, weak evidence
-   - Behavior is risk-tiered: suggest review, require review, or escalate depending on workflow risk profile
-
-This split keeps enforcement predictable while allowing flexible risk tolerance by workflow type.
-
-## Loop Boundaries: Pause vs Async Enrichment
-
-When an agent needs additional context mid-run, the workflow must choose one of two explicit paths:
-
-- **Durable pause (`awaiting_input`)**
-  - Used for blocking dependencies
-  - Safest and easiest to reason about
-  - Increases end-to-end latency
-
-- **Async enrichment sub-task**
-  - Used for non-blocking context improvements
-  - Faster end-to-end completion
-  - Requires clear merge/deadline semantics
-
-The boundary must be explicit in each workflow backbone to avoid ambiguous state transitions.
-
-## Version Pinning and Reproducibility
-
-Every workflow run should pin and persist immutable version references:
-
-- `agent_version` — deterministic workflow backbone/state machine version
-- `policy_version` — gate rules, thresholds, escalation config
-- `prompt_bundle_version` — all prompts/templates used in agentic steps
-- `model_config_version` — model/provider/runtime parameters
-- `tooling_config_version` — connector and tool behavior snapshot
-
-This enables reliable replay and post-incident analysis, and cleanly answers whether behavior changed due to workflow logic, policy, or prompt updates.
-
-## Audit Record Requirements
-
-For each run, store more than final output:
-
-- Inputs and normalized context
-- Intermediate decisions and classifier results
-- Gate results (`block|escalate|allow`) with reason codes
-- Escalations/approvals/overrides with actor + timestamp
-- Final output and delivery targets
-- Full replay pointer/history
-
-## Background Work
-
-Oban handles:
-
-- Scheduled agent triggers (cron-like and interval-based)
-- Long-running deterministic work (API calls, data processing)
-- Retry logic and failure handling
-
-## Process Architecture
+The engine foundation works: define an agent → trigger a run via Oban → call the Anthropic API → store the output with a full event trail.
 
 ```
 Supervisor
-├── AgentSupervisor (DynamicSupervisor)
-│   ├── Agent GenServer (running agent 1)
-│   ├── Agent GenServer (running agent 2)
-│   └── ...
-├── Oban (scheduled jobs and triggers)
-└── Phoenix.Endpoint (web layer)
+├── Automaton.Repo (Ecto/PostgreSQL)
+└── Oban (background job processor)
+    └── Workers.RunAgent → Agents.Runner → LLM.complete
 ```
 
-Running agents are started under a DynamicSupervisor. They are transient — started on demand, terminated when work is complete. The supervisor restarts them if they crash mid-work.
+**Execution flow:**
+1. Something enqueues a `RunAgent` Oban job (currently: mix task)
+2. Worker looks up agent + tenant, calls `Runner.execute/3`
+3. Runner creates a Run, transitions through pending → running → completed/failed
+4. Each step is logged as a RunEvent (run_started, llm_response, run_completed)
+
+**Data model:**
+- `tenants` — name, slug, api_keys (Anthropic key per tenant)
+- `agents` — name, purpose, system_prompt, model, model_config, status, tenant_id
+- `runs` — status, trigger_type, input, state, output, agent_id, tenant_id
+- `run_events` — sequence, event_type, payload, source, metadata, run_id, tenant_id
+
+## Next: Workflow Engine (see `plan-workflow-engine.md`)
+
+Agents get a `workflow_module` field pointing to an Elixir module that implements a `Workflow` behaviour. Workflow modules use primitives (`llm`, `http`, `shell`) that auto-log as RunEvents.
+
+```elixir
+defmodule Automaton.Workflows.ReleaseNotes do
+  use Automaton.Workflow
+
+  def execute(ctx) do
+    commits = shell(ctx, "git log --oneline --no-merges --since='#{ctx.input["since"]}'")
+    llm(ctx, "Summarize these commits into release notes:\n\n#{commits}")
+  end
+end
+```
+
+This is the foundation the chat builder will eventually generate code for.
+
+## Key Design Principles
+
+### Workflows Are Code, Not Config
+
+Workflows are Elixir modules — real code with the full expressiveness of a programming language. Not JSON step lists, not YAML, not a visual DAG. This is what the chat builder generates.
+
+### Control Plane vs Reasoning Plane
+
+- **Control plane (deterministic):** the workflow code itself — conditionals, loops, data flow, error handling
+- **Reasoning plane (non-deterministic):** LLM steps within the workflow — summarize, classify, extract, decide
+
+The workflow is always deterministic in structure. LLM steps are just another action type, like HTTP or shell.
+
+### Integrations Are Third-Party
+
+We don't build Slack/GitHub/Gmail connectors. Options:
+- Managed integration platforms (Nango, Composio) for auth + normalized APIs
+- Plain HTTP for anything with a REST API
+- Webhooks for inbound triggers
+
+### Multi-Tenancy Is Structural
+
+Every table has `tenant_id`. Agent names unique per tenant. API keys per tenant. This is enforced at the data model level, not application middleware.
+
+## Future Direction
+
+### Chat Builder (the product)
+
+An LLM-powered interface that translates natural language into workflow modules. It understands:
+- When to emit a deterministic step vs an LLM step
+- What integrations are available and how to use them
+- How to wire up triggers (schedule, webhook, event-driven)
+
+### LLM Reflection Points
+
+Workflows can include reflection checkpoints where the LLM reviews the execution so far and can adjust the plan. Between reflection points, execution is pure code. At reflection points, it's agentic. The details of this are still being designed.
+
+## Process Architecture (Target)
+
+```
+Supervisor
+├── Automaton.Repo (Ecto/PostgreSQL)
+├── Oban (scheduled jobs and triggers)
+└── Phoenix.Endpoint (web layer + API)
+```
+
+GenServers and DynamicSupervisors are deferred until workflows need long-running or interactive execution.

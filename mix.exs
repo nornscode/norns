@@ -10,7 +10,7 @@ defmodule Automaton.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
-      compilers: [:phoenix, :gettext] ++ Mix.compilers()
+      compilers: Mix.compilers()
     ]
   end
 
@@ -35,9 +35,10 @@ defmodule Automaton.MixProject do
       {:phoenix, "~> 1.7.14"},
       {:phoenix_ecto, "~> 4.5"},
       {:phoenix_html, "~> 4.1"},
-      {:phoenix_live_reload, "~> 1.5", only: :dev},
+      # {:phoenix_live_reload, "~> 1.5", only: :dev},  # re-enable when web UI exists
       {:phoenix_live_view, "~> 1.0"},
       {:postgrex, ">= 0.0.0"},
+      {:req, "~> 0.5"},
       {:tailwind, "~> 0.2", runtime: Mix.env() == :dev},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"}

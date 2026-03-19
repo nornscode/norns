@@ -9,6 +9,7 @@ defmodule Automaton.Runs.RunEvent do
     field :source, :string, default: "system"
     field :metadata, :map, default: %{}
 
+    belongs_to :tenant, Automaton.Tenants.Tenant
     belongs_to :run, Automaton.Runs.Run
 
     timestamps(type: :utc_datetime_usec, updated_at: false)
@@ -16,9 +17,10 @@ defmodule Automaton.Runs.RunEvent do
 
   def changeset(event, attrs) do
     event
-    |> cast(attrs, [:run_id, :sequence, :event_type, :payload, :source, :metadata])
-    |> validate_required([:run_id, :sequence, :event_type, :source])
+    |> cast(attrs, [:tenant_id, :run_id, :sequence, :event_type, :payload, :source, :metadata])
+    |> validate_required([:tenant_id, :run_id, :sequence, :event_type, :source])
     |> foreign_key_constraint(:run_id)
+    |> foreign_key_constraint(:tenant_id)
     |> unique_constraint([:run_id, :sequence])
   end
 end
