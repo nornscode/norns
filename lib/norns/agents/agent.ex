@@ -1,4 +1,4 @@
-defmodule Automaton.Agents.Agent do
+defmodule Norns.Agents.Agent do
   use Ecto.Schema
   import Ecto.Changeset
 
@@ -10,8 +10,8 @@ defmodule Automaton.Agents.Agent do
     field :model, :string, default: "claude-sonnet-4-20250514"
     field :model_config, :map, default: %{}
 
-    belongs_to :tenant, Automaton.Tenants.Tenant
-    has_many :runs, Automaton.Runs.Run
+    belongs_to :tenant, Norns.Tenants.Tenant
+    has_many :runs, Norns.Runs.Run
 
     timestamps(type: :utc_datetime_usec)
   end

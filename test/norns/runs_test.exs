@@ -1,7 +1,7 @@
-defmodule Automaton.RunsTest do
-  use Automaton.DataCase, async: true
+defmodule Norns.RunsTest do
+  use Norns.DataCase, async: true
 
-  alias Automaton.Runs
+  alias Norns.Runs
 
   test "create_run/1 and append_event/2 with sequencing" do
     tenant = create_tenant()

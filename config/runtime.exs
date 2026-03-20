@@ -1,13 +1,13 @@
 import Config
 
-config :automaton, :default_anthropic_api_key, System.get_env("ANTHROPIC_API_KEY")
+config :norns, :default_anthropic_api_key, System.get_env("ANTHROPIC_API_KEY")
 
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
       raise "environment variable DATABASE_URL is missing"
 
-  config :automaton, Automaton.Repo,
+  config :norns, Norns.Repo,
     url: database_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
 
@@ -16,7 +16,7 @@ if config_env() == :prod do
       raise "environment variable SECRET_KEY_BASE is missing"
 
   # Kept for future Phoenix endpoint config.
-  config :automaton, :secrets,
+  config :norns, :secrets,
     secret_key_base: secret_key_base,
     phx_host: System.get_env("PHX_HOST") || "example.com",
     port: String.to_integer(System.get_env("PORT") || "4000")

@@ -1,4 +1,4 @@
-defmodule Automaton.Tenants.Tenant do
+defmodule Norns.Tenants.Tenant do
   use Ecto.Schema
   import Ecto.Changeset
 
@@ -7,8 +7,8 @@ defmodule Automaton.Tenants.Tenant do
     field :slug, :string
     field :api_keys, :map, default: %{}
 
-    has_many :agents, Automaton.Agents.Agent
-    has_many :runs, Automaton.Runs.Run
+    has_many :agents, Norns.Agents.Agent
+    has_many :runs, Norns.Runs.Run
 
     timestamps(type: :utc_datetime_usec)
   end

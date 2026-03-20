@@ -1,4 +1,4 @@
-defmodule Automaton.Repo.Migrations.CreateRunEventsAndDecisions do
+defmodule Norns.Repo.Migrations.CreateRunEventsAndDecisions do
   use Ecto.Migration
 
   def change do

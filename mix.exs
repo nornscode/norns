@@ -1,9 +1,9 @@
-defmodule Automaton.MixProject do
+defmodule Norns.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :automaton,
+      app: :norns,
       version: "0.1.0",
       elixir: "~> 1.16",
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -16,7 +16,7 @@ defmodule Automaton.MixProject do
 
   def application do
     [
-      mod: {Automaton.Application, []},
+      mod: {Norns.Application, []},
       extra_applications: [:logger, :runtime_tools]
     ]
   end

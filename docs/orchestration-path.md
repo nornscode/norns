@@ -8,15 +8,15 @@ Build on Elixir + Postgres + Oban. Adopt Temporal-style semantics where useful, 
 
 ```elixir
 # Trigger a run
-Automaton.Workers.RunAgent.new(%{agent_id: id, tenant_id: tid, input: text})
+Norns.Workers.RunAgent.new(%{agent_id: id, tenant_id: tid, input: text})
 |> Oban.insert!()
 
 # Execution (inside Oban worker)
-Automaton.Agents.Runner.execute(agent, input, tenant)
+Norns.Agents.Runner.execute(agent, input, tenant)
 
 # Query
-Automaton.Runs.get_run(id)
-Automaton.Runs.list_events(run_id)
+Norns.Runs.get_run(id)
+Norns.Runs.list_events(run_id)
 ```
 
 ## Next: Workflow Modules

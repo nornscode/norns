@@ -1,8 +1,8 @@
-defmodule Automaton.Tenants do
+defmodule Norns.Tenants do
   @moduledoc "Tenant CRUD."
 
-  alias Automaton.Repo
-  alias Automaton.Tenants.Tenant
+  alias Norns.Repo
+  alias Norns.Tenants.Tenant
 
   def get_tenant!(id), do: Repo.get!(Tenant, id)
 
@@ -21,7 +21,7 @@ defmodule Automaton.Tenants do
         {:ok, t}
 
       nil ->
-        api_key = Application.get_env(:automaton, :default_anthropic_api_key) || ""
+        api_key = Application.get_env(:norns, :default_anthropic_api_key) || ""
 
         create_tenant(%{
           name: "Default",

@@ -42,16 +42,16 @@ defmodule Mix.Tasks.GenReleaseNotes do
   end
 
   defp run_agent(commits) do
-    {:ok, tenant} = Automaton.Tenants.ensure_default_tenant()
+    {:ok, tenant} = Norns.Tenants.ensure_default_tenant()
     agent = ensure_agent(tenant)
 
     # Insert the Oban job — in test/dev with inline mode, this runs synchronously.
     %{"agent_id" => agent.id, "tenant_id" => tenant.id, "input" => commits}
-    |> Automaton.Workers.RunAgent.new()
+    |> Norns.Workers.RunAgent.new()
     |> Oban.insert!()
 
     # With inline testing mode the job already ran. In dev, drain the queue.
-    unless Application.get_env(:automaton, Oban)[:testing] == :inline do
+    unless Application.get_env(:norns, Oban)[:testing] == :inline do
       Oban.drain_queue(queue: :agents)
     end
 
@@ -59,11 +59,11 @@ defmodule Mix.Tasks.GenReleaseNotes do
     import Ecto.Query
 
     run =
-      Automaton.Runs.Run
+      Norns.Runs.Run
       |> where([r], r.agent_id == ^agent.id and r.status == "completed")
       |> order_by([r], desc: r.inserted_at)
       |> limit(1)
-      |> Automaton.Repo.one()
+      |> Norns.Repo.one()
 
     case run do
       %{output: output} when is_binary(output) ->
@@ -75,10 +75,10 @@ defmodule Mix.Tasks.GenReleaseNotes do
   end
 
   defp ensure_agent(tenant) do
-    case Automaton.Agents.get_agent_by_name(tenant.id, "release-notes-generator") do
+    case Norns.Agents.get_agent_by_name(tenant.id, "release-notes-generator") do
       nil ->
         {:ok, agent} =
-          Automaton.Agents.create_agent(%{
+          Norns.Agents.create_agent(%{
             tenant_id: tenant.id,
             name: "release-notes-generator",
             purpose: "Generate user-facing release notes from git commit history",

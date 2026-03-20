@@ -1,11 +1,11 @@
-defmodule Automaton.Workers.RunAgent do
+defmodule Norns.Workers.RunAgent do
   @moduledoc "Oban worker that executes an agent run."
 
   use Oban.Worker, queue: :agents, max_attempts: 1
 
-  alias Automaton.Agents
-  alias Automaton.Agents.Runner
-  alias Automaton.Tenants
+  alias Norns.Agents
+  alias Norns.Agents.Runner
+  alias Norns.Tenants
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"agent_id" => agent_id, "tenant_id" => tenant_id, "input" => input}}) do

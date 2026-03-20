@@ -20,17 +20,17 @@ This engine is the foundation that the chat builder will eventually generate cod
 
 ### 1. Workflow Behaviour
 
-`lib/automaton/workflow.ex`
+`lib/norns/workflow.ex`
 
 A behaviour that workflow modules implement, plus macros for step primitives.
 
 ```elixir
-defmodule Automaton.Workflow do
+defmodule Norns.Workflow do
   @callback execute(context :: map()) :: {:ok, any()} | {:error, any()}
 end
 ```
 
-When you `use Automaton.Workflow`, you get helper functions that wrap each action in event logging:
+When you `use Norns.Workflow`, you get helper functions that wrap each action in event logging:
 
 - `llm(ctx, prompt)` — call the LLM, log the request/response as a RunEvent
 - `http(ctx, method, url, opts)` — make an HTTP request, log it
@@ -41,7 +41,7 @@ Every primitive logs a RunEvent with the step type, input, output, and timing. T
 
 ### 2. Workflow-Aware Runner
 
-Update `Automaton.Agents.Runner` to:
+Update `Norns.Agents.Runner` to:
 
 - Look up the agent's workflow module
 - Call `WorkflowModule.execute(context)` instead of making a single LLM call
@@ -50,7 +50,7 @@ Update `Automaton.Agents.Runner` to:
 
 ### 3. Agent Schema Change
 
-Add `workflow_module` (string) to agents. This is the module name that implements the workflow (e.g. `"Automaton.Workflows.ReleaseNotes"`). Nullable — agents without a workflow module use the legacy single-prompt path.
+Add `workflow_module` (string) to agents. This is the module name that implements the workflow (e.g. `"Norns.Workflows.ReleaseNotes"`). Nullable — agents without a workflow module use the legacy single-prompt path.
 
 Migration: add column, no data backfill needed.
 
@@ -59,8 +59,8 @@ Migration: add column, no data backfill needed.
 **a) Release Notes Generator** — refactor from mix task
 
 ```elixir
-defmodule Automaton.Workflows.ReleaseNotes do
-  use Automaton.Workflow
+defmodule Norns.Workflows.ReleaseNotes do
+  use Norns.Workflow
 
   def execute(ctx) do
     since = ctx.input["since"] || "7 days ago"
@@ -74,13 +74,13 @@ defmodule Automaton.Workflows.ReleaseNotes do
 end
 ```
 
-The mix task becomes a thin wrapper that creates the agent (with `workflow_module: "Automaton.Workflows.ReleaseNotes"`) and enqueues the job.
+The mix task becomes a thin wrapper that creates the agent (with `workflow_module: "Norns.Workflows.ReleaseNotes"`) and enqueues the job.
 
 **b) URL Summarizer** — proves HTTP step works
 
 ```elixir
-defmodule Automaton.Workflows.UrlSummarizer do
-  use Automaton.Workflow
+defmodule Norns.Workflows.UrlSummarizer do
+  use Norns.Workflow
 
   def execute(ctx) do
     url = ctx.input["url"]
@@ -120,21 +120,21 @@ This also means wiring up the Phoenix endpoint, router, and a basic API auth plu
 
 | File | Action |
 |------|--------|
-| `lib/automaton/workflow.ex` | NEW — behaviour + step primitives |
-| `lib/automaton/workflows/release_notes.ex` | NEW — release notes workflow |
-| `lib/automaton/workflows/url_summarizer.ex` | NEW — URL summarizer workflow |
-| `lib/automaton/agents/runner.ex` | MODIFY — dispatch to workflow module |
-| `lib/automaton/agents/agent.ex` | MODIFY — add workflow_module field |
+| `lib/norns/workflow.ex` | NEW — behaviour + step primitives |
+| `lib/norns/workflows/release_notes.ex` | NEW — release notes workflow |
+| `lib/norns/workflows/url_summarizer.ex` | NEW — URL summarizer workflow |
+| `lib/norns/agents/runner.ex` | MODIFY — dispatch to workflow module |
+| `lib/norns/agents/agent.ex` | MODIFY — add workflow_module field |
 | `priv/repo/migrations/NEW` | Migration: add workflow_module to agents |
 | `lib/mix/tasks/gen_release_notes.ex` | MODIFY — use workflow-based agent |
-| `lib/automaton_web/endpoint.ex` | NEW — Phoenix endpoint |
-| `lib/automaton_web/router.ex` | NEW — API routes |
-| `lib/automaton_web/controllers/run_controller.ex` | NEW — POST /api/v1/runs |
-| `lib/automaton_web/plugs/api_auth.ex` | NEW — API key auth |
+| `lib/norns_web/endpoint.ex` | NEW — Phoenix endpoint |
+| `lib/norns_web/router.ex` | NEW — API routes |
+| `lib/norns_web/controllers/run_controller.ex` | NEW — POST /api/v1/runs |
+| `lib/norns_web/plugs/api_auth.ex` | NEW — API key auth |
 | `config/dev.exs` | MODIFY — add endpoint config |
-| `test/automaton/workflow_test.exs` | NEW — workflow primitive tests |
-| `test/automaton/workflows/release_notes_test.exs` | NEW |
-| `test/automaton_web/controllers/run_controller_test.exs` | NEW |
+| `test/norns/workflow_test.exs` | NEW — workflow primitive tests |
+| `test/norns/workflows/release_notes_test.exs` | NEW |
+| `test/norns_web/controllers/run_controller_test.exs` | NEW |
 
 ## What We're NOT Building
 

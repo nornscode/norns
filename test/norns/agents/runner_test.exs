@@ -1,8 +1,8 @@
-defmodule Automaton.Agents.RunnerTest do
-  use Automaton.DataCase, async: true
+defmodule Norns.Agents.RunnerTest do
+  use Norns.DataCase, async: true
 
-  alias Automaton.Agents.Runner
-  alias Automaton.Runs
+  alias Norns.Agents.Runner
+  alias Norns.Runs
 
   describe "execute/3" do
     test "creates a completed run with output on success" do
@@ -20,7 +20,7 @@ defmodule Automaton.Agents.RunnerTest do
       runs =
         Runs.Run
         |> where([r], r.agent_id == ^agent.id)
-        |> Automaton.Repo.all()
+        |> Norns.Repo.all()
 
       # A run was created even though the LLM call failed
       assert length(runs) >= 1

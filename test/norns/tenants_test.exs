@@ -1,7 +1,7 @@
-defmodule Automaton.TenantsTest do
-  use Automaton.DataCase, async: true
+defmodule Norns.TenantsTest do
+  use Norns.DataCase, async: true
 
-  alias Automaton.Tenants
+  alias Norns.Tenants
 
   test "create_tenant/1 with valid attrs" do
     {:ok, tenant} = Tenants.create_tenant(%{name: "Acme", slug: "acme", api_keys: %{"anthropic" => "sk-123"}})

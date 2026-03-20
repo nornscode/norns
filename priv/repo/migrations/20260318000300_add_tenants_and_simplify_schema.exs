@@ -1,4 +1,4 @@
-defmodule Automaton.Repo.Migrations.AddTenantsAndSimplifySchema do
+defmodule Norns.Repo.Migrations.AddTenantsAndSimplifySchema do
   use Ecto.Migration
 
   def change do

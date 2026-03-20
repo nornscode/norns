@@ -1,7 +1,7 @@
-defmodule Automaton.AgentsTest do
-  use Automaton.DataCase, async: true
+defmodule Norns.AgentsTest do
+  use Norns.DataCase, async: true
 
-  alias Automaton.Agents
+  alias Norns.Agents
 
   test "create_agent/1 and get_agent_by_name/2" do
     tenant = create_tenant()

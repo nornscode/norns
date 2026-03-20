@@ -1,19 +1,19 @@
 import Config
 
-config :automaton,
-  ecto_repos: [Automaton.Repo]
+config :norns,
+  ecto_repos: [Norns.Repo]
 
-config :automaton, Automaton.Repo,
+config :norns, Norns.Repo,
   migration_timestamps: [type: :utc_datetime_usec]
 
-config :automaton, Oban,
-  repo: Automaton.Repo,
+config :norns, Oban,
+  repo: Norns.Repo,
   plugins: [
     {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
   ],
   queues: [default: 10, agents: 5]
 
-config :automaton,
+config :norns,
   generators: [timestamp_type: :utc_datetime_usec]
 
 config :logger, :console,

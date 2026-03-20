@@ -1,20 +1,20 @@
-defmodule Automaton.DataCase do
+defmodule Norns.DataCase do
   @moduledoc "Test case template for tests that need database access."
 
   use ExUnit.CaseTemplate
 
   using do
     quote do
-      alias Automaton.Repo
+      alias Norns.Repo
       import Ecto
       import Ecto.Changeset
       import Ecto.Query
-      import Automaton.DataCase
+      import Norns.DataCase
     end
   end
 
   setup tags do
-    pid = Ecto.Adapters.SQL.Sandbox.start_owner!(Automaton.Repo, shared: not tags[:async])
+    pid = Ecto.Adapters.SQL.Sandbox.start_owner!(Norns.Repo, shared: not tags[:async])
     on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
     :ok
   end
@@ -22,7 +22,7 @@ defmodule Automaton.DataCase do
   @doc "Create a default tenant for tests."
   def create_tenant(attrs \\ %{}) do
     {:ok, tenant} =
-      Automaton.Tenants.create_tenant(
+      Norns.Tenants.create_tenant(
         Map.merge(
           %{name: "Test Tenant", slug: "test-#{System.unique_integer([:positive])}", api_keys: %{"anthropic" => "test-key"}},
           attrs
@@ -35,7 +35,7 @@ defmodule Automaton.DataCase do
   @doc "Create a test agent."
   def create_agent(tenant, attrs \\ %{}) do
     {:ok, agent} =
-      Automaton.Agents.create_agent(
+      Norns.Agents.create_agent(
         Map.merge(
           %{
             tenant_id: tenant.id,

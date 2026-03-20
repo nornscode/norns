@@ -1,4 +1,4 @@
-defmodule Automaton.Runs.Run do
+defmodule Norns.Runs.Run do
   use Ecto.Schema
   import Ecto.Changeset
 
@@ -9,9 +9,9 @@ defmodule Automaton.Runs.Run do
     field :state, :map, default: %{}
     field :output, :string
 
-    belongs_to :tenant, Automaton.Tenants.Tenant
-    belongs_to :agent, Automaton.Agents.Agent
-    has_many :events, Automaton.Runs.RunEvent
+    belongs_to :tenant, Norns.Tenants.Tenant
+    belongs_to :agent, Norns.Agents.Agent
+    has_many :events, Norns.Runs.RunEvent
 
     timestamps(type: :utc_datetime_usec)
   end

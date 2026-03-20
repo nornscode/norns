@@ -1,4 +1,4 @@
-# Automaton
+# Norns
 
 ## Project Overview
 
@@ -25,7 +25,7 @@ docker compose run --rm -e MIX_ENV=test -e POSTGRES_HOST=db app mix test
 ## Project Structure
 
 ```
-lib/automaton/
+lib/norns/
   tenants/          — Tenant schema + context (multi-tenancy)
   agents/           — Agent schema, CRUD context, Runner (execution logic)
   runs/             — Run + RunEvent schemas, Runs context (event log)
@@ -37,8 +37,8 @@ lib/mix/tasks/      — Mix tasks (gen_release_notes)
 ## Conventions
 
 - Follow standard Phoenix project conventions
-- Keep contexts (Ecto schemas + business logic) in `lib/automaton/`
-- Keep web layer (controllers, live views, components) in `lib/automaton_web/` (not yet used)
+- Keep contexts (Ecto schemas + business logic) in `lib/norns/`
+- Keep web layer (controllers, live views, components) in `lib/norns_web/` (not yet used)
 - Minimal, clean code — avoid over-engineering
 - Every table has `tenant_id` — multi-tenancy is enforced at the data model level
 

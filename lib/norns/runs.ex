@@ -1,12 +1,12 @@
-defmodule Automaton.Runs do
+defmodule Norns.Runs do
   @moduledoc """
   Context for durable workflow runs and their event logs.
   """
 
   import Ecto.Query
 
-  alias Automaton.Repo
-  alias Automaton.Runs.{Run, RunEvent}
+  alias Norns.Repo
+  alias Norns.Runs.{Run, RunEvent}
 
   def get_run(id), do: Repo.get(Run, id)
   def get_run!(id), do: Repo.get!(Run, id)

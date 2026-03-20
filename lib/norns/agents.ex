@@ -1,10 +1,10 @@
-defmodule Automaton.Agents do
+defmodule Norns.Agents do
   @moduledoc "Agent CRUD."
 
   import Ecto.Query
 
-  alias Automaton.Repo
-  alias Automaton.Agents.Agent
+  alias Norns.Repo
+  alias Norns.Agents.Agent
 
   def get_agent!(id), do: Repo.get!(Agent, id)
 

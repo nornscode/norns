@@ -1,4 +1,4 @@
-defmodule Automaton.Repo.Migrations.AddObanJobsTable do
+defmodule Norns.Repo.Migrations.AddObanJobsTable do
   use Ecto.Migration
 
   def up, do: Oban.Migration.up(version: 12)

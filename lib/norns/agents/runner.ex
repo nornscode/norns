@@ -1,11 +1,11 @@
-defmodule Automaton.Agents.Runner do
+defmodule Norns.Agents.Runner do
   @moduledoc """
   Synchronous agent execution. Takes an agent, input, and tenant,
   runs the LLM call, and records everything as a Run with events.
   """
 
-  alias Automaton.Runs
-  alias Automaton.LLM
+  alias Norns.Runs
+  alias Norns.LLM
 
   def execute(%{id: agent_id, tenant_id: tenant_id} = agent, input, tenant) do
     api_key = tenant.api_keys["anthropic"] || ""

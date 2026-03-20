@@ -1,8 +1,8 @@
-# Automaton
+# Norns
 
 A chat-based builder for **AI-enabled workflows**.
 
-Users describe what they want in natural language. Automaton generates deterministic workflow code — real Elixir modules with loops, conditionals, and integrations — where some steps call out to an LLM for reasoning. The product is the builder; the engine executes what it generates.
+Users describe what they want in natural language. Norns generates deterministic workflow code — real Elixir modules with loops, conditionals, and integrations — where some steps call out to an LLM for reasoning. The product is the builder; the engine executes what it generates.
 
 ## What Works Today
 

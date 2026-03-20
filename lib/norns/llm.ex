@@ -1,4 +1,4 @@
-defmodule Automaton.LLM do
+defmodule Norns.LLM do
   @moduledoc "Thin wrapper around the Anthropic Messages API."
 
   @api_url "https://api.anthropic.com/v1/messages"

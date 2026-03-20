@@ -2,7 +2,7 @@
 
 ## Product Vision
 
-Automaton is a chat-based builder for AI-enabled workflows. The core loop:
+Norns is a chat-based builder for AI-enabled workflows. The core loop:
 
 1. User describes a workflow in natural language via chat
 2. A builder LLM generates a workflow module — real Elixir code with loops, conditionals, integrations
@@ -17,7 +17,7 @@ The engine foundation works: define an agent → trigger a run via Oban → call
 
 ```
 Supervisor
-├── Automaton.Repo (Ecto/PostgreSQL)
+├── Norns.Repo (Ecto/PostgreSQL)
 └── Oban (background job processor)
     └── Workers.RunAgent → Agents.Runner → LLM.complete
 ```
@@ -39,8 +39,8 @@ Supervisor
 Agents get a `workflow_module` field pointing to an Elixir module that implements a `Workflow` behaviour. Workflow modules use primitives (`llm`, `http`, `shell`) that auto-log as RunEvents.
 
 ```elixir
-defmodule Automaton.Workflows.ReleaseNotes do
-  use Automaton.Workflow
+defmodule Norns.Workflows.ReleaseNotes do
+  use Norns.Workflow
 
   def execute(ctx) do
     commits = shell(ctx, "git log --oneline --no-merges --since='#{ctx.input["since"]}'")
@@ -92,7 +92,7 @@ Workflows can include reflection checkpoints where the LLM reviews the execution
 
 ```
 Supervisor
-├── Automaton.Repo (Ecto/PostgreSQL)
+├── Norns.Repo (Ecto/PostgreSQL)
 ├── Oban (scheduled jobs and triggers)
 └── Phoenix.Endpoint (web layer + API)
 ```
