@@ -13,6 +13,8 @@ defmodule Norns.Agents.Process do
   alias Norns.Tools.{Executor, Tool}
 
   @max_retries 3
+  @max_rate_limit_retries 10
+  @rate_limit_base_delay_ms 15_000
 
   # -- Public API --
 
@@ -249,34 +251,46 @@ defmodule Norns.Agents.Process do
   end
 
   defp handle_llm_error(state, reason) do
-    case state.agent_def.on_failure do
-      :retry_last_step when state.retry_count < @max_retries ->
-        retry_count = state.retry_count + 1
-        delay = 1000 * Integer.pow(2, retry_count - 1)
+    {max_retries, delay} = retry_params(reason, state.retry_count)
 
-        Logger.warning("LLM call failed (attempt #{retry_count}/#{@max_retries}), retrying in #{delay}ms: #{inspect(reason)}")
+    if state.agent_def.on_failure == :retry_last_step and state.retry_count < max_retries do
+      retry_count = state.retry_count + 1
 
-        Runs.append_event(state.run, %{
-          event_type: "retry",
-          source: "system",
-          payload: %{
-            "error" => inspect(reason),
-            "attempt" => retry_count,
-            "delay_ms" => delay,
-            "step" => state.step
-          }
-        })
+      Logger.warning("LLM call failed (attempt #{retry_count}/#{max_retries}), retrying in #{delay}ms: #{inspect(reason)}")
 
-        # Undo the step increment so the retry re-executes the same step
-        state = %{state | step: state.step - 1, retry_count: retry_count}
-        Process.send_after(self(), :retry_llm, delay)
-        {:noreply, state}
+      Runs.append_event(state.run, %{
+        event_type: "retry",
+        source: "system",
+        payload: %{
+          "error" => inspect(reason),
+          "attempt" => retry_count,
+          "delay_ms" => delay,
+          "step" => state.step
+        }
+      })
 
-      _ ->
-        Logger.error("LLM call failed: #{inspect(reason)}")
-        {:noreply, complete_with_error(state, "LLM error: #{inspect(reason)}")}
+      # Undo the step increment so the retry re-executes the same step
+      state = %{state | step: state.step - 1, retry_count: retry_count}
+      Process.send_after(self(), :retry_llm, delay)
+      {:noreply, state}
+    else
+      Logger.error("LLM call failed: #{inspect(reason)}")
+      {:noreply, complete_with_error(state, "LLM error: #{inspect(reason)}")}
     end
   end
+
+  defp retry_params(reason, retry_count) do
+    if rate_limit_error?(reason) do
+      # Rate limits need longer waits — 15s base with linear backoff
+      {@max_rate_limit_retries, @rate_limit_base_delay_ms * (retry_count + 1)}
+    else
+      # Other errors: exponential backoff from 1s
+      {@max_retries, 1000 * Integer.pow(2, retry_count)}
+    end
+  end
+
+  defp rate_limit_error?({429, _}), do: true
+  defp rate_limit_error?(_), do: false
 
   defp complete_successfully(state, content) do
     text =
