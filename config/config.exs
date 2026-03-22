@@ -20,6 +20,8 @@ config :norns, Norns.Workflow.Runtime,
   max_reductions: 50_000,
   max_time: 100
 
+config :norns, Norns.LLM, module: Norns.LLM.Anthropic
+
 config :logger, :console,
   format: "$time $metadata[$level] $message\n",
   metadata: [:request_id]

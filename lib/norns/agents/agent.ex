@@ -9,6 +9,8 @@ defmodule Norns.Agents.Agent do
     field :system_prompt, :string
     field :model, :string, default: "claude-sonnet-4-20250514"
     field :model_config, :map, default: %{}
+    field :tools_config, :map, default: %{}
+    field :max_steps, :integer, default: 50
 
     belongs_to :tenant, Norns.Tenants.Tenant
     has_many :runs, Norns.Runs.Run
@@ -18,7 +20,7 @@ defmodule Norns.Agents.Agent do
 
   def changeset(agent, attrs) do
     agent
-    |> cast(attrs, [:name, :purpose, :status, :system_prompt, :model, :model_config, :tenant_id])
+    |> cast(attrs, [:name, :purpose, :status, :system_prompt, :model, :model_config, :tools_config, :max_steps, :tenant_id])
     |> validate_required([:name, :status, :system_prompt, :tenant_id])
     |> validate_inclusion(:status, ["inactive", "idle", "running"])
     |> unique_constraint([:tenant_id, :name])

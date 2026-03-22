@@ -2,6 +2,7 @@ defmodule Norns.Agents.RunnerTest do
   use Norns.DataCase, async: true
 
   alias Norns.Agents.Runner
+  alias Norns.LLM.Fake
   alias Norns.Runs
 
   describe "execute/3" do
@@ -9,24 +10,23 @@ defmodule Norns.Agents.RunnerTest do
       tenant = create_tenant(%{api_keys: %{"anthropic" => "test-key"}})
       agent = create_agent(tenant, %{system_prompt: "You summarize.", model: "test-model"})
 
-      # We need to mock the LLM call. Use a simple process-based approach.
-      # With a fake API key the LLM call will fail — we verify the error
-      # path creates a run and doesn't crash.
-      {:error, _reason} = Runner.execute(agent, "some commits", tenant)
+      Fake.set_responses([
+        %{
+          content: [%{"type" => "text", "text" => "Here is a summary."}],
+          stop_reason: "end_turn"
+        }
+      ])
 
-      # The run should exist in a non-completed state (failed to call LLM)
-      import Ecto.Query
+      {:ok, run} = Runner.execute(agent, "some commits", tenant)
 
-      runs =
-        Runs.Run
-        |> where([r], r.agent_id == ^agent.id)
-        |> Norns.Repo.all()
+      assert run.status == "completed"
+      assert run.output == "Here is a summary."
 
-      # A run was created even though the LLM call failed
-      assert length(runs) >= 1
-      run = List.last(runs)
-      # Status is "running" because the LLM error happens after status update
-      assert run.status in ["pending", "running"]
+      events = Runs.list_events(run.id)
+      event_types = Enum.map(events, & &1.event_type)
+      assert "run_started" in event_types
+      assert "llm_response" in event_types
+      assert "run_completed" in event_types
     end
   end
 end

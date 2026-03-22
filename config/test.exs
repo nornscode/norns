@@ -15,4 +15,6 @@ config :norns, Oban,
   queues: false,
   testing: :inline
 
+config :norns, Norns.LLM, module: Norns.LLM.Fake
+
 config :logger, level: :warning

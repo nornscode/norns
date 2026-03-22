@@ -16,6 +16,12 @@ defmodule Norns.DataCase do
   setup tags do
     pid = Ecto.Adapters.SQL.Sandbox.start_owner!(Norns.Repo, shared: not tags[:async])
     on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
+
+    # Allow DynamicSupervisor-spawned processes to use the sandbox
+    unless tags[:async] do
+      Ecto.Adapters.SQL.Sandbox.mode(Norns.Repo, {:shared, self()})
+    end
+
     :ok
   end
 
