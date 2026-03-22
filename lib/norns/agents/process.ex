@@ -134,7 +134,9 @@ defmodule Norns.Agents.Process do
       api_tools = Enum.map(state.agent_def.tools, &Tool.to_api_format/1)
       opts = if api_tools == [], do: [], else: [tools: api_tools]
 
-      case LLM.chat(state.api_key, state.agent_def.model, state.agent_def.system_prompt, state.messages, opts) do
+      messages_for_llm = compact_messages(state.messages)
+
+      case LLM.chat(state.api_key, state.agent_def.model, state.agent_def.system_prompt, messages_for_llm, opts) do
         {:ok, response} ->
           state = %{state | retry_count: 0}
           handle_llm_response(state, response)
@@ -291,6 +293,35 @@ defmodule Norns.Agents.Process do
 
   defp rate_limit_error?({429, _}), do: true
   defp rate_limit_error?(_), do: false
+
+  # Truncate old tool results to keep token usage bounded.
+  # The last 2 messages keep full content; older tool results are capped at 200 chars.
+  @tool_result_cap 200
+
+  defp compact_messages(messages) when length(messages) <= 4, do: messages
+
+  defp compact_messages(messages) do
+    # Keep last 2 messages at full fidelity
+    {old, recent} = Enum.split(messages, length(messages) - 2)
+    Enum.map(old, &compact_message/1) ++ recent
+  end
+
+  defp compact_message(%{role: "user", content: content} = msg) when is_list(content) do
+    # Tool result lists — truncate each result's content
+    compacted =
+      Enum.map(content, fn
+        %{"type" => "tool_result", "content" => c} = block when is_binary(c) and byte_size(c) > @tool_result_cap ->
+          truncated = String.slice(c, 0, @tool_result_cap) <> "...(truncated)"
+          %{block | "content" => truncated}
+
+        other ->
+          other
+      end)
+
+    %{msg | content: compacted}
+  end
+
+  defp compact_message(msg), do: msg
 
   defp complete_successfully(state, content) do
     text =
