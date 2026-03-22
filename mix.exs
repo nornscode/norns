@@ -31,7 +31,7 @@ defmodule Norns.MixProject do
       {:floki, ">= 0.30.0", only: :test},
       {:gettext, "~> 0.24"},
       {:jason, "~> 1.4"},
-      {:luerl, "~> 1.5"},
+
       {:oban, "~> 2.17"},
       {:phoenix, "~> 1.7.14"},
       {:phoenix_ecto, "~> 4.5"},

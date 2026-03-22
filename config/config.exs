@@ -16,9 +16,6 @@ config :norns, Oban,
 config :norns,
   generators: [timestamp_type: :utc_datetime_usec]
 
-config :norns, Norns.Workflow.Runtime,
-  max_reductions: 50_000,
-  max_time: 100
 
 config :norns, Norns.LLM, module: Norns.LLM.Anthropic
 

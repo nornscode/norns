@@ -2,134 +2,78 @@
 
 ## Product Vision
 
-Norns is a chat-based builder for AI-enabled workflows. The core loop:
-
-1. User describes a workflow in natural language via chat
-2. A builder LLM generates a Lua script — real code with loops, conditionals, integrations
-3. The workflow engine executes it on the BEAM via luerl, logging every step
-4. Some workflow steps are deterministic (HTTP calls, data transforms); some call an LLM for reasoning (summarize, classify, extract, decide)
-
-**The product is the builder.** The engine is infrastructure. Integrations are third-party (Nango/Composio or plain HTTP) — we build none ourselves.
+Norns is infrastructure for running LLM-powered agents that survive crashes and resume without losing progress. The product surface is a REST API + WebSocket streaming + SDKs — not a UI or chat builder.
 
 ## Current State
 
-The engine foundation works: define an agent → trigger a run via Oban → call the Anthropic API → store the output with a full event trail.
+Durable agent runtime (Phase 1 complete):
 
 ```
 Supervisor
 ├── Norns.Repo (Ecto/PostgreSQL)
-└── Oban (background job processor)
-    └── Workers.RunAgent → Agents.Runner → LLM.complete
+├── Oban (background job processor)
+├── Phoenix.PubSub (event broadcasting)
+├── Registry (agent process lookup)
+└── DynamicSupervisor (agent GenServers)
+    └── Agents.Process — LLM-tool loop with event persistence
 ```
 
-**Execution flow:**
-1. Something enqueues a `RunAgent` Oban job (currently: mix task)
-2. Worker looks up agent + tenant, calls `Runner.execute/3`
-3. Runner creates a Run, transitions through pending → running → completed/failed
-4. Each step is logged as a RunEvent (run_started, llm_response, run_completed)
+**Agent execution flow:**
+1. `Agents.Registry.start_agent/3` spawns a GenServer under DynamicSupervisor
+2. `send_message/3` delivers a user message to the running agent
+3. Agent enters LLM-tool loop via `handle_continue`:
+   - Log `llm_request` event → call `LLM.chat/5` → log `llm_response` event
+   - If `stop_reason == "end_turn"` → complete the run
+   - If `stop_reason == "tool_use"` → execute tools, log results, loop back
+4. Every step is persisted as a RunEvent BEFORE the next step executes
+
+**Durability rule:** persist events before executing the next step. On crash, state is reconstructed from the event log.
 
 **Data model:**
 - `tenants` — name, slug, api_keys (Anthropic key per tenant)
-- `agents` — name, purpose, system_prompt, model, model_config, status, tenant_id
-- `runs` — status, trigger_type, input, state, output, agent_id, tenant_id
+- `agents` — name, purpose, system_prompt, model, model_config, tools_config, max_steps, status, tenant_id
+- `runs` — status, trigger_type, input, state, output, resumed_from_event_id, agent_id, tenant_id
 - `run_events` — sequence, event_type, payload, source, metadata, run_id, tenant_id
 
-## Next: Lua Workflow Engine (see `plan-workflow-engine.md`)
+## Crash Recovery
 
-Agents get a `workflow_script` field containing a Lua script. The engine executes it via luerl on the BEAM, with host functions exposed for side effects (`call_llm`, `http`, `store`, `emit`, `interrupt`). Every side-effectful call is logged as a RunEvent.
+State reconstruction from the event log:
+1. Find the last `checkpoint` event (periodic full message snapshot)
+2. Replay events after the checkpoint to rebuild the message history
+3. Resume the LLM-tool loop from where it left off
 
-```lua
-local commits = http("GET", "https://api.github.com/repos/org/repo/commits?since=" .. ctx.input.since)
+Resume logic based on last event type:
+- `llm_response` with tool_use → re-execute tool calls
+- `tool_result` → call LLM with updated history
+- `checkpoint` → clean state, call LLM
 
-local notes = call_llm("Summarize these commits into release notes:\n\n" .. commits.body)
-
-emit(notes)
-```
-
-This is the foundation the chat builder will eventually generate code for.
+On boot, `Workers.ResumeAgents` finds runs with status "running" and no live process, and resumes them.
 
 ## Key Design Principles
 
-### Workflows Are Code, Not Config
+### Durable Execution via Event Sourcing
 
-Workflows are Lua scripts — real code with the full expressiveness of a programming language. Not JSON step lists, not YAML, not a visual DAG. This is what the chat builder generates.
-
-Previously considered Elixir modules, but LLM-generated Elixir is an unsandboxable security risk. Lua via luerl gives us real code in a sandboxed environment. See `decision-log.md` for the full evaluation.
-
-### Control Plane vs Reasoning Plane
-
-- **Control plane (deterministic):** the Lua script itself — conditionals, loops, data flow, error handling
-- **Reasoning plane (non-deterministic):** `call_llm()` steps within the script — summarize, classify, extract, decide
-
-The workflow is always deterministic in structure. LLM steps are just another function call within the code.
-
-### Durable Execution via Checkpointed Side Effects
-
-Every side-effectful host function (`call_llm`, `http`, `store`) is checkpointed as a RunEvent. On replay, intercepted calls return cached results from the event log instead of re-executing. This gives Temporal-style durability without Temporal infrastructure.
-
-The Lua VM state (an immutable Erlang term in luerl) can be snapshotted between steps for exact resume-from-pause semantics — no node re-execution needed (unlike LangGraph).
+Every LLM call, tool execution, and state change is logged as a RunEvent. The event log is the source of truth. Agent state can be reconstructed from events at any point.
 
 ### Error Taxonomy
 
 Four categories, each with a different recovery path:
-1. **Transient** (network, rate limits) → automatic retry with backoff (Oban)
+1. **Transient** (network, rate limits) → automatic retry with backoff
 2. **LLM-recoverable** (bad tool call, parse failure) → feed error back to the LLM
-3. **User-fixable** (missing info, needs approval) → `interrupt()` pauses the workflow
-4. **Unexpected** → bubble up for debugging
-
-### Integrations Are Third-Party
-
-We don't build Slack/GitHub/Gmail connectors. Options:
-- Managed integration platforms (Nango, Composio) for auth + normalized APIs
-- Plain HTTP for anything with a REST API
-- Webhooks for inbound triggers
+3. **User-fixable** (missing info, needs approval) → interrupt/resume (future)
+4. **Unexpected** → bubble up, mark run as failed
 
 ### Multi-Tenancy Is Structural
 
-Every table has `tenant_id`. Agent names unique per tenant. API keys per tenant. This is enforced at the data model level, not application middleware.
+Every table has `tenant_id`. Agent names unique per tenant. API keys per tenant. Enforced at the data model level.
 
-## Future Direction
+### LLM Module Is Swappable
 
-### Chat Builder (the product)
+`Norns.LLM` dispatches to a configured backend module (`Norns.LLM.Behaviour`). Tests use `Norns.LLM.Fake` with scripted responses. Production uses `Norns.LLM.Anthropic`.
 
-An LLM-powered chat interface that translates natural language into Lua workflow scripts:
+## Next: API Surface (Phase 2)
 
-- "Make an agent that summarizes open PRs every morning and posts to Slack"
-- "Add a step that checks for security vulnerabilities before posting"
-- "Change it to run at 8am instead of 9am"
-
-The builder LLM understands:
-- The available Lua API surface (host functions it can call)
-- When to emit a deterministic step vs an LLM step
-- What integrations are available and how to use them
-- How to wire up triggers (schedule, webhook, event-driven)
-
-### Agent Management UI
-
-Web UI for viewing and managing what the builder creates:
-- Agent status (inactive / idle / running)
-- Run history and step-by-step event logs
-- Edit name, purpose, trigger schedule
-- Start / stop agents
-- View and edit the generated Lua script directly
-
-Visual direction: monochrome base, minimal accent colors for status, clean typography, blueprint aesthetic.
-
-### Interrupt/Resume (human-in-the-loop)
-
-Workflows can pause at any point via `interrupt(payload)`, surfacing a request to the caller. The run enters `waiting` status. An API endpoint resumes it with a response value. The Lua VM state is checkpointed at the exact pause point.
-
-### LLM Reflection Points
-
-Workflows can include reflection checkpoints where `call_llm()` reviews the execution so far and can adjust the plan. Between reflection points, execution is pure Lua. At reflection points, it's agentic.
-
-## Process Architecture (Target)
-
-```
-Supervisor
-├── Norns.Repo (Ecto/PostgreSQL)
-├── Oban (scheduled jobs and triggers)
-└── Phoenix.Endpoint (web layer + API)
-```
-
-GenServers and DynamicSupervisors are deferred until workflows need long-running or interactive execution.
+- Wire up Phoenix endpoint with REST controllers
+- Bearer token auth against tenant api_keys
+- WebSocket channel for real-time agent events via PubSub
+- Endpoints for agent CRUD, start/stop, messaging, run history

@@ -2,15 +2,14 @@
 
 ## Project Overview
 
-Agent builder and hosting platform. Currently a working backend that can define agents, execute them against the Anthropic API, and log the results. No UI yet.
+Durable agent runtime — infrastructure for running LLM-powered agents that survive crashes and resume without losing progress. REST API + WebSocket streaming surface (Phase 2). No UI.
 
 ## Tech Stack
 
 - **Backend:** Elixir, Phoenix (endpoint not yet wired up)
 - **Database:** PostgreSQL (via Ecto)
 - **Background Jobs:** Oban
-- **LLM:** Anthropic Messages API via Req
-- **Workflow Runtime:** Lua scripts via luerl (`lua` hex package) — sandboxed execution on the BEAM
+- **LLM:** Anthropic Messages API via Req (multi-turn + tool use)
 - **Dev Environment:** Docker Compose (all mix commands run in containers)
 
 ## Running Commands
@@ -28,11 +27,12 @@ docker compose run --rm -e MIX_ENV=test -e POSTGRES_HOST=db app mix test
 ```
 lib/norns/
   tenants/          — Tenant schema + context (multi-tenancy)
-  agents/           — Agent schema, CRUD context, Runner (execution logic)
+  agents/           — Agent schema, CRUD, Process (GenServer), Registry
   runs/             — Run + RunEvent schemas, Runs context (event log)
-  workers/          — Oban workers (RunAgent)
-  llm.ex            — Anthropic API client (Req-based)
-lib/mix/tasks/      — Mix tasks (gen_release_notes)
+  workers/          — Oban workers (RunAgent), ResumeAgents (orphan recovery)
+  llm.ex            — LLM dispatcher (behaviour + Anthropic impl + fake for tests)
+  llm/              — Behaviour, Anthropic adapter, Fake (test double)
+  tools/            — Tool struct, Executor, WebSearch (stub)
 ```
 
 ## Conventions
@@ -45,9 +45,12 @@ lib/mix/tasks/      — Mix tasks (gen_release_notes)
 
 ## Architecture Notes
 
-- Agents are currently synchronous — no GenServers yet
-- Runner.execute/3 is the core path: create run → log events → call LLM → store output
-- Oban workers wrap Runner for async/scheduled execution
-- Run events provide an append-only audit trail of each execution step
+- Agents run as GenServers (`Agents.Process`) under a DynamicSupervisor
+- LLM-tool loop: call LLM → if tool_use, execute tools → loop; if end_turn, complete
+- Every step persisted as a RunEvent BEFORE executing the next step (durability)
+- State reconstruction from events enables crash recovery (replay from last checkpoint)
+- Orphan recovery on boot resumes interrupted runs
+- PubSub broadcasts agent events for real-time consumers
+- `Agents.Registry` manages lifecycle: start, stop, lookup, resume
+- `Agents.Runner` is legacy one-shot execution (kept for backward compat)
 - Agent lifecycle: inactive (off), idle (listening), running (doing work)
-- **Workflow direction:** Lua scripts executed via luerl, not Elixir modules or JSON graphs. See `docs/architecture.md` and `docs/decision-log.md` for rationale.
