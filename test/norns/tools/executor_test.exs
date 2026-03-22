@@ -1,7 +1,7 @@
 defmodule Norns.Tools.ExecutorTest do
   use ExUnit.Case, async: true
 
-  alias Norns.Tools.{Executor, Tool, WebSearch}
+  alias Norns.Tools.{Executor, Tool}
 
   describe "execute/2" do
     test "calls the matching tool handler" do
@@ -36,11 +36,16 @@ defmodule Norns.Tools.ExecutorTest do
 
   describe "execute_all/2" do
     test "returns tool_result blocks for each tool call" do
-      tool = WebSearch.tool()
+      tool = %Tool{
+        name: "echo",
+        description: "Echo input",
+        input_schema: %{},
+        handler: fn %{"msg" => msg} -> {:ok, "echo: #{msg}"} end
+      }
 
       blocks = [
-        %{"id" => "call_1", "type" => "tool_use", "name" => "web_search", "input" => %{"query" => "elixir"}},
-        %{"id" => "call_2", "type" => "tool_use", "name" => "web_search", "input" => %{"query" => "erlang"}}
+        %{"id" => "call_1", "type" => "tool_use", "name" => "echo", "input" => %{"msg" => "hello"}},
+        %{"id" => "call_2", "type" => "tool_use", "name" => "echo", "input" => %{"msg" => "world"}}
       ]
 
       results = Executor.execute_all(blocks, [tool])

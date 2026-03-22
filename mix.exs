@@ -28,7 +28,7 @@ defmodule Norns.MixProject do
     [
       {:bandit, "~> 1.5"},
       {:ecto_sql, "~> 3.11"},
-      {:floki, ">= 0.30.0", only: :test},
+      {:floki, ">= 0.30.0"},
       {:gettext, "~> 0.24"},
       {:jason, "~> 1.4"},
 
