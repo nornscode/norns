@@ -176,6 +176,107 @@ After crash:
   4. Resume in the right conversation context
 ```
 
+## Agent Memory (cross-conversation knowledge)
+
+### The problem
+
+Conversations are siloed. What the agent learns in #engineering stays in #engineering's conversation history. If the team in #engineering tells the product expert "we shipped dark mode today," the team in #product asking "what launched recently?" gets nothing — their conversation has no context about it.
+
+Conversation history is "what was said in this thread." Memory is "what the agent knows." Memory is shared across all conversations for an agent.
+
+### Data model
+
+```
+memories
+  id          bigint PK
+  agent_id    bigint FK NOT NULL
+  tenant_id   bigint FK NOT NULL
+  key         text NOT NULL           — human-readable identifier
+  content     text NOT NULL           — the knowledge
+  metadata    jsonb DEFAULT '{}'      — optional tags, source, etc.
+  inserted_at utc_datetime_usec
+  updated_at  utc_datetime_usec
+
+  unique index: [agent_id, key]
+```
+
+Scoped to agent — all conversations for that agent share the same memory pool.
+
+### Tools
+
+Two new built-in tools:
+
+**`store_memory`** — the agent decides something is worth remembering.
+
+```
+Input:  {key: "dark-mode-launch", content: "Dark mode shipped 2026-03-22, available to all users"}
+Effect: upsert into memories table
+Output: "Stored memory: dark-mode-launch"
+```
+
+**`search_memory`** — the agent looks up what it knows before answering.
+
+```
+Input:  {query: "recent launches"}
+Effect: search memories by keyword match on key + content
+Output: "Found 2 memories:\n1. dark-mode-launch: Dark mode shipped 2026-03-22...\n2. api-v2-release: API v2 released..."
+```
+
+Search uses Postgres `ILIKE` on key + content to start. Full-text search via `tsvector` or vector search via pgvector are future upgrades.
+
+### Why tools, not automatic
+
+The agent decides what's worth remembering — not everything in every conversation should be stored. "Can you check the pricing page?" isn't memory-worthy. "We're deprecating the v1 API on April 1st" is. The LLM is good at this judgment.
+
+The system prompt tells the agent how to use memory:
+
+```
+You have a persistent memory shared across all your conversations.
+Use store_memory to remember important facts, decisions, and events.
+Use search_memory to recall what you know before answering questions.
+```
+
+### Example flow
+
+```
+#engineering channel:
+  User: "@product-expert we shipped dark mode today, it's available to all pro users"
+  Agent: [calls store_memory(key: "dark-mode-launch", content: "Dark mode shipped 2026-03-22, available to all pro plan users")]
+  Agent: "Got it — I've noted that dark mode launched today for pro users."
+
+#product channel (different conversation, hours later):
+  User: "@product-expert what features launched this week?"
+  Agent: [calls search_memory(query: "launched this week")]
+  Agent: "Based on what I know, dark mode shipped on March 22nd. It's available to all pro plan users."
+```
+
+### Memory in the UI
+
+- Agent detail page shows a "Memory" section: list of stored memories (key, content, timestamp)
+- Ability to view and delete individual memories
+- Memory count displayed alongside conversation count
+
+### Files for memory
+
+| File | Purpose |
+|------|---------|
+| `lib/norns/memories.ex` | Memory context (CRUD, search) |
+| `lib/norns/memories/memory.ex` | Schema |
+| `lib/norns/tools/store_memory.ex` | store_memory tool |
+| `lib/norns/tools/search_memory.ex` | search_memory tool |
+| `priv/repo/migrations/..._create_memories.exs` | Migration |
+| `test/norns/memories_test.exs` | Memory CRUD + search tests |
+
+### Future: vector memory
+
+Replace keyword search with semantic search:
+- Compute embeddings on `store_memory` (via LLM embedding API)
+- Store in pgvector column on memories table
+- `search_memory` does cosine similarity search
+- Much better recall for fuzzy queries like "what do we know about pricing"
+
+Not in scope for initial build — keyword search is good enough to prove the pattern.
+
 ## AgentDef additions
 
 ```elixir
@@ -219,9 +320,15 @@ Read from `model_config`:
 | `lib/norns/conversations.ex` | Conversation context (CRUD, find_or_create) |
 | `lib/norns/conversations/conversation.ex` | Schema |
 | `lib/norns/conversations/context.ex` | Context management strategies |
-| `priv/repo/migrations/..._create_conversations.exs` | Migration |
+| `lib/norns/memories.ex` | Memory context (CRUD, search) |
+| `lib/norns/memories/memory.ex` | Schema |
+| `lib/norns/tools/store_memory.ex` | store_memory tool |
+| `lib/norns/tools/search_memory.ex` | search_memory tool |
+| `priv/repo/migrations/..._create_conversations.exs` | Migration (conversations table) |
+| `priv/repo/migrations/..._create_memories.exs` | Migration (memories table) |
 | `test/norns/conversations_test.exs` | Conversation CRUD tests |
 | `test/norns/conversations/context_test.exs` | Context strategy tests |
+| `test/norns/memories_test.exs` | Memory CRUD + search tests |
 | `test/norns/agents/process_conversation_test.exs` | Conversation mode process tests |
 
 ## Files to modify
@@ -232,24 +339,28 @@ Read from `model_config`:
 | `lib/norns/agents/process.ex` | Conversation loading, persistence, mode branching |
 | `lib/norns/agents/registry.ex` | Conversation-aware process lookup and spawning |
 | `lib/norns/runs/run.ex` | Add `conversation_id` field |
-| `lib/norns_web/live/agent_live.ex` | Show conversations, mode indicator |
-| `lib/norns_web/controllers/agent_controller.ex` | Conversation key in send_message, conversation endpoints |
+| `lib/norns/application.ex` | Register memory tools |
+| `lib/norns_web/live/agent_live.ex` | Show conversations, memory, mode indicator |
+| `lib/norns_web/controllers/agent_controller.ex` | Conversation key in send_message, conversation + memory endpoints |
 | `lib/norns_web/router.ex` | New routes |
 
 ## Implementation order
 
-1. Migration + Conversation schema
-2. Conversations context module (CRUD, find_or_create by agent_id + key)
-3. Context management (sliding_window)
-4. AgentDef additions (mode, context_strategy, context_window)
-5. Registry changes (conversation-aware lookup/spawn)
-6. Process changes (conversation loading, persistence, mode branching)
-7. Tests
-8. API endpoints + UI
+1. Migration: conversations + memories tables, conversation_id on runs
+2. Conversation schema + context module (CRUD, find_or_create by agent_id + key)
+3. Memory schema + context module (CRUD, keyword search)
+4. Context management (sliding_window)
+5. Memory tools (store_memory, search_memory) + register on boot
+6. AgentDef additions (mode, context_strategy, context_window)
+7. Registry changes (conversation-aware lookup/spawn)
+8. Process changes (conversation loading, persistence, mode branching)
+9. Tests
+10. API endpoints + UI
 
 ## What NOT to build
 
 - Summarization context strategy (sliding window covers the launch case)
+- Vector memory / embeddings (keyword search is good enough to start)
 - Conversation forking or branching
 - Conversation export/import
 - Per-message token counting (estimate from message count is fine)
