@@ -136,7 +136,9 @@ defmodule Norns.Agents.Process do
 
       messages_for_llm = compact_messages(state.messages)
 
-      case LLM.chat(state.api_key, state.agent_def.model, state.agent_def.system_prompt, messages_for_llm, opts) do
+      system_prompt = state.agent_def.system_prompt <> "\n\nCurrent date: #{Date.utc_today()}."
+
+      case LLM.chat(state.api_key, state.agent_def.model, system_prompt, messages_for_llm, opts) do
         {:ok, response} ->
           state = %{state | retry_count: 0}
           handle_llm_response(state, response)
