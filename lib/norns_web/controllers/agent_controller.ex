@@ -35,7 +35,8 @@ defmodule NornsWeb.AgentController do
     tenant = conn.assigns.current_tenant
 
     with {:ok, agent} <- fetch_agent(agent_id, tenant.id) do
-      case Registry.start_agent(agent.id, tenant.id) do
+      tools = Norns.Tools.Registry.all_tools()
+      case Registry.start_agent(agent.id, tenant.id, tools: tools) do
         {:ok, _pid} ->
           json(conn, %{status: "started"})
 

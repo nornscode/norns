@@ -135,7 +135,8 @@ defmodule NornsWeb.AgentLive do
   def handle_event("start", _params, socket) do
     agent = socket.assigns.agent
     tenant = socket.assigns.tenant
-    Registry.start_agent(agent.id, tenant.id)
+    tools = Norns.Tools.Registry.all_tools()
+    Registry.start_agent(agent.id, tenant.id, tools: tools)
     Process.sleep(50)
     {:noreply, assign(socket, state: get_process_state(tenant.id, agent.id))}
   end
