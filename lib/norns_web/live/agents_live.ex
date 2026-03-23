@@ -201,7 +201,12 @@ defmodule NornsWeb.AgentsLive do
     Map.new(agents, fn agent ->
       state =
         case Registry.lookup(tenant.id, agent.id) do
-          {:ok, pid} -> Agents.Process.get_state(pid)
+          {:ok, pid} ->
+            try do
+              Agents.Process.get_state(pid)
+            catch
+              :exit, _ -> %{status: :running, step: "?"}
+            end
           :error -> %{status: :stopped, step: 0}
         end
 

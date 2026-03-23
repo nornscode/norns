@@ -201,8 +201,15 @@ defmodule NornsWeb.AgentLive do
 
   defp get_process_state(tenant_id, agent_id) do
     case Registry.lookup(tenant_id, agent_id) do
-      {:ok, pid} -> Agents.Process.get_state(pid)
-      :error -> %{status: :stopped, step: 0}
+      {:ok, pid} ->
+        try do
+          Agents.Process.get_state(pid)
+        catch
+          :exit, _ -> %{status: :running, step: "?"}
+        end
+
+      :error ->
+        %{status: :stopped, step: 0}
     end
   end
 
