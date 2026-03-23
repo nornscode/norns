@@ -152,8 +152,15 @@ defmodule NornsWeb.AgentLive do
   def handle_event("send_message", %{"content" => content}, socket) when content != "" do
     agent = socket.assigns.agent
     tenant = socket.assigns.tenant
-    Registry.send_message(tenant.id, agent.id, content)
-    {:noreply, assign(socket, message: "")}
+
+    case Registry.send_message(tenant.id, agent.id, content) do
+      :ok ->
+        events = [%{type: "message_sent", detail: String.slice(content, 0, 80)} | socket.assigns.events]
+        {:noreply, assign(socket, message: "", events: events, state: %{status: :running, step: 0})}
+
+      {:error, :not_found} ->
+        {:noreply, socket |> put_flash(:error, "Agent is not running")}
+    end
   end
 
   def handle_event("send_message", _params, socket), do: {:noreply, socket}
@@ -222,6 +229,7 @@ defmodule NornsWeb.AgentLive do
   defp run_status_color("failed"), do: "bg-red-400"
   defp run_status_color(_), do: "bg-gray-600"
 
+  defp event_color(%{type: "message_sent"}), do: "text-white"
   defp event_color(%{type: "tool_call"}), do: "text-yellow-400"
   defp event_color(%{type: "tool_result"}), do: "text-yellow-300"
   defp event_color(%{type: "llm_response"}), do: "text-blue-400"
