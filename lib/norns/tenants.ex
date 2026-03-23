@@ -24,6 +24,11 @@ defmodule Norns.Tenants do
     |> Repo.insert()
   end
 
+  @doc "Generate a random API key."
+  def generate_api_key do
+    "nrn_" <> (:crypto.strong_rand_bytes(24) |> Base.url_encode64(padding: false))
+  end
+
   @doc "Find or create the default tenant, using ANTHROPIC_API_KEY from config."
   def ensure_default_tenant do
     case get_tenant_by_slug("default") do

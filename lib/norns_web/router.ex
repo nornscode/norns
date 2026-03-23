@@ -20,6 +20,7 @@ defmodule NornsWeb.Router do
     pipe_through :browser
 
     live "/", AgentsLive
+    live "/setup", SetupLive
     live "/agents/:id", AgentLive
     live "/runs/:id", RunLive
     live "/tools", ToolsLive
