@@ -44,11 +44,11 @@ defmodule NornsWeb.AgentChannelTest do
   end
 
   describe "send_message" do
-    test "returns error when agent not running", %{socket: socket, agent: agent} do
+    test "auto-starts agent and accepts message", %{socket: socket, agent: agent} do
       {:ok, _, socket} = subscribe_and_join(socket, AgentChannel, "agent:#{agent.id}")
 
       ref = push(socket, "send_message", %{"content" => "hello"})
-      assert_reply ref, :error, %{reason: "agent not running"}
+      assert_reply ref, :ok, %{}
     end
   end
 

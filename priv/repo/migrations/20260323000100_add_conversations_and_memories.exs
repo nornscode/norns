@@ -6,7 +6,7 @@ defmodule Norns.Repo.Migrations.AddConversationsAndMemories do
       add :agent_id, references(:agents, on_delete: :delete_all), null: false
       add :tenant_id, references(:tenants, on_delete: :delete_all), null: false
       add :key, :text, null: false
-      add :messages, :map, null: false, default: []
+      add :messages, :map, null: false, default: fragment("'[]'::jsonb")
       add :summary, :text
       add :message_count, :integer, null: false, default: 0
       add :token_estimate, :integer, null: false, default: 0
