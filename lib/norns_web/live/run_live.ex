@@ -146,18 +146,20 @@ defmodule NornsWeb.RunLive do
   defp event_summary(%{event_type: "checkpoint_saved", payload: %{"step" => s}}), do: "step #{s}"
   defp event_summary(%{event_type: "checkpoint", payload: %{"step" => s}}), do: "step #{s}"
   defp event_summary(%{event_type: "retry", payload: %{"attempt" => a}}), do: "attempt #{a}"
-  defp event_summary(%{event_type: "run_failed", payload: %{"error" => e}}), do: String.slice(e, 0, 60)
-  defp event_summary(%{event_type: "agent_error", payload: %{"error" => e}}), do: String.slice(e, 0, 60)
+  defp event_summary(%{event_type: "run_failed", payload: %{"error" => e}}), do: String.slice(e, 0, 120)
+  defp event_summary(%{event_type: "agent_error", payload: %{"error" => e}}), do: String.slice(e, 0, 120)
   defp event_summary(%{event_type: "waiting_for_user", payload: %{"question" => q}}), do: String.slice(q, 0, 80)
   defp event_summary(%{event_type: "user_response", payload: %{"content" => c}}), do: String.slice(c, 0, 80)
   defp event_summary(_), do: ""
 
-  defp event_detail(%{event_type: "tool_call", payload: %{"input" => input}}), do: inspect(input, pretty: true, limit: 200)
-  defp event_detail(%{event_type: "tool_result", payload: %{"content" => c}}) when is_binary(c), do: String.slice(c, 0, 200)
+  defp event_detail(%{event_type: "tool_call", payload: %{"input" => input}}), do: inspect(input, pretty: true, limit: 500)
+  defp event_detail(%{event_type: "tool_result", payload: %{"content" => c}}) when is_binary(c), do: String.slice(c, 0, 500)
   defp event_detail(%{event_type: "tool_duplicate", payload: %{"resolution" => resolution, "idempotency_key" => key}}), do: "#{resolution}: #{key}"
   defp event_detail(%{event_type: "llm_response", payload: %{"usage" => %{"input_tokens" => i, "output_tokens" => o}}}), do: "#{i} in / #{o} out tokens"
-  defp event_detail(%{event_type: "run_completed", payload: %{"output" => o}}), do: String.slice(o || "", 0, 200)
-  defp event_detail(%{event_type: "agent_completed", payload: %{"output" => o}}), do: String.slice(o || "", 0, 200)
+  defp event_detail(%{event_type: "run_completed", payload: %{"output" => o}}), do: String.slice(o || "", 0, 500)
+  defp event_detail(%{event_type: "run_failed", payload: %{"error" => e}}), do: e
+  defp event_detail(%{event_type: "agent_completed", payload: %{"output" => o}}), do: String.slice(o || "", 0, 500)
+  defp event_detail(%{event_type: "agent_error", payload: %{"error" => e}}), do: e
   defp event_detail(%{event_type: "waiting_for_user", payload: %{"question" => q}}), do: q
   defp event_detail(%{event_type: "user_response", payload: %{"content" => c}}), do: c
   defp event_detail(_), do: nil
