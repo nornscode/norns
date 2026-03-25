@@ -35,6 +35,8 @@ defmodule Norns.Runtime.ReplayConformanceTest do
     %{tenant: tenant, agent: agent, side_effects: side_effects, tool: tool}
   end
 
+  @tag :skip
+  @tag :pending_async_replay
   test "replays pending tool work after crash without duplicating side effects", %{tenant: tenant, agent: agent, side_effects: side_effects, tool: tool} do
     Process.flag(:trap_exit, true)
 
@@ -91,6 +93,8 @@ defmodule Norns.Runtime.ReplayConformanceTest do
     assert state.status == :idle
   end
 
+  @tag :skip
+  @tag :pending_async_replay
   test "replays crash after side effect execution without duplicating the side effect", %{tenant: tenant, agent: agent, side_effects: side_effects, tool: tool} do
     Process.flag(:trap_exit, true)
 

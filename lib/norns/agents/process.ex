@@ -15,7 +15,7 @@ defmodule Norns.Agents.Process do
   alias Norns.Agents.AgentDef
   alias Norns.Runtime.{ErrorPolicy, Errors, Events}
   alias Norns.Workers.WorkerRegistry
-  alias Norns.Tools.{Executor, Idempotency, Tool}
+  alias Norns.Tools.{Idempotency, Tool}
   @tool_result_cap 200
 
   # -- Public API --
@@ -75,6 +75,7 @@ defmodule Norns.Agents.Process do
       status: :idle,
       pending_ask: nil,
       pending_llm_task: nil,
+      pending_tool_tasks: nil,
       resume_action: nil,
       test_pid: Keyword.get(opts, :test_pid)
     }
@@ -212,22 +213,23 @@ defmodule Norns.Agents.Process do
   end
 
   def handle_continue({:execute_tools, tool_use_blocks}, state) do
-    handle_tool_execution(state, tool_use_blocks, true)
+    dispatch_tool_execution(state, tool_use_blocks, true)
   end
 
   def handle_continue({:resume_tools, tool_use_blocks}, state) do
-    handle_tool_execution(state, tool_use_blocks, false)
+    dispatch_tool_execution(state, tool_use_blocks, false)
   end
 
-  defp handle_tool_execution(state, tool_use_blocks, log_calls?) do
+  defp dispatch_tool_execution(state, tool_use_blocks, log_calls?) do
     {ask_blocks, regular_blocks} =
       Enum.split_with(tool_use_blocks, fn block -> block["name"] == "ask_user" end)
 
-    Enum.each(regular_blocks, fn block ->
-      tool = Enum.find(state.agent_def.tools, &(&1.name == block["name"]))
-      idempotency = if tool, do: Idempotency.context(state.run, state.step, block, tool), else: %{}
+    # Log tool_call events (orchestrator's job)
+    if log_calls? do
+      Enum.each(regular_blocks, fn block ->
+        tool = Enum.find(state.agent_def.tools, &(&1.name == block["name"]))
+        idempotency = if tool, do: Idempotency.context(state.run, state.step, block, tool), else: %{}
 
-      if log_calls? do
         append(
           state.run,
           Events.tool_call(%{
@@ -241,63 +243,43 @@ defmodule Norns.Agents.Process do
         )
 
         broadcast(state, :tool_call, %{name: block["name"], input: block["input"]})
-      end
-    end)
+      end)
+    end
 
     maybe_invoke_test_hook(state, :after_tool_call_persisted, %{blocks: regular_blocks, step: state.step})
 
-    regular_results =
-      if regular_blocks == [] do
-        []
-      else
-        tool_context = %{agent_id: state.agent_id, tenant_id: state.tenant_id}
-
-        Process.put(:norns_tool_context, tool_context)
-
-        results =
-          try do
-            Executor.execute_all(regular_blocks, state.agent_def.tools, run: state.run, step: state.step)
-          after
-            Process.delete(:norns_tool_context)
-          end
-
-        Enum.each(results, fn result ->
-          if result["duplicate_detected"] do
-            append(
-              state.run,
-              Events.tool_duplicate(%{
-                "tool_use_id" => result["tool_use_id"],
-                "name" => result["name"],
-                "idempotency_key" => result["idempotency_key"],
-                "step" => state.step,
-                "original_event_sequence" => result["duplicate_original_event_sequence"],
-                "resolution" => result["duplicate_resolution"]
-              })
+    if regular_blocks == [] do
+      # No regular tools — handle ask_user immediately
+      handle_ask_or_continue(state, ask_blocks, [], log_calls?)
+    else
+      # Dispatch all tool calls to workers
+      pending_tools =
+        Enum.map(regular_blocks, fn block ->
+          {:ok, task_id} =
+            WorkerRegistry.dispatch_task(state.tenant_id, block["name"], block["input"],
+              from_pid: self(),
+              agent_id: state.agent_id,
+              run_id: state.run.id
             )
-          else
-            append(
-              state.run,
-              Events.tool_result(%{
-                "tool_use_id" => result["tool_use_id"],
-                "content" => result["content"],
-                "is_error" => Map.get(result, "is_error", false),
-                "step" => state.step,
-                "idempotency_key" => result["idempotency_key"]
-              })
-            )
-          end
 
-          broadcast(state, :tool_result, %{
-            tool_use_id: result["tool_use_id"],
-            content: result["content"]
-          })
+          {task_id, block}
         end)
 
-        maybe_invoke_test_hook(state, :after_tool_execution_before_result_persisted, %{results: results, step: state.step})
+      {:noreply,
+       %{
+         state
+         | status: :awaiting_tools,
+           pending_tool_tasks: %{
+             tasks: Map.new(pending_tools),
+             results: %{},
+             ask_blocks: ask_blocks,
+             log_calls?: log_calls?
+           }
+       }}
+    end
+  end
 
-        results
-      end
-
+  defp handle_ask_or_continue(state, ask_blocks, regular_results, log_calls?) do
     case ask_blocks do
       [ask_block | _] ->
         question = get_in(ask_block, ["input", "question"]) || "What would you like me to do?"
@@ -315,26 +297,23 @@ defmodule Norns.Agents.Process do
         end
 
         append(state.run, Events.waiting_for_user(%{"question" => question, "tool_use_id" => ask_block["id"], "step" => state.step}))
-
         Runs.update_run(state.run, %{status: "waiting"})
-
         broadcast(state, :waiting, %{question: question, tool_use_id: ask_block["id"]})
 
-        state = %{
-          state
-          | status: :waiting,
-            pending_ask: %{
-              tool_use_id: ask_block["id"],
-              question: question,
-              other_results: regular_results
-            }
-        }
-
-        {:noreply, state}
+        {:noreply,
+         %{
+           state
+           | status: :waiting,
+             pending_ask: %{
+               tool_use_id: ask_block["id"],
+               question: question,
+               other_results: regular_results
+             }
+         }}
 
       [] ->
         messages = state.messages ++ [%{role: "user", content: regular_results}]
-        state = %{state | messages: messages}
+        state = %{state | messages: messages, status: :running}
         state = maybe_checkpoint(state, :tool_result)
         {:noreply, state, {:continue, :llm_loop}}
     end
@@ -360,6 +339,62 @@ defmodule Norns.Agents.Process do
 
       {:error, reason} ->
         handle_llm_error(state, reason)
+    end
+  end
+
+  # Tool result arriving while awaiting tools
+  def handle_info({:task_result, task_id, result}, %{status: :awaiting_tools, pending_tool_tasks: pending} = state)
+      when not is_nil(pending) do
+    case Map.pop(pending.tasks, task_id) do
+      {nil, _} ->
+        # Unknown task ID — ignore
+        {:noreply, state}
+
+      {block, remaining_tasks} ->
+        # Build the tool_result content block
+        {status, content} =
+          case result do
+            {:ok, result_str} -> {:ok, result_str}
+            {:error, reason} -> {:error, if(is_binary(reason), do: reason, else: inspect(reason))}
+          end
+
+        tool_result = %{
+          "type" => "tool_result",
+          "tool_use_id" => block["id"],
+          "content" => content
+        }
+
+        tool_result = if status == :error, do: Map.put(tool_result, "is_error", true), else: tool_result
+
+        # Log the result event
+        append(
+          state.run,
+          Events.tool_result(%{
+            "tool_use_id" => block["id"],
+            "content" => content,
+            "is_error" => status == :error,
+            "step" => state.step
+          })
+        )
+
+        broadcast(state, :tool_result, %{tool_use_id: block["id"], content: content})
+
+        results = Map.put(pending.results, block["id"], tool_result)
+
+        if map_size(remaining_tasks) == 0 do
+          # All tools done — collect results in original order and continue
+          maybe_invoke_test_hook(state, :after_tool_execution_before_result_persisted, %{results: Map.values(results), step: state.step})
+
+          all_results = Map.values(results)
+
+          state = %{state | pending_tool_tasks: nil}
+          handle_ask_or_continue(state, pending.ask_blocks, all_results, pending.log_calls?)
+        else
+          # Still waiting for more tools
+          updated_pending = %{pending | tasks: remaining_tasks, results: results}
+          {:noreply, %{state | pending_tool_tasks: updated_pending}}
+        end
+
     end
   end
 
