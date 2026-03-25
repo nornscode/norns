@@ -42,13 +42,18 @@ defmodule NornsWeb.RunControllerTest do
           status: "running"
         })
 
-      Norns.Runs.append_event(run, %{event_type: "agent_started", source: "system"})
-      Norns.Runs.append_event(run, %{event_type: "llm_request", source: "system"})
+      Norns.Runs.append_event(run, %{event_type: "run_started", source: "system"})
+
+      Norns.Runs.append_event(run, %{
+        event_type: "llm_request",
+        source: "system",
+        payload: %{"step" => 1, "message_count" => 1}
+      })
 
       conn = get(conn, "/api/v1/runs/#{run.id}/events")
       assert %{"data" => events} = json_response(conn, 200)
       assert length(events) == 2
-      assert Enum.map(events, & &1["event_type"]) == ["agent_started", "llm_request"]
+      assert Enum.map(events, & &1["event_type"]) == ["run_started", "llm_request"]
     end
   end
 end

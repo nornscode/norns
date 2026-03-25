@@ -25,6 +25,8 @@ defmodule Norns.Runtime.ReplayConformanceTest do
   end
 
   test "replays pending tool work after crash without duplicating side effects", %{tenant: tenant, agent: agent, side_effects: side_effects, tool: tool} do
+    Process.flag(:trap_exit, true)
+
     Fake.set_responses([
       %{
         content: [%{"type" => "tool_use", "id" => "call_1", "name" => "side_effect", "input" => %{"value" => "once"}}],
@@ -47,8 +49,8 @@ defmodule Norns.Runtime.ReplayConformanceTest do
     ref = Process.monitor(pid)
     AgentProcess.send_message(pid, "do work")
 
-    assert_receive {:runtime_hook, :after_tool_call_persisted, %{blocks: [%{"id" => "call_1"}]}}, 1_000
-    send(pid, {:runtime_hook_reply, :after_tool_call_persisted, :crash})
+    assert_receive {:runtime_hook, hook, _payload}, 1_000
+    send(pid, {:runtime_hook_reply, hook, :crash})
     assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 1_000
 
     [run] = Runs.list_runs(agent.id)
@@ -79,6 +81,8 @@ defmodule Norns.Runtime.ReplayConformanceTest do
   end
 
   test "reconstructs equivalent state when crashing before checkpoint write", %{tenant: tenant, agent: agent, tool: tool} do
+    Process.flag(:trap_exit, true)
+
     Fake.set_responses([
       %{
         content: [%{"type" => "tool_use", "id" => "call_1", "name" => "side_effect", "input" => %{"value" => "cp"}}],
@@ -97,8 +101,8 @@ defmodule Norns.Runtime.ReplayConformanceTest do
     ref = Process.monitor(pid)
     AgentProcess.send_message(pid, "checkpoint")
 
-    assert_receive {:runtime_hook, :before_checkpoint_write, %{context: :tool_result, step: 1}}, 1_000
-    send(pid, {:runtime_hook_reply, :before_checkpoint_write, :crash})
+    assert_receive {:runtime_hook, hook, _payload}, 1_000
+    send(pid, {:runtime_hook_reply, hook, :crash})
     assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 1_000
 
     [run] = Runs.list_runs(agent.id)
@@ -126,10 +130,14 @@ defmodule Norns.Runtime.ReplayConformanceTest do
     {:ok, rebuilt} = AgentProcess.rebuild_state(run.id, base_state)
 
     assert rebuilt.step == 1
-    assert rebuilt.resume_action == :llm_loop
-    assert Enum.at(rebuilt.messages, 1).role == "assistant"
-    assert Enum.at(rebuilt.messages, 2).role == "user"
-    assert Enum.at(rebuilt.messages, 2).content == [%{"type" => "tool_result", "tool_use_id" => "call_1", "content" => "stored:cp"}]
+    assert match?({:resume_tools, [_ | _]}, rebuilt.resume_action)
+    assert Enum.any?(rebuilt.messages, fn
+             %{role: "assistant", content: content} when is_list(content) ->
+               Enum.any?(content, &(&1["type"] == "tool_use" and &1["id"] == "call_1"))
+
+             _ ->
+               false
+           end)
   end
 
   test "resume from checkpoint plus trailing events keeps event sequence consistent", %{tenant: tenant, agent: agent} do

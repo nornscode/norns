@@ -66,23 +66,23 @@ defmodule Norns.Runtime.EventValidator do
 
   defp validators_for(event_type) do
     case event_type do
-      "run_started" -> [schema_version()]
-      "llm_request" -> [schema_version(), required_integer("step"), required_integer("message_count")]
-      "llm_response" -> [schema_version(), required_integer("step"), required_list("content"), required_string("stop_reason"), optional_map("usage")]
-      "tool_call" -> [schema_version(), required_string("tool_use_id"), required_string("name"), required_map("input"), required_integer("step")]
-      "tool_result" -> [schema_version(), required_string("tool_use_id"), required_field("content"), required_boolean("is_error"), required_integer("step")]
-      "checkpoint_saved" -> [schema_version(), required_list("messages"), required_integer("step")]
-      "run_failed" -> [schema_version(), required_string("error"), required_string("error_class"), required_string("error_code"), required_string("retry_decision")]
-      "run_completed" -> [schema_version(), required_string("output")]
-      "waiting_for_user" -> [schema_version(), required_string("question"), required_string("tool_use_id"), required_integer("step")]
-      "user_response" -> [schema_version(), required_string("content"), required_string("tool_use_id"), required_integer("step")]
-      "retry" -> [schema_version(), required_string("error"), required_integer("attempt"), required_integer("delay_ms"), required_integer("step"), required_string("error_class"), required_string("error_code"), required_string("retry_decision")]
-      legacy when legacy in ["agent_started", "agent_completed", "agent_error", "checkpoint"] -> [schema_version()]
-      _ -> [schema_version()]
+      "run_started" -> [schema_version_validator()]
+      "llm_request" -> [schema_version_validator(), required_integer("step"), required_integer("message_count")]
+      "llm_response" -> [schema_version_validator(), required_integer("step"), content_or_response(), optional_stop_reason(), optional_map("usage")]
+      "tool_call" -> [schema_version_validator(), required_string("tool_use_id"), required_string("name"), required_map("input"), required_integer("step")]
+      "tool_result" -> [schema_version_validator(), required_string("tool_use_id"), required_field("content"), required_boolean("is_error"), required_integer("step")]
+      "checkpoint_saved" -> [schema_version_validator(), required_list("messages"), required_integer("step")]
+      "run_failed" -> [schema_version_validator(), required_string("error"), required_string("error_class"), required_string("error_code"), required_string("retry_decision")]
+      "run_completed" -> [schema_version_validator(), required_string("output")]
+      "waiting_for_user" -> [schema_version_validator(), required_string("question"), required_string("tool_use_id"), required_integer("step")]
+      "user_response" -> [schema_version_validator(), required_string("content"), required_string("tool_use_id"), required_integer("step")]
+      "retry" -> [schema_version_validator(), required_string("error"), required_integer("attempt"), required_integer("delay_ms"), required_integer("step"), required_string("error_class"), required_string("error_code"), required_string("retry_decision")]
+      legacy when legacy in ["agent_started", "agent_completed", "agent_error", "checkpoint"] -> [schema_version_validator()]
+      _ -> [schema_version_validator()]
     end
   end
 
-  defp schema_version do
+  defp schema_version_validator do
     fn payload ->
       case payload["schema_version"] do
         @schema_version -> :ok
@@ -142,6 +142,26 @@ defmodule Norns.Runtime.EventValidator do
         nil -> :ok
         value when is_map(value) -> :ok
         _ -> {:error, %{payload: "#{key} must be a map"}}
+      end
+    end
+  end
+
+  defp optional_stop_reason do
+    fn payload ->
+      case payload["stop_reason"] do
+        nil -> :ok
+        value when is_binary(value) and value != "" -> :ok
+        _ -> {:error, %{payload: "stop_reason must be a string"}}
+      end
+    end
+  end
+
+  defp content_or_response do
+    fn payload ->
+      cond do
+        is_list(payload["content"]) -> :ok
+        is_binary(payload["response"]) and payload["response"] != "" -> :ok
+        true -> {:error, %{payload: "content or response is required"}}
       end
     end
   end

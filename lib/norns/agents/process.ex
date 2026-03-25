@@ -309,6 +309,11 @@ defmodule Norns.Agents.Process do
     {:noreply, state, {:continue, :llm_loop}}
   end
 
+  @impl true
+  def handle_info({:runtime_hook_reply, _hook, _action}, state) do
+    {:noreply, state}
+  end
+
   # -- Internal --
 
   defp handle_llm_response(state, response) do
@@ -586,15 +591,13 @@ defmodule Norns.Agents.Process do
       status = if pending_ask, do: :waiting, else: :running
 
       {:ok,
-       %{
-         base_state
-         | run: run,
-           messages: messages,
-           step: step,
-           status: status,
-           pending_ask: pending_ask,
-           resume_action: resume_action
-       }}
+       base_state
+       |> Map.put(:run, run)
+       |> Map.put(:messages, messages)
+       |> Map.put(:step, step)
+       |> Map.put(:status, status)
+       |> Map.put(:pending_ask, pending_ask)
+       |> Map.put(:resume_action, resume_action)}
     end
   end
 
@@ -713,7 +716,7 @@ defmodule Norns.Agents.Process do
     receive do
       {:runtime_hook_reply, ^hook, :crash} -> exit({:test_crash, hook})
     after
-      0 -> :ok
+      100 -> :ok
     end
   end
 end
