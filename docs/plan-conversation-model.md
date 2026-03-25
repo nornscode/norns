@@ -1,5 +1,7 @@
 # Plan: Task vs Conversation Agent Modes
 
+Reconciled with: `docs/plan-scope-reset.md`
+
 ## Context
 
 Agents currently run in task mode only: receive message → run to completion → forget everything. A Slack bot, support agent, or any interactive agent needs to maintain context across multiple interactions. This plan adds a conversation mode where agents accumulate context across runs.
@@ -7,6 +9,8 @@ Agents currently run in task mode only: receive message → run to completion �
 A single agent may handle multiple concurrent conversations. A product expert bot tagged in #engineering, #support, and a DM simultaneously needs separate context for each. Conversations are identified by an external key (e.g., Slack channel ID, user ID, session token) so the caller controls the grouping.
 
 ## What changes
+
+Scope note: conversation mode remains in-scope because it improves execution continuity and reduces re-inference overhead. It should not introduce broad platform abstractions.
 
 **New concept: Conversation.** A conversation is a persistent message history scoped to an agent + external key. Multiple runs happen within one conversation. Each run adds to the conversation history. Between runs, the history is persisted to Postgres.
 

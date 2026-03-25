@@ -1,6 +1,6 @@
 # Plan: High-ROI Ideas to Adopt from Arbor (Without Platform Bloat)
 
-Status: Active planning
+Status: Active planning (scope-reset aligned)
 Last updated: 2026-03-24
 
 ## Why this doc exists
@@ -11,6 +11,8 @@ Norns should stay targeted: durable agent runtime, conversation continuity, and 
 This plan captures **what to adopt now** vs **what to defer/avoid**.
 
 ---
+
+Reconciled with: `docs/plan-scope-reset.md`
 
 ## Product Principle
 
@@ -148,6 +150,8 @@ Near-term strategy:
 ---
 
 ## 6-Week Implementation Sequence (High-Level)
+
+Note: execute this sequence only after current `next-sprint.md` priorities are complete.
 
 ### Week 1
 - Add lifecycle service + idempotent transitions

@@ -1,7 +1,9 @@
 # Plan (Deferred): Worker-Hosted Agent Execution
 
-Status: Deferred / revisit later
+Status: Deferred / revisit later (scope-reset aligned)
 Last updated: 2026-03-23
+
+Reconciled with: `docs/plan-scope-reset.md`
 
 ## Why this exists
 

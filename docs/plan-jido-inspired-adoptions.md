@@ -1,7 +1,9 @@
 # Plan: Jido-Inspired Adoptions for Norns (Focused)
 
-Status: Active planning
+Status: Active planning (scope-reset aligned)
 Last updated: 2026-03-24
+
+Reconciled with: `docs/plan-scope-reset.md`
 
 ## Purpose
 
@@ -15,6 +17,8 @@ Norns remains focused on:
 ---
 
 ## What we are adopting (now)
+
+Note: these adoptions are secondary to `docs/next-sprint.md` and should not preempt current idempotency/replay/operator priorities.
 
 ## 1) Typed Runtime Events and Directives
 
