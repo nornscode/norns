@@ -20,6 +20,8 @@ defmodule NornsWeb.AgentLive do
           runs = Runs.list_runs(agent.id)
           state = get_process_state(tenant.id, agent.id)
 
+          config = agent.model_config || %{}
+
           {:ok,
            assign(socket,
              tenant: tenant,
@@ -28,7 +30,9 @@ defmodule NornsWeb.AgentLive do
              runs: runs,
              state: state,
              events: [],
-             message: ""
+             message: "",
+             editing_config: false,
+             config: config
            )}
         end
 
@@ -70,6 +74,93 @@ defmodule NornsWeb.AgentLive do
           <span class="text-sm ml-1"><%= @agent.max_steps %></span>
         </div>
       </div>
+    </div>
+
+    <%!-- Config --%>
+    <div class="bg-gray-900 border border-gray-800 rounded p-4 mb-6">
+      <div class="flex items-center justify-between mb-3">
+        <span class="text-xs text-gray-500 font-medium">Configuration</span>
+        <button phx-click="toggle_config_edit" class="text-xs text-gray-500 hover:text-gray-400">
+          <%= if @editing_config, do: "cancel", else: "edit" %>
+        </button>
+      </div>
+
+      <%= if @editing_config do %>
+        <form phx-submit="save_config" class="space-y-3">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-gray-500 block mb-1">Model</label>
+              <input type="text" name="model" value={@agent.model}
+                class="w-full bg-gray-950 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-gray-500" />
+            </div>
+            <div>
+              <label class="text-xs text-gray-500 block mb-1">Max Steps</label>
+              <input type="number" name="max_steps" value={@agent.max_steps}
+                class="w-full bg-gray-950 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-gray-500" />
+            </div>
+            <div>
+              <label class="text-xs text-gray-500 block mb-1">On Failure</label>
+              <select name="on_failure"
+                class="w-full bg-gray-950 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-gray-500">
+                <option value="stop" selected={@config["on_failure"] != "retry_last_step"}>stop</option>
+                <option value="retry_last_step" selected={@config["on_failure"] == "retry_last_step"}>retry_last_step</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-gray-500 block mb-1">Mode</label>
+              <select name="mode"
+                class="w-full bg-gray-950 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-gray-500">
+                <option value="task" selected={@config["mode"] != "conversation"}>task</option>
+                <option value="conversation" selected={@config["mode"] == "conversation"}>conversation</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-gray-500 block mb-1">Checkpoint Policy</label>
+              <select name="checkpoint_policy"
+                class="w-full bg-gray-950 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-gray-500">
+                <option value="on_tool_call" selected={@config["checkpoint_policy"] not in ["every_step", "manual"]}>on_tool_call</option>
+                <option value="every_step" selected={@config["checkpoint_policy"] == "every_step"}>every_step</option>
+                <option value="manual" selected={@config["checkpoint_policy"] == "manual"}>manual</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-gray-500 block mb-1">Context Window</label>
+              <input type="number" name="context_window" value={@config["context_window"] || 20}
+                class="w-full bg-gray-950 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-gray-500" />
+            </div>
+          </div>
+          <button type="submit" class="text-xs bg-white text-gray-950 font-medium px-3 py-1.5 rounded hover:bg-gray-200">
+            Save
+          </button>
+        </form>
+      <% else %>
+        <div class="grid grid-cols-3 gap-x-6 gap-y-1 text-sm">
+          <div>
+            <span class="text-gray-500">Model:</span>
+            <span class="text-gray-300 ml-1"><%= @agent.model %></span>
+          </div>
+          <div>
+            <span class="text-gray-500">On Failure:</span>
+            <span class="text-gray-300 ml-1"><%= @config["on_failure"] || "stop" %></span>
+          </div>
+          <div>
+            <span class="text-gray-500">Mode:</span>
+            <span class="text-gray-300 ml-1"><%= @config["mode"] || "task" %></span>
+          </div>
+          <div>
+            <span class="text-gray-500">Checkpoint:</span>
+            <span class="text-gray-300 ml-1"><%= @config["checkpoint_policy"] || "on_tool_call" %></span>
+          </div>
+          <div>
+            <span class="text-gray-500">Context Window:</span>
+            <span class="text-gray-300 ml-1"><%= @config["context_window"] || 20 %></span>
+          </div>
+          <div>
+            <span class="text-gray-500">Max Steps:</span>
+            <span class="text-gray-300 ml-1"><%= @agent.max_steps %></span>
+          </div>
+        </div>
+      <% end %>
     </div>
 
     <%!-- Controls --%>
@@ -151,6 +242,47 @@ defmodule NornsWeb.AgentLive do
   end
 
   @impl true
+  def handle_event("toggle_config_edit", _params, socket) do
+    {:noreply, assign(socket, editing_config: !socket.assigns.editing_config)}
+  end
+
+  def handle_event("save_config", params, socket) do
+    agent = socket.assigns.agent
+
+    config =
+      (agent.model_config || %{})
+      |> Map.merge(%{
+        "on_failure" => params["on_failure"],
+        "mode" => params["mode"],
+        "checkpoint_policy" => params["checkpoint_policy"],
+        "context_window" => params["context_window"]
+      })
+
+    max_steps =
+      case Integer.parse(params["max_steps"] || "") do
+        {n, ""} when n > 0 -> n
+        _ -> agent.max_steps
+      end
+
+    case Agents.update_agent(agent, %{
+           model: String.trim(params["model"] || agent.model),
+           max_steps: max_steps,
+           model_config: config
+         }) do
+      {:ok, updated_agent} ->
+        {:noreply,
+         assign(socket,
+           agent: updated_agent,
+           config: updated_agent.model_config || %{},
+           editing_config: false
+         )
+         |> put_flash(:info, "Configuration saved")}
+
+      {:error, _changeset} ->
+        {:noreply, socket |> put_flash(:error, "Failed to save configuration")}
+    end
+  end
+
   def handle_event("start", _params, socket) do
     agent = socket.assigns.agent
     tenant = socket.assigns.tenant
