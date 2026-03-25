@@ -140,6 +140,17 @@ Last updated: 2026-03-25
 - Failure inspector: `failure_metadata` on runs + structured API response for operator diagnosis
 - Replay conformance test suite proves checkpoint/restore invariants
 
+### Orchestrator/Worker split (Phase 8)
+- The agent GenServer is now a pure state machine — dispatches tasks, never executes
+- All LLM calls dispatched via `WorkerRegistry.dispatch_llm_task` → worker handles API call
+- All tool calls dispatched via `WorkerRegistry.dispatch_task` → worker handles execution
+- Agent states: `:idle`, `:awaiting_llm`, `:awaiting_tools`, `:waiting`
+- Agent is never blocked — always responds to get_state, stop, messages
+- `DefaultWorker` runs in same BEAM VM for self-hosted mode (handles LLM + built-in tools)
+- External workers connect via `/worker` WebSocket, register capabilities `[:llm, :tools]`
+- Rate limits are the worker's problem — orchestrator never sees a 429
+- Workers hold API keys — orchestrator never sees them in external mode
+
 ### Docker Compose for all dev tooling
 - No local Elixir install. `Dockerfile.dev` + app service in docker-compose
 
@@ -147,7 +158,7 @@ Last updated: 2026-03-25
 
 ## Open
 
-### A) SDK design (Phase 7)
+### A) SDK design (Phase 9)
 - TypeScript and Python SDKs
 - `@tool` decorator generates JSON schema from type hints
 - `run.stream()` as WebSocket iterator over agent events

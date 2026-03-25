@@ -63,13 +63,19 @@ The durability demo creates an agent, sends it a multi-step research query, kill
 
 ## How It Works
 
-Each agent is a GenServer that runs a loop:
+The orchestrator is a pure state machine. It never executes LLM calls or tools directly — it dispatches tasks to workers and persists the results as an event log.
 
 ```
-receive message → call LLM → if tool call, execute tool → checkpoint → repeat
+Orchestrator (state machine)              Worker (executes things)
+  │                                           │
+  │  dispatch llm_task ─────────────────────► │  calls Anthropic API
+  │  ◄── llm_response ──────────────────────  │
+  │  log event, dispatch tool_task ─────────► │  executes tool
+  │  ◄── tool_result ───────────────────────  │
+  │  log event, checkpoint, repeat            │
 ```
 
-State is persisted to Postgres as an append-only event log. On crash, the process replays events from the last checkpoint rather than re-executing LLM calls.
+State is persisted to Postgres as an append-only event log. On crash, the process replays events from the last checkpoint rather than re-executing LLM calls. A built-in `DefaultWorker` handles everything locally for self-hosted mode — no configuration needed.
 
 ### Agent Modes
 
@@ -209,20 +215,22 @@ Send messages via the channel with `{"event": "send_message", "payload": {"conte
 
 ## Worker Protocol
 
-Workers connect to the runtime via persistent WebSocket, register tools, and receive task pushes. Norns never calls out to your code — workers make outbound connections only.
+The orchestrator never executes anything — all work (LLM calls and tool execution) is dispatched to workers. Workers connect via persistent WebSocket, register their capabilities and tools, and receive task pushes.
 
 ```
-Norns Runtime                         Your Infrastructure
-  │                                       │
-  Agent GenServer                         Worker
-  │  hits tool call                       │  connects to /worker
-  │    ↓                                  │  registers tools
-  │  pushes tool_task ──── WebSocket ───► │  executes locally
-  │  ◄── tool_result ────────────────────  │  returns result
-  │  checkpoints + continues              │
+Norns Orchestrator                    Worker
+  │  (pure state machine)                │  (executes things)
+  │                                      │  connects to /worker
+  │  dispatches llm_task ──────────────► │  calls LLM API
+  │  ◄── llm_response ─────────────────  │
+  │  dispatches tool_task ─────────────► │  executes tool
+  │  ◄── tool_result ──────────────────  │  returns result
+  │  logs events, checkpoints            │
 ```
 
-If a worker disconnects, pending tasks are queued and flushed when it reconnects. In self-hosted mode, the worker runs in the same BEAM VM — tool calls are local function calls with no network hop.
+A built-in `DefaultWorker` ships with Norns and handles LLM calls + built-in tools locally (same BEAM VM, no network hop). For production, you run your own workers with your own tools and API keys — Norns never sees them.
+
+If a worker disconnects, pending tasks are queued and flushed when it reconnects.
 
 ## Running Tests
 
@@ -239,8 +247,9 @@ Norns.Supervisor
 ├── Phoenix.PubSub
 ├── Registry (agent process lookup by {tenant, agent, conversation_key})
 ├── DynamicSupervisor
-│   └── [Agents.Process] — one GenServer per agent conversation
-├── WorkerRegistry — tracks connected workers and their tools
+│   ├── [Agents.Process] — state machine per agent conversation
+│   └── DefaultWorker — handles LLM calls + built-in tools locally
+├── WorkerRegistry — tracks connected workers and capabilities
 ├── TaskQueue — holds tasks for disconnected workers
 └── NornsWeb.Endpoint
     ├── REST API (/api/v1)

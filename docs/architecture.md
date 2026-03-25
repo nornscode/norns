@@ -18,9 +18,40 @@ BEAM provides properties that no other durable agent runtime has:
 
 Every competitor (Temporal, Restate, Inngest, Cloudflare, Vercel) is built on Go, Rust, JS, or JVM. Nobody is building on BEAM.
 
-## Core Primitive
+## Core Architecture: Orchestrator/Worker Split
 
-Each agent is a GenServer managed by a DynamicSupervisor, configured by an `AgentDef` struct:
+The orchestrator is a pure state machine. It never executes LLM calls or tools directly — it dispatches tasks to workers and persists results as events. This is the same model as Temporal: the runtime orchestrates, workers execute.
+
+```
+Orchestrator (state machine)              Worker (executes things)
+  │                                           │
+  │  dispatch llm_task ─────────────────────► │  calls Anthropic API
+  │  ◄── llm_response ──────────────────────  │
+  │  log event, dispatch tool_task ─────────► │  executes tool
+  │  ◄── tool_result ───────────────────────  │
+  │  log event, checkpoint                    │
+```
+
+### Agent States
+
+Each agent is a GenServer managed by a DynamicSupervisor:
+
+- `:idle` — waiting for a message
+- `:awaiting_llm` — dispatched LLM task to worker, waiting for response
+- `:awaiting_tools` — dispatched tool tasks to worker(s), waiting for results
+- `:waiting` — paused for human input (ask_user interrupt)
+
+The agent is never blocked. It can always respond to status queries, stop requests, and other messages.
+
+### Workers
+
+A built-in `DefaultWorker` ships with Norns and handles LLM calls + built-in tools in the same BEAM VM (zero config for self-hosted). External workers connect via `/worker` WebSocket, register capabilities (`:llm`, `:tools`), and receive task pushes.
+
+Workers hold API keys and secrets. In cloud/hosted mode, Norns never sees user API keys — workers in the user's infrastructure make all external calls.
+
+### Agent Definition
+
+Agents are configured with an `AgentDef` struct:
 
 ```elixir
 %AgentDef{
@@ -34,12 +65,6 @@ Each agent is a GenServer managed by a DynamicSupervisor, configured by an `Agen
   max_steps: 50,
   on_failure: :retry_last_step
 }
-```
-
-The agent process runs the core loop:
-
-```
-receive message → call LLM → if tool call, execute tool → checkpoint → repeat
 ```
 
 State is persisted to Postgres at each checkpoint as an event log. On restart, the process replays events rather than re-executing LLM calls.
@@ -263,14 +288,15 @@ Norns.Supervisor (one_for_one)
 ├── Phoenix.PubSub (Norns.PubSub)
 ├── Registry (Norns.AgentRegistry, keys: {tenant_id, agent_id, conversation_key})
 ├── DynamicSupervisor (Norns.AgentSupervisor)
-│   └── [Agents.Process] (one per agent conversation)
-├── Workers.WorkerRegistry (tracks connected workers)
+│   ├── [Agents.Process] (state machine per agent conversation)
+│   └── DefaultWorker (handles LLM calls + built-in tools locally)
+├── Workers.WorkerRegistry (tracks all workers and capabilities)
 ├── Workers.TaskQueue (pending tasks for disconnected workers)
 ├── NornsWeb.Telemetry
 └── NornsWeb.Endpoint (Phoenix — REST + WebSocket + LiveView)
 ```
 
-On boot: init tool registry, register built-in tools (including memory tools), resume orphaned runs.
+On boot: init tool registry, register built-in tools, start DefaultWorker, resume orphaned runs.
 
 ## Build Phases
 
@@ -295,7 +321,10 @@ LiveView UI, tenant setup, agent creation, live event streaming, run timeline.
 ### Phase 7: Runtime Contracts ✓
 Typed/versioned events, error classification, deterministic retry policy, idempotent side effects, failure inspector, replay conformance suite.
 
-### Phase 8: SDKs
+### Phase 8: Orchestrator/Worker Split ✓
+Pure state machine orchestrator — all LLM calls and tool execution dispatched to workers. DefaultWorker for self-hosted mode. Agent never blocked, always responsive.
+
+### Phase 9: SDKs
 TypeScript/Python clients for defining agents and tools in other languages.
 
 ### Skip For Now
