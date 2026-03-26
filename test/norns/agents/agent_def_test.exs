@@ -42,7 +42,7 @@ defmodule Norns.Agents.AgentDefTest do
 
     test "returns stable error details for invalid enum values" do
       assert {:error,
-              %{code: "invalid_field", field: "mode", message: "mode must be one of: task, conversation"}} =
+              %{code: "invalid_field", field: "mode", message: "mode must be one of: conversation, task"}} =
                AgentDef.new(%{
                  "model" => "claude-sonnet-4-20250514",
                  "system_prompt" => "You are helpful.",

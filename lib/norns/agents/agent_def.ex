@@ -162,7 +162,7 @@ defmodule Norns.Agents.AgentDef do
             {:error,
              %{
                code: "invalid_field",
-               message: "#{field} must be one of: #{allowed |> Map.keys() |> Enum.join(", ")}",
+               message: "#{field} must be one of: #{allowed |> Map.keys() |> Enum.sort() |> Enum.join(", ")}",
                field: field
              }}
         end

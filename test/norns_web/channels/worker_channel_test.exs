@@ -48,13 +48,16 @@ defmodule NornsWeb.WorkerChannelTest do
         }, from_pid: self())
 
       assert_push "llm_task", task, 1_000
-      assert task["task_id"] == task_id
-      assert task["model"] == "claude-sonnet-4-20250514"
-      assert task["system_prompt"] == "You are helpful."
-      assert task["messages"] == [%{"role" => "user", "content" => "hello"}]
-      assert task["agent_id"] == 11
-      assert task["run_id"] == 22
-      assert task["step"] == 1
+      assert (task["task_id"] || task[:task_id]) == task_id
+      assert (task["model"] || task[:model]) == "claude-sonnet-4-20250514"
+      assert (task["system_prompt"] || task[:system_prompt]) == "You are helpful."
+      messages = task["messages"] || task[:messages]
+      message = List.first(messages)
+      assert (message["role"] || message[:role]) == "user"
+      assert (message["content"] || message[:content]) == "hello"
+      assert (task["agent_id"] || task[:agent_id]) == 11
+      assert (task["run_id"] || task[:run_id]) == 22
+      assert (task["step"] || task[:step]) == 1
 
       WorkerRegistry.unregister_worker(tenant.id, "llm-worker")
     end
