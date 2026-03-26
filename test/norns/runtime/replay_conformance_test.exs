@@ -318,6 +318,76 @@ defmodule Norns.Runtime.ReplayConformanceTest do
     assert rebuilt.pending_ask.tool_use_id == "ask_1"
   end
 
+  test "rebuild skips duplicate side effects and resumes deterministically", %{tenant: tenant, agent: agent} do
+    {:ok, run} =
+      Runs.create_run(%{
+        agent_id: agent.id,
+        tenant_id: tenant.id,
+        trigger_type: "message",
+        input: %{"user_message" => "hello"},
+        status: "running"
+      })
+
+    Runs.append_event(run, %{event_type: "run_started"})
+
+    Runs.append_event(run, %{
+      event_type: "llm_response",
+      payload: %{
+        "content" => [%{"type" => "tool_use", "id" => "call_1", "name" => "side_effect", "input" => %{"value" => "once"}}],
+        "stop_reason" => "tool_use",
+        "usage" => %{},
+        "step" => 1
+      }
+    })
+
+    Runs.append_event(run, %{
+      event_type: "tool_call",
+      payload: %{
+        "tool_use_id" => "call_1",
+        "name" => "side_effect",
+        "input" => %{"value" => "once"},
+        "step" => 1,
+        "side_effect" => true,
+        "idempotency_key" => "run:#{run.id}:step:1:tool:call_1:name:side_effect"
+      }
+    })
+
+    Runs.append_event(run, %{
+      event_type: "tool_duplicate",
+      payload: %{
+        "tool_use_id" => "call_1",
+        "name" => "side_effect",
+        "idempotency_key" => "run:#{run.id}:step:1:tool:call_1:name:side_effect",
+        "step" => 1,
+        "original_event_sequence" => 3,
+        "resolution" => "reused_persisted_result"
+      }
+    })
+
+    base_state = %{
+      agent_id: agent.id,
+      tenant_id: tenant.id,
+      agent: agent,
+      api_key: "test-key",
+      agent_def: Norns.Agents.AgentDef.from_agent(agent),
+      conversation: nil,
+      messages: [],
+      step: 0,
+      retry_count: 0,
+      run: nil,
+      status: :idle,
+      pending_ask: nil,
+      resume_action: nil,
+      test_pid: nil
+    }
+
+    {:ok, rebuilt} = AgentProcess.rebuild_state(run.id, base_state)
+
+    assert rebuilt.status == :running
+    assert rebuilt.step == 1
+    assert rebuilt.resume_action == :llm_loop
+  end
+
   defp side_effect_values(side_effects) do
     side_effects
     |> Agent.get(&Enum.reverse/1)

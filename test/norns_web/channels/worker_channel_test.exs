@@ -27,9 +27,49 @@ defmodule NornsWeb.WorkerChannelTest do
       WorkerRegistry.unregister_worker(socket.assigns.tenant_id, "test-worker")
     end
 
+    test "worker joins with capabilities and receives llm tasks", %{socket: socket, tenant: tenant} do
+      {:ok, _, socket} =
+        subscribe_and_join(socket, WorkerChannel, "worker:lobby", %{
+          "worker_id" => "llm-worker",
+          "tools" => [],
+          "capabilities" => ["llm"]
+        })
+
+      {:ok, task_id} =
+        WorkerRegistry.dispatch_llm_task(tenant.id, %{
+          api_key: "test-key",
+          model: "claude-sonnet-4-20250514",
+          system_prompt: "You are helpful.",
+          messages: [%{role: "user", content: "hello"}],
+          opts: [],
+          agent_id: 11,
+          run_id: 22,
+          step: 1
+        }, from_pid: self())
+
+      assert_push "llm_task", task, 1_000
+      assert task["task_id"] == task_id
+      assert task["model"] == "claude-sonnet-4-20250514"
+      assert task["system_prompt"] == "You are helpful."
+      assert task["messages"] == [%{"role" => "user", "content" => "hello"}]
+      assert task["agent_id"] == 11
+      assert task["run_id"] == 22
+      assert task["step"] == 1
+
+      WorkerRegistry.unregister_worker(tenant.id, "llm-worker")
+    end
+
     test "rejects join without worker_id", %{socket: socket} do
-      assert {:error, %{reason: "missing worker_id and tools"}} =
+      assert {:error, %{reason: "invalid_registration", code: "missing_worker_id_or_tools"}} =
                subscribe_and_join(socket, WorkerChannel, "worker:lobby", %{})
+    end
+
+    test "rejects join with invalid tool definitions", %{socket: socket} do
+      assert {:error, %{reason: "invalid_registration", code: "invalid_tools"}} =
+               subscribe_and_join(socket, WorkerChannel, "worker:lobby", %{
+                 "worker_id" => "bad-worker",
+                 "tools" => [%{"name" => "", "description" => "oops", "input_schema" => %{}}]
+               })
     end
   end
 
@@ -60,6 +100,43 @@ defmodule NornsWeb.WorkerChannelTest do
       assert {:ok, "rpc done"} = WorkerRegistry.await_result(task_id, 1000)
 
       WorkerRegistry.unregister_worker(tenant.id, "rpc-worker")
+    end
+
+    test "normalizes llm result payloads for waiting processes", %{socket: socket, tenant: tenant} do
+      {:ok, _, socket} =
+        subscribe_and_join(socket, WorkerChannel, "worker:lobby", %{
+          "worker_id" => "llm-result-worker",
+          "tools" => [],
+          "capabilities" => ["llm"]
+        })
+
+      {:ok, task_id} =
+        WorkerRegistry.dispatch_llm_task(tenant.id, %{
+          api_key: "test-key",
+          model: "claude-sonnet-4-20250514",
+          system_prompt: "You are helpful.",
+          messages: [%{role: "user", content: "hello"}],
+          opts: []
+        }, from_pid: self())
+
+      assert_push "llm_task", _task, 1_000
+
+      push(socket, "tool_result", %{
+        "task_id" => task_id,
+        "status" => "ok",
+        "content" => [%{"type" => "text", "text" => "done"}],
+        "stop_reason" => "end_turn",
+        "usage" => %{"input_tokens" => 1, "output_tokens" => 2}
+      })
+
+      assert {:ok,
+              %{
+                "content" => [%{"type" => "text", "text" => "done"}],
+                "stop_reason" => "end_turn",
+                "usage" => %{"input_tokens" => 1, "output_tokens" => 2}
+              }} = WorkerRegistry.await_result(task_id, 1_000)
+
+      WorkerRegistry.unregister_worker(tenant.id, "llm-result-worker")
     end
   end
 

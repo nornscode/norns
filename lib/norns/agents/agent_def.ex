@@ -34,6 +34,46 @@ defmodule Norns.Agents.AgentDef do
           on_failure: failure_policy()
         }
 
+  @current_version 1
+  @defaults %{
+    "mode" => :task,
+    "context_strategy" => :sliding_window,
+    "context_window" => 20,
+    "tools" => [],
+    "checkpoint_policy" => :on_tool_call,
+    "max_steps" => 50,
+    "on_failure" => :stop
+  }
+
+  @doc "Validate and build an AgentDef from a map-shaped external definition."
+  def new(attrs) when is_map(attrs) do
+    with :ok <- validate_version(Map.get(attrs, "version", @current_version)),
+         {:ok, model} <- fetch_required_string(attrs, "model"),
+         {:ok, system_prompt} <- fetch_required_string(attrs, "system_prompt"),
+         {:ok, mode} <- parse_enum(attrs, "mode", %{"task" => :task, "conversation" => :conversation}),
+         {:ok, context_strategy} <-
+           parse_enum(attrs, "context_strategy", %{"sliding_window" => :sliding_window, "none" => :none}),
+         {:ok, checkpoint_policy} <-
+           parse_enum(attrs, "checkpoint_policy", %{"every_step" => :every_step, "on_tool_call" => :on_tool_call, "manual" => :manual}),
+         {:ok, on_failure} <- parse_enum(attrs, "on_failure", %{"stop" => :stop, "retry_last_step" => :retry_last_step}),
+         {:ok, context_window} <- parse_positive_integer(attrs, "context_window"),
+         {:ok, max_steps} <- parse_positive_integer(attrs, "max_steps"),
+         {:ok, tools} <- parse_tools(attrs) do
+      {:ok,
+       %__MODULE__{
+         model: model,
+         system_prompt: system_prompt,
+         mode: mode,
+         context_strategy: context_strategy,
+         context_window: context_window,
+         tools: tools,
+         checkpoint_policy: checkpoint_policy,
+         max_steps: max_steps,
+         on_failure: on_failure
+       }}
+    end
+  end
+
   @doc "Build an AgentDef from an Agent schema record and optional tool modules."
   def from_agent(%Norns.Agents.Agent{} = agent, opts \\ []) do
     tool_modules = Keyword.get(opts, :tool_modules, [])
@@ -79,4 +119,73 @@ defmodule Norns.Agents.AgentDef do
 
   defp parse_failure_policy(%{"on_failure" => "retry_last_step"}), do: :retry_last_step
   defp parse_failure_policy(_), do: :stop
+
+  defp validate_version(@current_version), do: :ok
+
+  defp validate_version(version) when is_integer(version) do
+    {:error,
+     %{
+       code: "unsupported_version",
+       message: "agent definition version #{version} is not supported",
+       field: "version"
+     }}
+  end
+
+  defp validate_version(_other) do
+    {:error, %{code: "invalid_field", message: "version must be an integer", field: "version"}}
+  end
+
+  defp fetch_required_string(attrs, field) do
+    case Map.get(attrs, field) do
+      value when is_binary(value) and value != "" ->
+        {:ok, value}
+
+      nil ->
+        {:error, %{code: "missing_required_field", message: "#{field} is required", field: field}}
+
+      _other ->
+        {:error, %{code: "invalid_field", message: "#{field} must be a non-empty string", field: field}}
+    end
+  end
+
+  defp parse_enum(attrs, field, allowed) do
+    case Map.get(attrs, field) do
+      nil ->
+        {:ok, Map.fetch!(@defaults, field)}
+
+      value when is_binary(value) ->
+        case Map.fetch(allowed, value) do
+          {:ok, normalized} ->
+            {:ok, normalized}
+
+          :error ->
+            {:error,
+             %{
+               code: "invalid_field",
+               message: "#{field} must be one of: #{allowed |> Map.keys() |> Enum.join(", ")}",
+               field: field
+             }}
+        end
+
+      _other ->
+        {:error, %{code: "invalid_field", message: "#{field} must be a string", field: field}}
+    end
+  end
+
+  defp parse_positive_integer(attrs, field) do
+    case Map.get(attrs, field) do
+      nil ->
+        {:ok, Map.fetch!(@defaults, field)}
+
+      value when is_integer(value) and value > 0 ->
+        {:ok, value}
+
+      _other ->
+        {:error, %{code: "invalid_field", message: "#{field} must be a positive integer", field: field}}
+    end
+  end
+
+  defp parse_tools(%{"tools" => tools}) when is_list(tools), do: {:ok, tools}
+  defp parse_tools(%{"tools" => _other}), do: {:error, %{code: "invalid_field", message: "tools must be a list", field: "tools"}}
+  defp parse_tools(_attrs), do: {:ok, Map.fetch!(@defaults, "tools")}
 end

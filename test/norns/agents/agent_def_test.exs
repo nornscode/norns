@@ -2,7 +2,81 @@ defmodule Norns.Agents.AgentDefTest do
   use Norns.DataCase, async: true
 
   alias Norns.Agents.AgentDef
-  alias Norns.Tools.WebSearch
+  alias Norns.Tools.{Tool, WebSearch}
+
+  describe "new/1" do
+    test "builds a valid definition with documented defaults" do
+      assert {:ok, agent_def} =
+               AgentDef.new(%{
+                 "model" => "claude-sonnet-4-20250514",
+                 "system_prompt" => "You are helpful."
+               })
+
+      assert agent_def.model == "claude-sonnet-4-20250514"
+      assert agent_def.system_prompt == "You are helpful."
+      assert agent_def.mode == :task
+      assert agent_def.context_strategy == :sliding_window
+      assert agent_def.context_window == 20
+      assert agent_def.checkpoint_policy == :on_tool_call
+      assert agent_def.max_steps == 50
+      assert agent_def.on_failure == :stop
+      assert agent_def.tools == []
+    end
+
+    test "accepts older payloads without version when optional fields are omitted" do
+      assert {:ok, agent_def} =
+               AgentDef.new(%{
+                 "model" => "claude-sonnet-4-20250514",
+                 "system_prompt" => "You are helpful.",
+                 "mode" => "conversation"
+               })
+
+      assert agent_def.mode == :conversation
+      assert agent_def.context_strategy == :sliding_window
+    end
+
+    test "returns stable error details for missing required fields" do
+      assert {:error, %{code: "missing_required_field", field: "model", message: "model is required"}} =
+               AgentDef.new(%{"system_prompt" => "You are helpful."})
+    end
+
+    test "returns stable error details for invalid enum values" do
+      assert {:error,
+              %{code: "invalid_field", field: "mode", message: "mode must be one of: task, conversation"}} =
+               AgentDef.new(%{
+                 "model" => "claude-sonnet-4-20250514",
+                 "system_prompt" => "You are helpful.",
+                 "mode" => "freeform"
+               })
+    end
+
+    test "returns explicit version compatibility errors" do
+      assert {:error,
+              %{
+                code: "unsupported_version",
+                field: "version",
+                message: "agent definition version 2 is not supported"
+              }} =
+               AgentDef.new(%{
+                 "version" => 2,
+                 "model" => "claude-sonnet-4-20250514",
+                 "system_prompt" => "You are helpful."
+               })
+    end
+
+    test "accepts explicit tools lists" do
+      tool = %Tool{name: "echo", description: "Echo", input_schema: %{}, handler: fn _ -> {:ok, "ok"} end}
+
+      assert {:ok, agent_def} =
+               AgentDef.new(%{
+                 "model" => "claude-sonnet-4-20250514",
+                 "system_prompt" => "You are helpful.",
+                 "tools" => [tool]
+               })
+
+      assert agent_def.tools == [tool]
+    end
+  end
 
   describe "from_agent/2" do
     test "builds AgentDef from Agent schema" do

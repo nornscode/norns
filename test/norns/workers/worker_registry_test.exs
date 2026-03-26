@@ -73,5 +73,49 @@ defmodule Norns.Workers.WorkerRegistryTest do
 
       WorkerRegistry.unregister_worker(1, "w4")
     end
+
+    test "rejects invalid result payloads deterministically" do
+      tools = [%{"name" => "shape_check", "description" => "Shape", "input_schema" => %{}}]
+      :ok = WorkerRegistry.register_worker(1, "w5", self(), tools)
+
+      {:ok, task_id} = WorkerRegistry.dispatch_task(1, "shape_check", %{}, from_pid: self())
+      WorkerRegistry.deliver_result(task_id, %{"task_id" => task_id, "status" => "ok"})
+
+      assert {:error, "invalid result payload"} = WorkerRegistry.await_result(task_id, 1_000)
+
+      WorkerRegistry.unregister_worker(1, "w5")
+    end
+
+    test "queues tool tasks and flushes them on worker reconnect" do
+      {:ok, task_id} = WorkerRegistry.dispatch_task(1, "queued_tool", %{"job" => "later"}, from_pid: self())
+
+      assert is_binary(task_id)
+
+      :ok =
+        WorkerRegistry.register_worker(1, "queued-worker", self(), [
+          %{"name" => "queued_tool", "description" => "Queued", "input_schema" => %{}}
+        ])
+
+      assert_receive {:push_tool_task, %{task_id: ^task_id, tool_name: "queued_tool", input: %{"job" => "later"}}}, 1_000
+
+      WorkerRegistry.deliver_result(task_id, %{"status" => "ok", "result" => "flushed"})
+
+      assert {:ok, "flushed"} = WorkerRegistry.await_result(task_id, 1_000)
+
+      WorkerRegistry.unregister_worker(1, "queued-worker")
+    end
+
+    test "dispatches tenant-scoped tasks only to workers for that tenant" do
+      tools = [%{"name" => "search", "description" => "Search", "input_schema" => %{}}]
+      :ok = WorkerRegistry.register_worker(1, "tenant-a", self(), tools)
+      :ok = WorkerRegistry.register_worker(2, "tenant-b", spawn(fn -> Process.sleep(:infinity) end), tools)
+
+      {:ok, task_id} = WorkerRegistry.dispatch_task(1, "search", %{"q" => "tenant-a"}, from_pid: self())
+
+      assert_receive {:push_tool_task, %{task_id: ^task_id, tool_name: "search", input: %{"q" => "tenant-a"}}}, 1_000
+
+      WorkerRegistry.unregister_worker(1, "tenant-a")
+      WorkerRegistry.unregister_worker(2, "tenant-b")
+    end
   end
 end

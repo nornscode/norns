@@ -92,29 +92,29 @@ defmodule Norns.Workers.WorkerRegistry do
 
     state = put_in(state.workers[key], worker)
 
-    # Flush any queued tasks that match this worker's tools
-    tool_names = Enum.map(tools, &tool_name/1)
-
-    Enum.each(tool_names, fn name ->
-      queued = TaskQueue.flush(tenant_id, name)
-
-      Enum.each(queued, fn task ->
-        push_to_worker(channel_pid, {:push_tool_task, task})
-        state = put_in(state.pending[task.task_id], %{from_pid: task.from_pid, tenant_id: tenant_id, type: :tool})
-        state
+    state =
+      tools
+      |> Enum.map(&tool_name/1)
+      |> Enum.reduce(state, fn name, acc ->
+        tenant_id
+        |> TaskQueue.flush(name)
+        |> Enum.reduce(acc, fn task, pending_state ->
+          push_to_worker(channel_pid, {:push_tool_task, task_payload(task)})
+          put_in(pending_state.pending[task.task_id], %{from_pid: task.from_pid, tenant_id: tenant_id, type: :tool})
+        end)
       end)
-    end)
 
-    # Flush queued LLM tasks if this worker has LLM capability
-    if :llm in capabilities do
-      queued = TaskQueue.flush(tenant_id, "__llm__")
-
-      Enum.each(queued, fn task ->
-        push_to_worker(channel_pid, {:llm_task, task})
-        state = put_in(state.pending[task.task_id], %{from_pid: task.from_pid, tenant_id: tenant_id, type: :llm})
+    state =
+      if :llm in capabilities do
+        tenant_id
+        |> TaskQueue.flush("__llm__")
+        |> Enum.reduce(state, fn task, pending_state ->
+          push_to_worker(channel_pid, {:llm_task, llm_task_payload(task)})
+          put_in(pending_state.pending[task.task_id], %{from_pid: task.from_pid, tenant_id: tenant_id, type: :llm})
+        end)
+      else
         state
-      end)
-    end
+      end
 
     {:reply, :ok, state}
   end
@@ -150,12 +150,7 @@ defmodule Norns.Workers.WorkerRegistry do
   end
 
   def handle_call({:dispatch_llm, tenant_id, task, from_pid}, _from, state) do
-    # Find a worker with LLM capability
-    worker =
-      state.workers
-      |> Enum.find(fn {{tid, _}, w} ->
-        (tid == tenant_id or tid == :default) and :llm in w.capabilities
-      end)
+    worker = find_worker(state, tenant_id, fn w -> :llm in w.capabilities end)
 
     case worker do
       {_key, w} ->
@@ -189,11 +184,7 @@ defmodule Norns.Workers.WorkerRegistry do
     run_id = Keyword.get(opts, :run_id)
     from_pid = Keyword.get(opts, :from_pid, self())
 
-    worker =
-      state.workers
-      |> Enum.find(fn {{tid, _}, w} ->
-        (tid == tenant_id or tid == :default) and Enum.any?(w.tools, &(tool_name(&1) == tool_name))
-      end)
+    worker = find_worker(state, tenant_id, fn w -> Enum.any?(w.tools, &(tool_name(&1) == tool_name)) end)
 
     case worker do
       {_key, w} ->
@@ -284,6 +275,21 @@ defmodule Norns.Workers.WorkerRegistry do
 
   defp generate_task_id do
     :crypto.strong_rand_bytes(16) |> Base.url_encode64(padding: false)
+  end
+
+  defp task_payload(task) do
+    Map.take(task, [:task_id, :tool_name, :input, :agent_id, :run_id])
+  end
+
+  defp llm_task_payload(task) do
+    task
+    |> Map.get(:input, %{})
+    |> Map.put(:task_id, task.task_id)
+  end
+
+  defp find_worker(state, tenant_id, matcher) do
+    Enum.find(state.workers, fn {{tid, _}, worker} -> tid == tenant_id and matcher.(worker) end) ||
+      Enum.find(state.workers, fn {{tid, _}, worker} -> tid == :default and matcher.(worker) end)
   end
 
   defp push_to_worker(channel_pid, message) do
