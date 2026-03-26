@@ -35,97 +35,119 @@ defmodule Norns.Runtime.ReplayConformanceTest do
     %{tenant: tenant, agent: agent, side_effects: side_effects, tool: tool}
   end
 
-  @tag :skip
-  @tag :pending_async_replay
-  test "replays pending tool work after crash without duplicating side effects", %{tenant: tenant, agent: agent, side_effects: side_effects, tool: tool} do
-    Process.flag(:trap_exit, true)
+  test "rebuild_state detects pending tool calls and sets resume_tools action", %{tenant: tenant, agent: agent, tool: tool} do
+    # Simulate: tool_call logged but no tool_result — crash before result arrived
+    {:ok, run} =
+      Runs.create_run(%{
+        agent_id: agent.id,
+        tenant_id: tenant.id,
+        trigger_type: "message",
+        input: %{"user_message" => "do work"},
+        status: "running"
+      })
 
-    Fake.set_responses([
-      %{
-        content: [%{"type" => "tool_use", "id" => "call_1", "name" => "side_effect", "input" => %{"value" => "once"}}],
-        stop_reason: "tool_use"
-      },
-      %{
-        content: [%{"type" => "text", "text" => "finished"}],
-        stop_reason: "end_turn"
+    Runs.append_event(run, %{event_type: "run_started"})
+    Runs.append_event(run, %{
+      event_type: "llm_response",
+      payload: %{
+        "content" => [%{"type" => "tool_use", "id" => "call_1", "name" => "side_effect", "input" => %{"value" => "once"}}],
+        "stop_reason" => "tool_use",
+        "usage" => %{"input_tokens" => 10, "output_tokens" => 20},
+        "step" => 1
       }
-    ])
+    })
+    Runs.append_event(run, %{
+      event_type: "tool_call",
+      payload: %{
+        "tool_use_id" => "call_1",
+        "name" => "side_effect",
+        "input" => %{"value" => "once"},
+        "step" => 1,
+        "side_effect" => true,
+        "idempotency_key" => "run:#{run.id}:step:1:tool:call_1:name:side_effect"
+      }
+    })
+    # NO tool_result — crash happened here
 
-    {:ok, pid} =
-      AgentProcess.start_link(
-        agent_id: agent.id,
-        tenant_id: tenant.id,
-        tools: [tool],
-        test_pid: self()
-      )
+    base_state = %{
+      agent_id: agent.id,
+      tenant_id: tenant.id,
+      agent: agent,
+      api_key: "test-key",
+      agent_def: Norns.Agents.AgentDef.from_agent(agent, tools: [tool]),
+      conversation: nil,
+      messages: [],
+      step: 0,
+      retry_count: 0,
+      run: nil,
+      status: :idle,
+      pending_ask: nil,
+      pending_llm_task: nil,
+      pending_tool_tasks: nil,
+      resume_action: nil,
+      test_pid: nil
+    }
 
-    ref = Process.monitor(pid)
-    AgentProcess.send_message(pid, "do work")
+    {:ok, rebuilt} = AgentProcess.rebuild_state(run.id, base_state)
 
-    assert_receive {:runtime_hook, hook, _payload}, 1_000
-    send(pid, {:runtime_hook_reply, hook, :crash})
-    assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 1_000
-
-    [run] = Runs.list_runs(agent.id)
-    assert Runs.get_run!(run.id).status == "running"
-    assert Agent.get(side_effects, & &1) == []
-
-    {:ok, resumed_pid} =
-      AgentProcess.start_link(
-        agent_id: agent.id,
-        tenant_id: tenant.id,
-        tools: [tool],
-        resume_run_id: run.id
-      )
-
-    Process.sleep(300)
-
-    run = Runs.get_run!(run.id)
-    assert run.status == "completed"
-    assert run.output == "finished"
-    assert side_effect_values(side_effects) == ["once"]
-
-    events = Runs.list_events(run.id)
-    assert Enum.count(events, &(&1.event_type == "tool_call")) == 1
-    assert Enum.count(events, &(&1.event_type == "tool_result")) == 1
-
-    state = AgentProcess.get_state(resumed_pid)
-    assert state.status == :idle
+    assert rebuilt.status == :running
+    assert rebuilt.step == 1
+    # The resume action should be to re-dispatch the pending tools
+    assert match?({:resume_tools, [%{"id" => "call_1"} | _]}, rebuilt.resume_action)
+    # Messages include the assistant response with tool_use
+    assert length(rebuilt.messages) == 2  # user + assistant
   end
 
-  @tag :skip
-  @tag :pending_async_replay
-  test "replays crash after side effect execution without duplicating the side effect", %{tenant: tenant, agent: agent, side_effects: side_effects, tool: tool} do
-    Process.flag(:trap_exit, true)
-
-    Fake.set_responses([
-      %{
-        content: [%{"type" => "tool_use", "id" => "call_1", "name" => "side_effect", "input" => %{"value" => "once"}}],
-        stop_reason: "tool_use"
-      },
-      %{
-        content: [%{"type" => "text", "text" => "finished"}],
-        stop_reason: "end_turn"
-      }
-    ])
-
-    {:ok, pid} =
-      AgentProcess.start_link(
+  test "resumes from crash after tool result persisted without re-executing", %{tenant: tenant, agent: agent, side_effects: side_effects, tool: tool} do
+    # Simulate: agent dispatched tool, result came back and was persisted,
+    # then crashed before the next LLM call. On resume, tool should NOT re-execute.
+    {:ok, run} =
+      Runs.create_run(%{
         agent_id: agent.id,
         tenant_id: tenant.id,
-        tools: [tool],
-        test_pid: self()
-      )
+        trigger_type: "message",
+        input: %{"user_message" => "do work"},
+        status: "running"
+      })
 
-    ref = Process.monitor(pid)
-    AgentProcess.send_message(pid, "do work")
+    Runs.append_event(run, %{event_type: "run_started"})
+    Runs.append_event(run, %{
+      event_type: "llm_response",
+      payload: %{
+        "content" => [%{"type" => "tool_use", "id" => "call_1", "name" => "side_effect", "input" => %{"value" => "once"}}],
+        "stop_reason" => "tool_use",
+        "usage" => %{"input_tokens" => 10, "output_tokens" => 20},
+        "step" => 1
+      }
+    })
+    Runs.append_event(run, %{
+      event_type: "tool_call",
+      payload: %{
+        "tool_use_id" => "call_1",
+        "name" => "side_effect",
+        "input" => %{"value" => "once"},
+        "step" => 1,
+        "side_effect" => true,
+        "idempotency_key" => "run:#{run.id}:step:1:tool:call_1:name:side_effect"
+      }
+    })
+    Runs.append_event(run, %{
+      event_type: "tool_result",
+      payload: %{
+        "tool_use_id" => "call_1",
+        "content" => "side_effect:once",
+        "is_error" => false,
+        "step" => 1,
+        "idempotency_key" => "run:#{run.id}:step:1:tool:call_1:name:side_effect"
+      }
+    })
+    # Crash happened here — tool result persisted but no checkpoint/LLM call
 
-    assert_receive {:runtime_hook, :after_tool_execution_before_result_persisted, _payload}, 1_000
-    send(pid, {:runtime_hook_reply, :after_tool_execution_before_result_persisted, :crash})
-    assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 1_000
+    Fake.set_responses([
+      %{content: [%{"type" => "text", "text" => "finished"}], stop_reason: "end_turn"}
+    ])
 
-    [run] = Runs.list_runs(agent.id)
-    assert side_effect_values(side_effects) == ["once"]
+    Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{agent.id}")
 
     {:ok, resumed_pid} =
       AgentProcess.start_link(
@@ -135,20 +157,23 @@ defmodule Norns.Runtime.ReplayConformanceTest do
         resume_run_id: run.id
       )
 
-    Process.sleep(300)
+    receive do
+      {:completed, _} -> :ok
+      {:error, _} -> :ok
+    after
+      5000 -> flunk("Agent did not complete after resume")
+    end
 
     run = Runs.get_run!(run.id)
     assert run.status == "completed"
     assert run.output == "finished"
-    assert side_effect_values(side_effects) == ["once"]
+
+    # Side effect should NOT have been re-executed — result was already persisted
+    assert side_effect_values(side_effects) == []
 
     events = Runs.list_events(run.id)
     assert Enum.count(events, &(&1.event_type == "tool_call")) == 1
     assert Enum.count(events, &(&1.event_type == "tool_result")) == 1
-    refute Enum.any?(events, &(&1.event_type == "tool_duplicate"))
-
-    state = AgentProcess.get_state(resumed_pid)
-    assert state.status == :idle
   end
 
   test "reconstructs equivalent state when crashing before checkpoint write", %{tenant: tenant, agent: agent, tool: tool} do

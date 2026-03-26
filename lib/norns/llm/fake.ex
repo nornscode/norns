@@ -58,8 +58,8 @@ defmodule Norns.LLM.Fake do
   end
 
   @impl true
-  def chat(_api_key, _model, system_prompt, messages, opts \\ []) do
-    record_call(%{system_prompt: system_prompt, messages: messages, opts: opts})
+  def chat(api_key, model, system_prompt, messages, opts \\ []) do
+    record_call(%{api_key: api_key, model: model, system_prompt: system_prompt, messages: messages, opts: opts})
     response = next_response()
 
     response =
