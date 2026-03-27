@@ -36,7 +36,7 @@ services:
         condition: service_healthy
     command: mix phx.server
     ports:
-      - "4000:4000"
+      - "4001:4001"
     stdin_open: true
     tty: true
 

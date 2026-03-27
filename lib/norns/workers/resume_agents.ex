@@ -43,7 +43,7 @@ defmodule Norns.Workers.ResumeAgents do
   defp orphaned_runs do
     runs =
       Run
-      |> where([r], r.status == "running")
+      |> where([r], r.status in ["running", "waiting"])
       |> preload(:conversation)
       |> Repo.all()
       |> Enum.reject(fn run ->

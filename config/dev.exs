@@ -16,7 +16,7 @@ config :norns, Oban,
   queues: [default: 10]
 
 config :norns, NornsWeb.Endpoint,
-  http: [ip: {0, 0, 0, 0}, port: 4000],
+  http: [ip: {0, 0, 0, 0}, port: 4001],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
