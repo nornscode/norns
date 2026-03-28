@@ -37,6 +37,11 @@ defmodule NornsWeb.RunLive do
       <span class={["w-2.5 h-2.5 rounded-full", run_status_color(@run.status)]}></span>
       <h1 class="text-xl font-bold text-white">Run #<%= @run.id %></h1>
       <span class="text-xs text-gray-500"><%= @run.status %></span>
+      <%= if @run.status in ["running", "waiting", "pending"] do %>
+        <button phx-click="cancel" class="text-xs text-red-400 hover:text-red-300 border border-red-900 px-2 py-1 rounded">
+          cancel
+        </button>
+      <% end %>
     </div>
 
     <%!-- Input message --%>
@@ -121,6 +126,42 @@ defmodule NornsWeb.RunLive do
   end
 
   @impl true
+  def handle_event("cancel", _params, socket) do
+    run = socket.assigns.run
+    tenant = socket.assigns.tenant
+
+    # Stop the agent process if it's running
+    Norns.Agents.Registry.stop_agent(tenant.id, run.agent_id)
+
+    # Mark the run as failed
+    Norns.Runs.append_event(run, %{
+      event_type: "run_failed",
+      payload: %{
+        "error" => "Cancelled by user",
+        "error_class" => "policy",
+        "error_code" => "cancelled",
+        "retry_decision" => "terminal",
+        "schema_version" => 1
+      }
+    })
+
+    {:ok, updated_run} = Norns.Runs.update_run(run, %{
+      status: "failed",
+      failure_metadata: %{
+        "error_class" => "policy",
+        "error_code" => "cancelled",
+        "retry_decision" => "terminal"
+      }
+    })
+
+    events = Norns.Runs.list_events(run.id)
+
+    {:noreply,
+     socket
+     |> assign(run: updated_run, events: events)
+     |> put_flash(:info, "Run cancelled")}
+  end
+
   def handle_event("retry", _params, socket) do
     run = socket.assigns.run
     tenant = socket.assigns.tenant
