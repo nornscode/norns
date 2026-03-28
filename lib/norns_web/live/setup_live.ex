@@ -6,7 +6,7 @@ defmodule NornsWeb.SetupLive do
   @impl true
   def mount(_params, session, socket) do
     # If already authenticated, go to dashboard
-    if session["tenant_id"] do
+    if session["tenant_id"] && Norns.Tenants.list_tenants() != [] do
       {:ok, push_navigate(socket, to: "/")}
     else
       {:ok,

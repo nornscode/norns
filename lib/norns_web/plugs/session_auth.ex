@@ -29,13 +29,16 @@ defmodule NornsWeb.Plugs.SessionAuth do
             conn |> assign(:current_tenant, nil)
         end
 
-      # Tenant ID in session — load it
+      # Tenant ID in session — load it (clear stale sessions if tenant was deleted)
       tenant_id = get_session(conn, :tenant_id) ->
         try do
           tenant = Norns.Tenants.get_tenant!(tenant_id)
           assign(conn, :current_tenant, tenant)
         rescue
-          _ -> assign(conn, :current_tenant, nil)
+          _ ->
+            conn
+            |> delete_session(:tenant_id)
+            |> assign(:current_tenant, nil)
         end
 
       # No auth — check if any tenants exist
