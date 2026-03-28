@@ -43,9 +43,22 @@ defmodule NornsWeb.AgentsLive do
   def render(assigns) do
     ~H"""
     <%= if @tenant == nil do %>
-      <div class="mt-20 text-center text-gray-500">
-        <p class="text-lg mb-2">Not authenticated</p>
-        <p class="text-sm">Append <code class="text-gray-400">?token=your-api-key</code> to the URL</p>
+      <div class="max-w-sm mx-auto mt-20">
+        <h2 class="text-lg text-white mb-4">Sign in</h2>
+        <form action="/" method="get" class="space-y-3">
+          <div>
+            <label class="text-xs text-gray-500 block mb-1">API Key</label>
+            <input type="text" name="token" placeholder="nrn_..."
+              class="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-gray-500" />
+          </div>
+          <button type="submit"
+            class="w-full bg-white text-gray-950 font-medium text-sm py-2 rounded hover:bg-gray-200">
+            Sign in
+          </button>
+        </form>
+        <p class="text-xs text-gray-600 mt-4 text-center">
+          No account? <a href="/setup" class="text-gray-400 hover:text-white">Create a tenant</a>
+        </p>
       </div>
     <% else %>
       <div class="flex items-center justify-between mb-6">
