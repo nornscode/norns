@@ -305,12 +305,15 @@ defmodule NornsWeb.AgentLive do
     tenant = socket.assigns.tenant
 
     case Registry.send_message(tenant.id, agent.id, content) do
-      :ok ->
-        events = [%{type: "message_sent", detail: String.slice(content, 0, 80)} | socket.assigns.events]
+      {:ok, run_id} ->
+        events = [%{type: "message_sent", detail: "run ##{run_id}: #{String.slice(content, 0, 60)}"} | socket.assigns.events]
         {:noreply, assign(socket, message: "", events: events, state: %{status: :running, step: 0})}
 
-      {:error, :not_found} ->
-        {:noreply, socket |> put_flash(:error, "Agent is not running")}
+      {:error, :busy} ->
+        {:noreply, socket |> put_flash(:error, "Agent is busy")}
+
+      {:error, reason} ->
+        {:noreply, socket |> put_flash(:error, "Error: #{inspect(reason)}")}
     end
   end
 

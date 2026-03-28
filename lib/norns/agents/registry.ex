@@ -39,7 +39,6 @@ defmodule Norns.Agents.Registry do
     case ensure_started(agent_id, tenant_id, conversation_key, opts) do
       {:ok, pid} ->
         AgentProcess.send_message(pid, content)
-        :ok
 
       {:error, reason} ->
         {:error, reason}

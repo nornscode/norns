@@ -28,8 +28,9 @@ defmodule NornsWeb.AgentChannel do
     agent_id = socket.assigns.agent_id
 
     case Norns.Agents.Registry.send_message(tenant_id, agent_id, content) do
-      :ok -> {:reply, :ok, socket}
-      {:error, :not_found} -> {:reply, {:error, %{reason: "agent not running"}}, socket}
+      {:ok, run_id} -> {:reply, {:ok, %{run_id: run_id}}, socket}
+      {:error, :busy} -> {:reply, {:error, %{reason: "agent is busy"}}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: inspect(reason)}}, socket}
     end
   end
 

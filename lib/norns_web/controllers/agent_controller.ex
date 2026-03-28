@@ -82,7 +82,8 @@ defmodule NornsWeb.AgentController do
 
     with {:ok, agent} <- fetch_agent(agent_id, tenant.id) do
       case Registry.send_message(tenant.id, agent.id, content, opts) do
-        :ok -> conn |> put_status(202) |> json(%{status: "accepted"})
+        {:ok, run_id} -> conn |> put_status(202) |> json(%{status: "accepted", run_id: run_id})
+        {:error, :busy} -> conn |> put_status(409) |> json(%{error: "agent is busy"})
         {:error, reason} -> conn |> put_status(500) |> json(%{error: inspect(reason)})
       end
     end

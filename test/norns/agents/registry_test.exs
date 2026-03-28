@@ -50,7 +50,8 @@ defmodule Norns.Agents.RegistryTest do
         %{content: [%{"type" => "text", "text" => "hi back"}], stop_reason: "end_turn"}
       ])
 
-      assert :ok = Registry.send_message(tenant.id, agent.id, "hello")
+      assert {:ok, run_id} = Registry.send_message(tenant.id, agent.id, "hello")
+      assert is_integer(run_id)
       Process.sleep(100)
       assert {:ok, _pid} = Registry.lookup(tenant.id, agent.id)
     end

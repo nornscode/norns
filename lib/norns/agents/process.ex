@@ -29,7 +29,7 @@ defmodule Norns.Agents.Process do
   end
 
   def send_message(pid, content) when is_binary(content) do
-    GenServer.cast(pid, {:send_message, content})
+    GenServer.call(pid, {:send_message, content}, 10_000)
   end
 
   def get_state(pid) do
@@ -90,7 +90,7 @@ defmodule Norns.Agents.Process do
   end
 
   @impl true
-  def handle_cast({:send_message, content}, %{status: :idle} = state) do
+  def handle_call({:send_message, content}, _from, %{status: :idle} = state) do
     state = load_conversation_state(state)
     messages = messages_for_new_run(state, content)
 
@@ -110,10 +110,10 @@ defmodule Norns.Agents.Process do
     state = %{state | run: run, messages: messages, step: 0, retry_count: 0, status: :running, resume_action: nil}
 
     broadcast(state, :agent_started, %{run_id: run.id})
-    {:noreply, state, {:continue, :llm_loop}}
+    {:reply, {:ok, run.id}, state, {:continue, :llm_loop}}
   end
 
-  def handle_cast({:send_message, content}, %{status: :waiting, pending_ask: pending} = state)
+  def handle_call({:send_message, content}, _from, %{status: :waiting, pending_ask: pending} = state)
       when not is_nil(pending) do
     append(state.run, Events.user_response(%{"content" => content, "tool_use_id" => pending.tool_use_id, "step" => state.step}))
 
@@ -131,12 +131,12 @@ defmodule Norns.Agents.Process do
     Runs.update_run(state.run, %{status: "running"})
     broadcast(state, :agent_resumed, %{run_id: state.run.id})
     state = maybe_checkpoint(state, :tool_result)
-    {:noreply, state, {:continue, :llm_loop}}
+    {:reply, {:ok, state.run.id}, state, {:continue, :llm_loop}}
   end
 
-  def handle_cast({:send_message, _content}, state) do
+  def handle_call({:send_message, _content}, _from, state) do
     Logger.warning("Agent #{state.agent_id} received message while #{state.status}, ignoring")
-    {:noreply, state}
+    {:reply, {:error, :busy}, state}
   end
 
   @impl true
