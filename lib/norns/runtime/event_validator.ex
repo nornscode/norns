@@ -68,15 +68,15 @@ defmodule Norns.Runtime.EventValidator do
     case event_type do
       "run_started" -> [schema_version_validator()]
       "llm_request" -> [schema_version_validator(), required_integer("step"), required_integer("message_count")]
-      "llm_response" -> [schema_version_validator(), required_integer("step"), content_or_response(), optional_stop_reason(), optional_map("usage")]
-      "tool_call" -> [schema_version_validator(), required_string("tool_use_id"), required_string("name"), required_map("input"), required_integer("step"), optional_string("idempotency_key"), optional_boolean("side_effect")]
-      "tool_duplicate" -> [schema_version_validator(), required_string("tool_use_id"), required_string("name"), required_string("idempotency_key"), required_integer("step"), required_integer("original_event_sequence"), required_string("resolution")]
-      "tool_result" -> [schema_version_validator(), required_string("tool_use_id"), required_field("content"), required_boolean("is_error"), required_integer("step"), optional_string("idempotency_key")]
+      "llm_response" -> [schema_version_validator(), required_integer("step"), optional_string("content"), optional_string("finish_reason"), optional_list("tool_calls"), optional_map("usage")]
+      "tool_call" -> [schema_version_validator(), required_string("tool_call_id"), required_string("name"), required_map("arguments"), required_integer("step"), optional_string("idempotency_key"), optional_boolean("side_effect")]
+      "tool_duplicate" -> [schema_version_validator(), required_string("tool_call_id"), required_string("name"), required_string("idempotency_key"), required_integer("step"), required_integer("original_event_sequence"), required_string("resolution")]
+      "tool_result" -> [schema_version_validator(), required_string("tool_call_id"), required_string("name"), required_field("content"), required_boolean("is_error"), required_integer("step"), optional_string("idempotency_key")]
       "checkpoint_saved" -> [schema_version_validator(), required_list("messages"), required_integer("step")]
       "run_failed" -> [schema_version_validator(), required_string("error"), required_string("error_class"), required_string("error_code"), required_string("retry_decision")]
       "run_completed" -> [schema_version_validator(), required_string("output")]
-      "waiting_for_user" -> [schema_version_validator(), required_string("question"), required_string("tool_use_id"), required_integer("step")]
-      "user_response" -> [schema_version_validator(), required_string("content"), required_string("tool_use_id"), required_integer("step")]
+      "waiting_for_user" -> [schema_version_validator(), required_string("question"), required_string("tool_call_id"), required_integer("step")]
+      "user_response" -> [schema_version_validator(), required_string("content"), required_string("tool_call_id"), required_integer("step")]
       "retry" -> [schema_version_validator(), required_string("error"), required_integer("attempt"), required_integer("delay_ms"), required_integer("step"), required_string("error_class"), required_string("error_code"), required_string("retry_decision")]
       legacy when legacy in ["agent_started", "agent_completed", "agent_error", "checkpoint"] -> [schema_version_validator()]
       _ -> [schema_version_validator()]
@@ -161,28 +161,18 @@ defmodule Norns.Runtime.EventValidator do
     fn payload ->
       case payload[key] do
         nil -> :ok
-        value when is_binary(value) and value != "" -> :ok
+        value when is_binary(value) -> :ok
         _ -> {:error, %{payload: "#{key} must be a string"}}
       end
     end
   end
 
-  defp optional_stop_reason do
+  defp optional_list(key) do
     fn payload ->
-      case payload["stop_reason"] do
+      case payload[key] do
         nil -> :ok
-        value when is_binary(value) and value != "" -> :ok
-        _ -> {:error, %{payload: "stop_reason must be a string"}}
-      end
-    end
-  end
-
-  defp content_or_response do
-    fn payload ->
-      cond do
-        is_list(payload["content"]) -> :ok
-        is_binary(payload["response"]) and payload["response"] != "" -> :ok
-        true -> {:error, %{payload: "content or response is required"}}
+        value when is_list(value) -> :ok
+        _ -> {:error, %{payload: "#{key} must be a list"}}
       end
     end
   end

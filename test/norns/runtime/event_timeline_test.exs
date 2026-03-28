@@ -48,7 +48,7 @@ defmodule Norns.Runtime.EventTimelineTest do
 
       Fake.set_responses([
         %{
-          content: [%{"type" => "tool_use", "id" => "c1", "name" => "web_search", "input" => %{"query" => "test"}}],
+          content: [%{"type" => "tool_use", "id" => "c1", "name" => "web_search", "arguments" => %{"query" => "test"}}],
           stop_reason: "tool_use"
         },
         %{content: [%{"type" => "text", "text" => "Done"}], stop_reason: "end_turn"}

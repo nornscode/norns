@@ -22,7 +22,7 @@ defmodule Norns.Tools.BehaviourTest do
       api = WebSearch.to_api_format()
       assert api.name == "web_search"
       assert is_binary(api.description)
-      assert is_map(api.input_schema)
+      assert is_map(api.parameters)
       refute Map.has_key?(api, :handler)
     end
 

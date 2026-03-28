@@ -26,7 +26,7 @@ defmodule Norns.RunsTest do
         elem(
           Events.llm_response(%{
             "content" => [%{"type" => "text", "text" => "hi"}],
-            "stop_reason" => "end_turn",
+            "finish_reason" => "stop",
             "usage" => %{},
             "step" => 1
           }),

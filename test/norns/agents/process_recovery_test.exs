@@ -39,9 +39,9 @@ defmodule Norns.Agents.ProcessRecoveryTest do
         source: "system",
         payload: %{
           "content" => [
-            %{"type" => "tool_use", "id" => "call_1", "name" => "search", "input" => %{"query" => "elixir"}}
+            %{"type" => "tool_use", "id" => "call_1", "name" => "search", "arguments" => %{"query" => "elixir"}}
           ],
-          "stop_reason" => "tool_use",
+          "finish_reason" => "tool_call",
           "step" => 1,
           "usage" => %{"input_tokens" => 10, "output_tokens" => 20}
         }
@@ -50,13 +50,13 @@ defmodule Norns.Agents.ProcessRecoveryTest do
       Runs.append_event(run, %{
         event_type: "tool_call",
         source: "system",
-        payload: %{"tool_use_id" => "call_1", "name" => "search", "input" => %{"query" => "elixir"}, "step" => 1}
+        payload: %{"tool_call_id" => "call_1", "name" => "search", "arguments" => %{"query" => "elixir"}, "step" => 1}
       })
 
       Runs.append_event(run, %{
         event_type: "tool_result",
         source: "system",
-        payload: %{"tool_use_id" => "call_1", "content" => "Elixir is a functional language", "is_error" => false, "step" => 1}
+        payload: %{"tool_call_id" => "call_1", "content" => "Elixir is a functional language", "is_error" => false, "step" => 1}
       })
 
       # "Crash" happened here — run is still status: "running"
@@ -134,9 +134,9 @@ defmodule Norns.Agents.ProcessRecoveryTest do
         payload: %{
           "content" => [
             %{"type" => "text", "text" => "I'll search for that."},
-            %{"type" => "tool_use", "id" => "c1", "name" => "web_search", "input" => %{"query" => "test"}}
+            %{"type" => "tool_use", "id" => "c1", "name" => "web_search", "arguments" => %{"query" => "test"}}
           ],
-          "stop_reason" => "tool_use",
+          "finish_reason" => "tool_call",
           "step" => 1,
           "usage" => %{}
         }
@@ -145,14 +145,14 @@ defmodule Norns.Agents.ProcessRecoveryTest do
       Runs.append_event(run, %{
         event_type: "tool_call",
         source: "system",
-        payload: %{"tool_use_id" => "c1", "name" => "web_search", "input" => %{"query" => "test"}, "step" => 1}
+        payload: %{"tool_call_id" => "c1", "name" => "web_search", "arguments" => %{"query" => "test"}, "step" => 1}
       })
 
       Runs.append_event(run, %{
         event_type: "tool_result",
         source: "system",
         payload: %{
-          "tool_use_id" => "c1",
+          "tool_call_id" => "c1",
           "content" => "Search results here",
           "is_error" => false,
           "step" => 1
@@ -204,7 +204,7 @@ defmodule Norns.Agents.ProcessRecoveryTest do
       Runs.append_event(run, %{
         event_type: "llm_response",
         source: "system",
-        payload: %{"content" => [%{"type" => "text", "text" => "old"}], "stop_reason" => "end_turn", "usage" => %{}, "step" => 1}
+        payload: %{"content" => [%{"type" => "text", "text" => "old"}], "finish_reason" => "stop", "usage" => %{}, "step" => 1}
       })
 
       checkpoint_messages = [

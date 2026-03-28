@@ -50,8 +50,8 @@ defmodule Norns.Runtime.ReplayConformanceTest do
     Runs.append_event(run, %{
       event_type: "llm_response",
       payload: %{
-        "content" => [%{"type" => "tool_use", "id" => "call_1", "name" => "side_effect", "input" => %{"value" => "once"}}],
-        "stop_reason" => "tool_use",
+        "content" => [%{"type" => "tool_use", "id" => "call_1", "name" => "side_effect", "arguments" => %{"value" => "once"}}],
+        "finish_reason" => "tool_call",
         "usage" => %{"input_tokens" => 10, "output_tokens" => 20},
         "step" => 1
       }
@@ -59,9 +59,9 @@ defmodule Norns.Runtime.ReplayConformanceTest do
     Runs.append_event(run, %{
       event_type: "tool_call",
       payload: %{
-        "tool_use_id" => "call_1",
+        "tool_call_id" => "call_1",
         "name" => "side_effect",
-        "input" => %{"value" => "once"},
+        "arguments" => %{"value" => "once"},
         "step" => 1,
         "side_effect" => true,
         "idempotency_key" => "run:#{run.id}:step:1:tool:call_1:name:side_effect"
@@ -114,8 +114,8 @@ defmodule Norns.Runtime.ReplayConformanceTest do
     Runs.append_event(run, %{
       event_type: "llm_response",
       payload: %{
-        "content" => [%{"type" => "tool_use", "id" => "call_1", "name" => "side_effect", "input" => %{"value" => "once"}}],
-        "stop_reason" => "tool_use",
+        "content" => [%{"type" => "tool_use", "id" => "call_1", "name" => "side_effect", "arguments" => %{"value" => "once"}}],
+        "finish_reason" => "tool_call",
         "usage" => %{"input_tokens" => 10, "output_tokens" => 20},
         "step" => 1
       }
@@ -123,9 +123,9 @@ defmodule Norns.Runtime.ReplayConformanceTest do
     Runs.append_event(run, %{
       event_type: "tool_call",
       payload: %{
-        "tool_use_id" => "call_1",
+        "tool_call_id" => "call_1",
         "name" => "side_effect",
-        "input" => %{"value" => "once"},
+        "arguments" => %{"value" => "once"},
         "step" => 1,
         "side_effect" => true,
         "idempotency_key" => "run:#{run.id}:step:1:tool:call_1:name:side_effect"
@@ -134,7 +134,7 @@ defmodule Norns.Runtime.ReplayConformanceTest do
     Runs.append_event(run, %{
       event_type: "tool_result",
       payload: %{
-        "tool_use_id" => "call_1",
+        "tool_call_id" => "call_1",
         "content" => "side_effect:once",
         "is_error" => false,
         "step" => 1,
@@ -181,7 +181,7 @@ defmodule Norns.Runtime.ReplayConformanceTest do
 
     Fake.set_responses([
       %{
-        content: [%{"type" => "tool_use", "id" => "call_1", "name" => "side_effect", "input" => %{"value" => "cp"}}],
+        content: [%{"type" => "tool_use", "id" => "call_1", "name" => "side_effect", "arguments" => %{"value" => "cp"}}],
         stop_reason: "tool_use"
       }
     ])
@@ -260,7 +260,7 @@ defmodule Norns.Runtime.ReplayConformanceTest do
       event_type: "llm_response",
       payload: %{
         "content" => [%{"type" => "text", "text" => "new"}],
-        "stop_reason" => "end_turn",
+        "finish_reason" => "stop",
         "usage" => %{},
         "step" => 2
       }
@@ -307,8 +307,8 @@ defmodule Norns.Runtime.ReplayConformanceTest do
     Runs.append_event(run, %{
       event_type: "llm_response",
       payload: %{
-        "content" => [%{"type" => "tool_use", "id" => "ask_1", "name" => "ask_user", "input" => %{"question" => "Need approval?"}}],
-        "stop_reason" => "tool_use",
+        "content" => [%{"type" => "tool_use", "id" => "ask_1", "name" => "ask_user", "arguments" => %{"question" => "Need approval?"}}],
+        "finish_reason" => "tool_call",
         "usage" => %{},
         "step" => 1
       }
@@ -316,7 +316,7 @@ defmodule Norns.Runtime.ReplayConformanceTest do
 
     Runs.append_event(run, %{
       event_type: "waiting_for_user",
-      payload: %{"question" => "Need approval?", "tool_use_id" => "ask_1", "step" => 1}
+      payload: %{"question" => "Need approval?", "tool_call_id" => "ask_1", "step" => 1}
     })
 
     base_state = %{
@@ -358,8 +358,8 @@ defmodule Norns.Runtime.ReplayConformanceTest do
     Runs.append_event(run, %{
       event_type: "llm_response",
       payload: %{
-        "content" => [%{"type" => "tool_use", "id" => "call_1", "name" => "side_effect", "input" => %{"value" => "once"}}],
-        "stop_reason" => "tool_use",
+        "content" => [%{"type" => "tool_use", "id" => "call_1", "name" => "side_effect", "arguments" => %{"value" => "once"}}],
+        "finish_reason" => "tool_call",
         "usage" => %{},
         "step" => 1
       }
@@ -368,9 +368,9 @@ defmodule Norns.Runtime.ReplayConformanceTest do
     Runs.append_event(run, %{
       event_type: "tool_call",
       payload: %{
-        "tool_use_id" => "call_1",
+        "tool_call_id" => "call_1",
         "name" => "side_effect",
-        "input" => %{"value" => "once"},
+        "arguments" => %{"value" => "once"},
         "step" => 1,
         "side_effect" => true,
         "idempotency_key" => "run:#{run.id}:step:1:tool:call_1:name:side_effect"
@@ -380,7 +380,7 @@ defmodule Norns.Runtime.ReplayConformanceTest do
     Runs.append_event(run, %{
       event_type: "tool_duplicate",
       payload: %{
-        "tool_use_id" => "call_1",
+        "tool_call_id" => "call_1",
         "name" => "side_effect",
         "idempotency_key" => "run:#{run.id}:step:1:tool:call_1:name:side_effect",
         "step" => 1,

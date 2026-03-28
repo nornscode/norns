@@ -93,8 +93,8 @@ defmodule Norns.Agents.ProcessTest do
       wait_for(:completed)
 
       [first_call, second_call] = Fake.calls()
-      assert first_call.messages == [%{role: "user", content: "first message"}]
-      assert second_call.messages == [%{role: "user", content: "second message"}]
+      assert first_call.messages == [%{"role" => "user", "content" => "first message"}]
+      assert second_call.messages == [%{"role" => "user", "content" => "second message"}]
     end
   end
 
@@ -107,7 +107,7 @@ defmodule Norns.Agents.ProcessTest do
               "type" => "tool_use",
               "id" => "call_1",
               "name" => "web_search",
-              "input" => %{"query" => "elixir programming"}
+              "arguments" => %{"query" => "elixir programming"}
             }
           ],
           stop_reason: "tool_use"
@@ -154,7 +154,7 @@ defmodule Norns.Agents.ProcessTest do
                 "type" => "tool_use",
                 "id" => "call_#{i}",
                 "name" => "web_search",
-                "input" => %{"query" => "query #{i}"}
+                "arguments" => %{"query" => "query #{i}"}
               }
             ],
             stop_reason: "tool_use"
@@ -252,8 +252,8 @@ defmodule Norns.Agents.ProcessTest do
       [first_call, second_call] = Fake.calls()
       assert length(first_call.messages) == 1
       assert length(second_call.messages) == 3
-      assert Enum.at(second_call.messages, 0).content == "first message"
-      assert Enum.at(second_call.messages, 2).content == "second message"
+      assert Enum.at(second_call.messages, 0)["content"] == "first message"
+      assert Enum.at(second_call.messages, 2)["content"] == "second message"
     end
   end
 end

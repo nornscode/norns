@@ -128,14 +128,14 @@ defmodule NornsWeb.WorkerChannelTest do
         "task_id" => task_id,
         "status" => "ok",
         "content" => [%{"type" => "text", "text" => "done"}],
-        "stop_reason" => "end_turn",
+        "finish_reason" => "stop",
         "usage" => %{"input_tokens" => 1, "output_tokens" => 2}
       })
 
       assert {:ok,
               %{
                 "content" => [%{"type" => "text", "text" => "done"}],
-                "stop_reason" => "end_turn",
+                "finish_reason" => "stop",
                 "usage" => %{"input_tokens" => 1, "output_tokens" => 2}
               }} = WorkerRegistry.await_result(task_id, 1_000)
 

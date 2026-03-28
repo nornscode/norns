@@ -13,12 +13,12 @@ defmodule Norns.Tools.Tool do
           side_effect?: boolean()
         }
 
-  @doc "Convert to the Anthropic API tool format."
+  @doc "Convert to the provider-neutral tool format for LLM dispatch."
   def to_api_format(%__MODULE__{} = tool) do
     %{
       name: tool.name,
       description: tool.description,
-      input_schema: tool.input_schema
+      parameters: tool.input_schema
     }
   end
 end

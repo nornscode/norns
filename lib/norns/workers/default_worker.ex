@@ -1,12 +1,10 @@
 defmodule Norns.Workers.DefaultWorker do
   @moduledoc """
   Built-in worker that runs in the same BEAM VM as the orchestrator.
-  Handles LLM calls and built-in tool execution. Registered with the
-  WorkerRegistry on boot — the agent process dispatches to it like
-  any other worker, but execution is local (no network hop).
+  Handles LLM calls and built-in tool execution.
 
-  For self-hosted mode, this is all you need. For production, users
-  run their own workers with their own tools and API keys.
+  Receives tasks in neutral format, translates to Anthropic API for LLM calls,
+  and returns results in neutral format.
   """
 
   use GenServer
@@ -14,6 +12,7 @@ defmodule Norns.Workers.DefaultWorker do
   require Logger
 
   alias Norns.LLM
+  alias Norns.LLM.Format
   alias Norns.Tools.Executor
   alias Norns.Workers.WorkerRegistry
 
@@ -23,7 +22,6 @@ defmodule Norns.Workers.DefaultWorker do
 
   @impl true
   def init(_opts) do
-    # Register with WorkerRegistry as a local worker
     tools = Norns.Tools.Registry.all_tools()
 
     tool_defs =
@@ -49,9 +47,6 @@ defmodule Norns.Workers.DefaultWorker do
 
   @impl true
   def handle_info({:push_tool_task, task}, state) do
-    # Execute tool in a spawned task so we don't block the worker
-    _worker_pid = self()
-
     Task.start(fn ->
       result = execute_tool(task, state.tools)
 
@@ -66,11 +61,8 @@ defmodule Norns.Workers.DefaultWorker do
   end
 
   def handle_info({:llm_task, task}, state) do
-    _worker_pid = self()
-
     Task.start(fn ->
       result = execute_llm(task)
-
       WorkerRegistry.deliver_result(task.task_id, result)
     end)
 
@@ -80,18 +72,26 @@ defmodule Norns.Workers.DefaultWorker do
   def handle_info(_msg, state), do: {:noreply, state}
 
   # -- LLM Execution --
+  # Receives neutral format, translates to Anthropic API, returns neutral format
 
   defp execute_llm(task) do
     api_key = task.api_key
     model = task.model
     system_prompt = task.system_prompt
     messages = task.messages
-    opts = task.opts || []
+    tools = task[:tools] || []
 
-    case LLM.chat(api_key, model, system_prompt, messages, opts) do
+    # Translate neutral → Anthropic format for the API call
+    anthropic_messages = Format.to_anthropic_messages(messages)
+    anthropic_tools = if tools != [], do: Format.to_anthropic_tools(tools), else: []
+
+    opts = if anthropic_tools != [], do: [tools: anthropic_tools], else: []
+
+    case LLM.chat(api_key, model, system_prompt, anthropic_messages, opts) do
       {:ok, response} ->
-        %{
-          "status" => "ok",
+        # Translate Anthropic response → neutral format
+        # LLM.chat returns a struct with .content (list), .stop_reason, .usage
+        anthropic_body = %{
           "content" => response.content,
           "stop_reason" => response.stop_reason,
           "usage" => %{
@@ -99,6 +99,9 @@ defmodule Norns.Workers.DefaultWorker do
             "output_tokens" => response.usage.output_tokens
           }
         }
+
+        neutral = Format.from_anthropic_response(anthropic_body)
+        Map.put(neutral, "status", "ok")
 
       {:error, reason} ->
         %{"status" => "error", "error" => reason}
