@@ -43,6 +43,10 @@ Orchestrator                         Worker (your code)
 
 A built-in DefaultWorker handles everything locally for development. For production, you run your own workers — Norns never touches your API keys or data.
 
+### Example: Hello Agent
+
+[norns-hello-agent](https://github.com/amackera/norns-hello-agent) is a minimal Python worker that demonstrates tool calls. It defines a `say_hello` tool and connects to Norns as a worker — a good starting point for understanding the agent/worker model.
+
 ## SDKs
 
 SDKs follow the Temporal model: a **worker** (defines agents and tools, handles execution) and a **client** (sends messages, queries runs).
