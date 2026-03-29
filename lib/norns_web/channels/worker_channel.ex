@@ -1,6 +1,7 @@
 defmodule NornsWeb.WorkerChannel do
   use NornsWeb, :channel
 
+  require Logger
   alias Norns.Workers.WorkerRegistry
 
   @impl true
@@ -31,6 +32,7 @@ defmodule NornsWeb.WorkerChannel do
   end
 
   def handle_info({:llm_task, task}, socket) do
+    Logger.info("Pushing llm_task to worker #{socket.assigns[:worker_id]}, task_id=#{task[:task_id]}")
     push(socket, "llm_task", task)
     {:noreply, socket}
   end

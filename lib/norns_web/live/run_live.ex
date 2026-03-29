@@ -231,9 +231,31 @@ defmodule NornsWeb.RunLive do
   defp event_summary(_), do: ""
 
   defp event_detail(%{event_type: "llm_request", payload: payload}) do
-    step = payload["step"]
-    count = payload["message_count"]
-    "step #{step}, #{count} messages"
+    header = "step #{payload["step"]}, #{payload["message_count"]} messages, model: #{payload["model"] || "?"}"
+
+    input =
+      case payload["messages"] do
+        messages when is_list(messages) ->
+          last_user =
+            messages
+            |> Enum.reverse()
+            |> Enum.find(fn
+              %{"role" => "user"} -> true
+              %{role: "user"} -> true
+              _ -> false
+            end)
+
+          case last_user do
+            %{"content" => c} when is_binary(c) -> "input: #{String.slice(c, 0, 300)}"
+            %{content: c} when is_binary(c) -> "input: #{String.slice(c, 0, 300)}"
+            _ -> nil
+          end
+
+        _ ->
+          nil
+      end
+
+    [header, input] |> Enum.reject(&is_nil/1) |> Enum.join("\n")
   end
 
   defp event_detail(%{event_type: "llm_response", payload: payload}) do

@@ -67,7 +67,7 @@ defmodule Norns.Runtime.EventValidator do
   defp validators_for(event_type) do
     case event_type do
       "run_started" -> [schema_version_validator()]
-      "llm_request" -> [schema_version_validator(), required_integer("step"), required_integer("message_count")]
+      "llm_request" -> [schema_version_validator(), required_integer("step"), required_integer("message_count"), optional_list("messages"), optional_string("system_prompt"), optional_string("model")]
       "llm_response" -> [schema_version_validator(), required_integer("step"), optional_string("content"), optional_string("finish_reason"), optional_list("tool_calls"), optional_map("usage")]
       "tool_call" -> [schema_version_validator(), required_string("tool_call_id"), required_string("name"), required_map("arguments"), required_integer("step"), optional_string("idempotency_key"), optional_boolean("side_effect")]
       "tool_duplicate" -> [schema_version_validator(), required_string("tool_call_id"), required_string("name"), required_string("idempotency_key"), required_integer("step"), required_integer("original_event_sequence"), required_string("resolution")]

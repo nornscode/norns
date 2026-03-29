@@ -165,8 +165,6 @@ defmodule Norns.Agents.Process do
     else
       state = %{state | step: state.step + 1}
 
-      append(state.run, Events.llm_request(%{"step" => state.step, "message_count" => length(state.messages)}))
-
       tools = Enum.map(state.agent_def.tools, &Tool.to_api_format/1)
 
       messages_for_llm =
@@ -175,6 +173,14 @@ defmodule Norns.Agents.Process do
         |> compact_messages()
 
       system_prompt = build_system_prompt(state)
+
+      append(state.run, Events.llm_request(%{
+        "step" => state.step,
+        "message_count" => length(messages_for_llm),
+        "messages" => messages_for_llm,
+        "system_prompt" => system_prompt,
+        "model" => state.agent_def.model
+      }))
 
       # Dispatch LLM call to worker — non-blocking, neutral format
       llm_task = %{
