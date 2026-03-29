@@ -2,7 +2,7 @@
   <img src="images/norns-github-logo.png" alt="Norns" width="120" />
 </p>
 
-<h1 align="center">Norns</h1>
+<h1 align="center">Norns — Durable Agent Runtime</h1>
 
 <p align="center">
   <a href="https://github.com/amackera/norns/actions/workflows/ci.yml"><img src="https://github.com/amackera/norns/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
