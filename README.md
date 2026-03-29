@@ -2,7 +2,9 @@
 
 Durable agent runtime on BEAM. MIT licensed.
 
-Norns is an orchestrator for LLM-powered agents. You define agents and tools in your language (Python, TypeScript, Elixir), and Norns handles the hard parts: crash recovery, checkpointing, retries, conversation state, and observability. The architecture is Temporal-style — your code runs on workers, Norns coordinates.
+Norns is an orchestrator for LLM-powered agents. You define agents and tools in your language (Python, Elixir), and Norns handles the hard parts: crash recovery, checkpointing, retries, conversation state, and observability. Your code runs on workers, Norns coordinates.
+
+Inspired by [Temporal](https://github.com/temporalio/temporal), built for AI agents on BEAM.
 
 **Status:** Early. The runtime works, the Python SDK is in progress, the API is stabilizing. Not production-ready yet.
 
@@ -49,7 +51,7 @@ A built-in DefaultWorker handles everything locally for development. For product
 
 ## SDKs
 
-SDKs follow the Temporal model: a **worker** (defines agents and tools, handles execution) and a **client** (sends messages, queries runs).
+SDKs have two components: a **worker** (defines agents and tools, handles execution) and a **client** (sends messages, queries runs).
 
 ### Python
 
