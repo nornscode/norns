@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="images/norns-github-logo.png" alt="Norns" width="120" />
+  <img src="images/norns-github-logo.png" alt="Norns" width="240" />
 </p>
 
 <h1 align="center">Norns — Durable Agent Runtime</h1>
