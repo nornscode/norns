@@ -26,8 +26,8 @@ defmodule Norns.Workers.WorkerRegistryTest do
       tools = [%{"name" => "tool_a", "description" => "A", "input_schema" => %{}}]
       :ok = WorkerRegistry.register_worker(1, "w1", self(), tools)
 
-      assert length(WorkerRegistry.available_tools(1)) == 1
-      assert length(WorkerRegistry.available_tools(2)) == 0
+      assert [_] = WorkerRegistry.available_tools(1)
+      assert [] = WorkerRegistry.available_tools(2)
 
       WorkerRegistry.unregister_worker(1, "w1")
     end
