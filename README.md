@@ -1,6 +1,10 @@
 # Norns
 
-Durable agent runtime on BEAM. MIT licensed.
+[![CI](https://github.com/amackera/norns/actions/workflows/ci.yml/badge.svg)](https://github.com/amackera/norns/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Elixir](https://img.shields.io/badge/elixir-1.18-purple.svg)](https://elixir-lang.org/)
+
+Durable agent runtime on BEAM.
 
 Norns is an orchestrator for LLM-powered agents. You define agents and tools in your language (Python, Elixir), and Norns handles the hard parts: crash recovery, checkpointing, retries, conversation state, and observability. Your code runs on workers, Norns coordinates.
 
