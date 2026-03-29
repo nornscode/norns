@@ -60,3 +60,9 @@ jobs:
 
       - name: Run tests
         run: mix test --exclude external
+
+      - name: Credo (lint)
+        run: mix credo
+
+      - name: Dependency audit
+        run: mix deps.audit
