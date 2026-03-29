@@ -47,6 +47,11 @@ Workers connect via WebSocket, register their tools and LLM capability, and rece
 
 SDKs have two components: a **worker** (defines agents and tools, handles execution) and a **client** (sends messages, queries runs).
 
+- Python SDK: https://github.com/amackera/norns-sdk-python
+- Elixir SDK (early): https://github.com/amackera/norns-sdk-elixir
+- Hello example app: https://github.com/amackera/norns-hello-agent
+- First vertical app (Mimir): https://github.com/amackera/mimir
+
 ### Python
 
 ```python
