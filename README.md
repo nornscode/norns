@@ -1,10 +1,16 @@
-# Norns
+<p align="center">
+  <img src="images/norns-github-logo.png" alt="Norns" width="120" />
+</p>
 
-[![CI](https://github.com/amackera/norns/actions/workflows/ci.yml/badge.svg)](https://github.com/amackera/norns/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Elixir](https://img.shields.io/badge/elixir-1.18-purple.svg)](https://elixir-lang.org/)
+<h1 align="center">Norns</h1>
 
-Durable agent runtime on BEAM.
+<p align="center">
+  <a href="https://github.com/amackera/norns/actions/workflows/ci.yml"><img src="https://github.com/amackera/norns/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
+  <a href="https://elixir-lang.org/"><img src="https://img.shields.io/badge/elixir-1.18-purple.svg" alt="Elixir" /></a>
+</p>
+
+<p align="center">Durable agent runtime on BEAM.</p>
 
 Norns is an orchestrator for LLM-powered agents. You define agents and tools in your language (Python, Elixir), and Norns handles the hard parts: crash recovery, checkpointing, retries, conversation state, and observability. Your code runs on workers, Norns coordinates.
 
