@@ -255,9 +255,7 @@ defmodule Norns.Agents.Process do
     all_async_blocks = regular_blocks
     has_async = all_async_blocks != [] or launch_pending != []
 
-    if not has_async do
-      handle_wait_or_continue(state, wait_blocks, sync_results, log_calls?)
-    else
+    if has_async do
       worker_pending =
         Enum.map(all_async_blocks, fn tc ->
           {:ok, task_id} =
@@ -286,6 +284,8 @@ defmodule Norns.Agents.Process do
              log_calls?: log_calls?
            }
        }}
+    else
+      handle_wait_or_continue(state, wait_blocks, sync_results, log_calls?)
     end
   end
 
