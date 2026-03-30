@@ -16,7 +16,7 @@ Norns is an orchestrator for LLM-powered agents. You define agents and tools in 
 
 Inspired by [Temporal](https://github.com/temporalio/temporal), built for AI agents on BEAM.
 
-**Status:** Early. The runtime works, the Python SDK is in progress, the API is stabilizing. Not production-ready yet.
+**Status:** Early. The runtime works, the SDKs are in progress, the API is stabilizing. Not production-ready yet.
 
 ## Quickstart
 
