@@ -40,8 +40,30 @@ defmodule Norns.Runtime.Errors do
     %Error{class: :validation, code: :invalid_payload, message: "Validation failed", details: %{errors: inspect(changeset.errors)}}
   end
 
+  def classify(reason) when is_binary(reason) do
+    %Error{class: :internal, code: :unexpected_failure, message: clean_error_message(reason), details: %{raw: reason}}
+  end
+
   def classify(reason) do
     %Error{class: :internal, code: :unexpected_failure, message: Exception.format_banner(:error, reason), details: %{reason: inspect(reason)}}
+  end
+
+  defp clean_error_message(message) do
+    # Extract the human-readable message from nested JSON error strings
+    # e.g. "litellm.BadRequestError: AnthropicException - {\"type\":\"error\",\"error\":{\"message\":\"...\"}}"
+    with {:ok, parsed} <- extract_json(message),
+         %{"error" => %{"message" => inner}} <- parsed do
+      inner
+    else
+      _ -> message
+    end
+  end
+
+  defp extract_json(message) do
+    case Regex.run(~r/\{.*\}\s*$/, message) do
+      [json_str] -> Jason.decode(json_str)
+      _ -> :error
+    end
   end
 
   def to_metadata(%Error{} = error) do

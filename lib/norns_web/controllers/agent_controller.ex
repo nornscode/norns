@@ -31,6 +31,22 @@ defmodule NornsWeb.AgentController do
     end
   end
 
+  def update(conn, %{"id" => id} = params) do
+    tenant = conn.assigns.current_tenant
+
+    with {:ok, agent} <- fetch_agent(id, tenant.id) do
+      attrs = Map.drop(params, ["id", "tenant_id"])
+
+      case Agents.update_agent(agent, attrs) do
+        {:ok, agent} ->
+          json(conn, %{data: NornsWeb.JSON.agent(agent)})
+
+        {:error, changeset} ->
+          conn |> put_status(422) |> json(%{error: format_errors(changeset)})
+      end
+    end
+  end
+
   def status(conn, %{"agent_id" => agent_id}) do
     tenant = conn.assigns.current_tenant
 

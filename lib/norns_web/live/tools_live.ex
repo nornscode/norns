@@ -1,6 +1,7 @@
 defmodule NornsWeb.ToolsLive do
   use NornsWeb, :live_view
 
+  alias Norns.Tools.Builtins
   alias Norns.Tools.Registry, as: ToolRegistry
   alias Norns.Workers.WorkerRegistry
 
@@ -8,7 +9,7 @@ defmodule NornsWeb.ToolsLive do
   def mount(_params, session, socket) do
     case load_tenant(session) do
       {:ok, tenant} ->
-        built_in = ToolRegistry.all_tools()
+        built_in = Builtins.all() ++ ToolRegistry.all_tools()
         worker_tools = WorkerRegistry.available_tools(tenant.id)
 
         {:ok, assign(socket, tenant: tenant, current_tenant: tenant, built_in: built_in, worker_tools: worker_tools)}
@@ -37,7 +38,9 @@ defmodule NornsWeb.ToolsLive do
               <span class="text-sm text-white"><%= tool.name %></span>
               <span class="text-xs text-gray-500 ml-3"><%= tool.description %></span>
             </div>
-            <span class="text-xs text-green-600">local</span>
+            <span class={"text-xs #{if tool.source == :builtin, do: "text-yellow-600", else: "text-green-600"}"}>
+              <%= if tool.source == :builtin, do: "builtin", else: "local" %>
+            </span>
           </div>
         <% end %>
       </div>

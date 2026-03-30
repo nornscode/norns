@@ -75,6 +75,7 @@ defmodule Norns.Runtime.EventValidator do
       "checkpoint_saved" -> [schema_version_validator(), required_list("messages"), required_integer("step")]
       "run_failed" -> [schema_version_validator(), required_string("error"), required_string("error_class"), required_string("error_code"), required_string("retry_decision")]
       "run_completed" -> [schema_version_validator(), required_string("output")]
+      "subagent_launched" -> [schema_version_validator(), required_string("tool_call_id"), required_string("child_agent_name"), required_string("child_run_id"), required_integer("step")]
       "waiting_for_timer" -> [schema_version_validator(), required_string("tool_call_id"), required_integer("seconds"), required_integer("step")]
       "waiting_for_user" -> [schema_version_validator(), required_string("question"), required_string("tool_call_id"), required_integer("step")]
       "user_response" -> [schema_version_validator(), required_string("content"), required_string("tool_call_id"), required_integer("step")]

@@ -8,8 +8,8 @@ defmodule Norns.Tools.Tool do
           name: String.t(),
           description: String.t(),
           input_schema: map(),
-          handler: (map() -> {:ok, String.t()} | {:error, String.t()}),
-          source: :local | {:remote, term()},
+          handler: (map() -> {:ok, String.t()} | {:error, String.t()}) | :builtin,
+          source: :local | :builtin | {:remote, term()},
           side_effect?: boolean()
         }
 

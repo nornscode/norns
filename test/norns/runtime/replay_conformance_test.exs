@@ -81,7 +81,6 @@ defmodule Norns.Runtime.ReplayConformanceTest do
       retry_count: 0,
       run: nil,
       status: :idle,
-      pending_ask: nil,
       pending_llm_task: nil,
       pending_tool_tasks: nil,
       resume_action: nil,
@@ -219,7 +218,6 @@ defmodule Norns.Runtime.ReplayConformanceTest do
       retry_count: 0,
       run: nil,
       status: :idle,
-      pending_ask: nil,
       pending_llm_task: nil,
       pending_tool_tasks: nil,
       resume_action: nil,
@@ -281,7 +279,6 @@ defmodule Norns.Runtime.ReplayConformanceTest do
       retry_count: 0,
       run: nil,
       status: :idle,
-      pending_ask: nil,
       resume_action: nil,
       test_pid: nil,
       pending_llm_task: nil,
@@ -295,60 +292,6 @@ defmodule Norns.Runtime.ReplayConformanceTest do
     assert rebuilt.resume_action == :llm_loop
     assert Enum.map(events, & &1.sequence) == Enum.to_list(1..length(events))
     assert List.last(rebuilt.messages).content == "new"
-  end
-
-  test "rebuilds waiting runs with deterministic waiting resume action", %{tenant: tenant, agent: agent} do
-    {:ok, run} =
-      Runs.create_run(%{
-        agent_id: agent.id,
-        tenant_id: tenant.id,
-        trigger_type: "message",
-        input: %{"user_message" => "hello"},
-        status: "waiting"
-      })
-
-    Runs.append_event(run, %{event_type: "run_started"})
-
-    Runs.append_event(run, %{
-      event_type: "llm_response",
-      payload: %{
-        "content" => "",
-        "tool_calls" => [%{"id" => "ask_1", "name" => "ask_user", "arguments" => %{"question" => "Need approval?"}}],
-        "finish_reason" => "tool_call",
-        "usage" => %{},
-        "step" => 1
-      }
-    })
-
-    Runs.append_event(run, %{
-      event_type: "waiting_for_user",
-      payload: %{"question" => "Need approval?", "tool_call_id" => "ask_1", "step" => 1}
-    })
-
-    base_state = %{
-      agent_id: agent.id,
-      tenant_id: tenant.id,
-      agent: agent,
-      api_key: "test-key",
-      agent_def: Norns.Agents.AgentDef.from_agent(agent),
-      conversation: nil,
-      messages: [],
-      step: 0,
-      retry_count: 0,
-      run: nil,
-      status: :idle,
-      pending_ask: nil,
-      resume_action: nil,
-      test_pid: nil,
-      pending_llm_task: nil,
-      pending_tool_tasks: nil
-    }
-
-    {:ok, rebuilt} = AgentProcess.rebuild_state(run.id, base_state)
-
-    assert rebuilt.status == :waiting
-    assert rebuilt.resume_action == :waiting
-    assert rebuilt.pending_ask.tool_call_id == "ask_1"
   end
 
   test "rebuild skips duplicate side effects and resumes deterministically", %{tenant: tenant, agent: agent} do
@@ -409,7 +352,6 @@ defmodule Norns.Runtime.ReplayConformanceTest do
       retry_count: 0,
       run: nil,
       status: :idle,
-      pending_ask: nil,
       resume_action: nil,
       test_pid: nil,
       pending_llm_task: nil,

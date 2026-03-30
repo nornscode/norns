@@ -9,6 +9,7 @@ defmodule Norns.Runtime.Events do
     RunCompleted,
     RunFailed,
     RunStarted,
+    SubagentLaunched,
     ToolCall,
     ToolDuplicate,
     ToolResult
@@ -25,9 +26,8 @@ defmodule Norns.Runtime.Events do
   def checkpoint_saved(attrs), do: CheckpointSaved.new(attrs)
   def run_failed(attrs), do: RunFailed.new(attrs)
   def run_completed(attrs), do: RunCompleted.new(attrs)
+  def subagent_launched(attrs), do: SubagentLaunched.new(attrs)
 
-  def waiting_for_user(attrs), do: build("waiting_for_user", attrs)
-  def user_response(attrs), do: build("user_response", attrs, source: "user")
   def retry(attrs), do: build("retry", attrs)
 
   def build(event_type, payload, opts \\ []) do
