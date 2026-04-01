@@ -10,11 +10,11 @@
   <a href="https://elixir-lang.org/"><img src="https://img.shields.io/badge/elixir-1.18-purple.svg" alt="Elixir" /></a>
 </p>
 
-<p align="center">Durable agent runtime on BEAM.</p>
+<p align="center">Durable agent runtime built on BEAM.</p>
 
-Norns is an orchestrator for LLM-powered agents. You define agents and tools in your language (Python, Elixir), and Norns handles the hard parts: crash recovery, checkpointing, retries, conversation state, and observability. Your code runs on workers, Norns coordinates.
+Norns is a durable runtime for orchestrating AI agents. You define agents and tools in your language (Python, Elixir), and Norns handles the hard parts: crash recovery, checkpointing, retries, conversation state, and observability. Your code runs on your infrastructure, Norns coordinates.
 
-Inspired by [Temporal](https://github.com/temporalio/temporal), built for AI agents on BEAM.
+Inspired by [Temporal](https://github.com/temporalio/temporal), built for AI agents and leveraging the maturity of the BEAM.
 
 **Status:** Early. The runtime works, the SDKs are in progress, the API is stabilizing. Not production-ready yet.
 
