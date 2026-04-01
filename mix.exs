@@ -55,8 +55,8 @@ defmodule Norns.MixProject do
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "assets.setup": ["tailwind.install --if-missing"],
-      "assets.build": ["tailwind default"],
-      "assets.deploy": ["tailwind default --minify", "phx.digest"]
+      "assets.build": ["tailwind norns"],
+      "assets.deploy": ["tailwind norns --minify", "phx.digest"]
     ]
   end
 end

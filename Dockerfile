@@ -19,10 +19,12 @@ RUN mix deps.compile
 COPY config config
 COPY lib lib
 COPY priv priv
+COPY assets assets
 
-# Compile and build release
+# Compile and build assets
 RUN mix compile
-RUN mix phx.digest
+RUN mix tailwind.install
+RUN mix assets.deploy
 RUN mix release
 
 # Runtime stage
