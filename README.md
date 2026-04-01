@@ -29,7 +29,7 @@ docker compose run --rm -e POSTGRES_HOST=db app mix ecto.migrate
 docker compose up
 ```
 
-Open `http://localhost:4000` to set up a tenant. Then connect a worker — see [norns-hello-agent](https://github.com/amackera/norns-hello-agent) for a minimal example.
+Open `http://localhost:4000` to set up a tenant. Then connect a worker (see [norns-hello-agent](https://github.com/amackera/norns-hello-agent) for a minimal example).
 
 ## How it works
 
@@ -51,7 +51,7 @@ Workers connect via WebSocket, register their tools and LLM capability, and rece
 
 ### Example: Hello Agent
 
-[norns-hello-agent](https://github.com/amackera/norns-hello-agent) is a minimal Python worker that demonstrates tool calls. It defines a `say_hello` tool and connects to Norns — a good starting point for understanding the worker model.
+[norns-hello-agent](https://github.com/amackera/norns-hello-agent) is a minimal Python worker that demonstrates tool calls. It defines a `say_hello` tool and connects to Norns. A good starting point for understanding the worker model.
 
 ## SDKs
 
@@ -80,13 +80,13 @@ agent = Agent(
     mode="conversation",
 )
 
-# Worker — blocks forever, handles LLM calls and tool execution
+# Worker: blocks forever, handles LLM calls and tool execution
 norns = Norns("http://localhost:4000", api_key="nrn_...")
 norns.run(agent, llm_api_key=os.environ["ANTHROPIC_API_KEY"])
 ```
 
 ```python
-# Client — send messages, query results
+# Client: send messages, query results
 from norns import NornsClient
 
 client = NornsClient("http://localhost:4000", api_key="nrn_...")
