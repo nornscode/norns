@@ -1,13 +1,13 @@
 # Decision Log
 
-Last updated: 2026-03-29
+Last updated: 2026-04-01
 
 ## Product Decisions
 
 ### Pure orchestrator — no execution
 - Norns is a state machine and event log. It never makes LLM calls or executes tools.
 - All execution happens on workers. You need a connected worker to do anything.
-- No built-in tools, no DefaultWorker, no memory layer. These belong in the SDK / user code.
+- Built-in tools (wait, launch_agent, list_agents) are intercepted by the orchestrator, never sent to workers. All other tools are worker-provided.
 - The orchestrator's job: dispatch tasks, persist events, manage state, crash recovery.
 
 ### Workers own everything
@@ -70,17 +70,18 @@ Last updated: 2026-03-29
 - LiveView dashboard: agent list, agent detail with config editing, run timeline with event details, cancel/retry buttons.
 
 ### SDKs
-- Python SDK: worker (`Norns`) + client (`NornsClient`). 29 tests.
-- Elixir SDK: worker (`NornsSdk.Worker`) + client (`NornsSdk.Client`). 10 tests.
+- Python SDK: worker (`Norns`) + client (`NornsClient`). Published to PyPI.
+- Elixir SDK: worker (`NornsSdk.Worker`) + client (`NornsSdk.Client`). Published to Hex.
+
+### Multi-agent orchestration
+- Built-in `launch_agent` and `list_agents` tools.
+- Child agents launched via PubSub, tracked in `pending_subagents`.
+- `subagent_launched` event type with replay support.
+- Agents can discover and delegate to other agents within the same tenant.
 
 ---
 
 ## Open
-
-### SDK maturity
-- Python SDK needs end-to-end integration test against running Norns.
-- Elixir SDK needs the same.
-- Neither published to PyPI/Hex yet.
 
 ### Multi-node
 - Registry + DynamicSupervisor are single-node.
@@ -90,6 +91,6 @@ Last updated: 2026-03-29
 - Pre-dispatch hook point in the orchestrator (not built, architecture supports it).
 - Rule-based (orchestrator evaluates) and LLM-evaluated (worker evaluates) flavors.
 
-### Multi-agent orchestration
-- Agents as tools pattern (supervisor agent calls sub-agents).
-- `parent_run_id` for run lineage tracking (not built).
+### Subagent allowlists
+- Authorization guardrails for which agents can launch which sub-agents.
+- See `plan-subagent-allowlists.md`.
