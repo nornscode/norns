@@ -10,11 +10,11 @@
   <a href="https://elixir-lang.org/"><img src="https://img.shields.io/badge/elixir-1.18-purple.svg" alt="Elixir" /></a>
 </p>
 
-<p align="center">Durable agent orchestration on BEAM.</p>
+<p align="center">Durable agent runtime on BEAM.</p>
 
-Norns is an open-source orchestrator for durable AI agent execution.
+Norns is an open-source durable runtime for AI agents.
 
-You run workers in your own infrastructure (Python/Elixir). Norns coordinates runs, retries, checkpoints, and event timelines.
+It uses an orchestrator/worker architecture: you run workers in your own infrastructure (Python/Elixir), and Norns coordinates runs, retries, checkpoints, and event timelines.
 
 ## What Norns is
 
