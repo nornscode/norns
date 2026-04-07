@@ -1,0 +1,556 @@
+openapi: 3.1.0
+info:
+  title: Norns API
+  description: REST API for the Norns durable agent runtime.
+  version: 0.1.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:4000/api/v1
+    description: Local development
+  - url: https://norns-runtime.fly.dev/api/v1
+    description: Fly.io deployment
+
+security:
+  - bearerAuth: []
+
+paths:
+  /agents:
+    get:
+      operationId: listAgents
+      summary: List agents
+      tags: [Agents]
+      responses:
+        "200":
+          description: List of agents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Agent"
+
+    post:
+      operationId: createAgent
+      summary: Create agent
+      tags: [Agents]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentCreate"
+      responses:
+        "201":
+          description: Agent created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Agent"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /agents/{id}:
+    get:
+      operationId: getAgent
+      summary: Show agent
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      responses:
+        "200":
+          description: Agent details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Agent"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    put:
+      operationId: updateAgent
+      summary: Update agent
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentCreate"
+      responses:
+        "200":
+          description: Agent updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Agent"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /agents/{agent_id}/messages:
+    post:
+      operationId: sendMessage
+      summary: Send message to agent
+      description: Starts a new run. Returns immediately with a run ID.
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/AgentIdNested"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                  description: Message content
+                conversation_key:
+                  type: string
+                  description: Key for multi-turn conversations
+      responses:
+        "202":
+          description: Message accepted, run started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: accepted
+                  run_id:
+                    type: integer
+        "409":
+          description: Agent is busy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Missing content field
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /agents/{agent_id}/status:
+    get:
+      operationId: getAgentStatus
+      summary: Get agent process status
+      tags: [Agents]
+      parameters:
+        - $ref: "#/components/parameters/AgentIdNested"
+      responses:
+        "200":
+          description: Agent process state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        enum: [idle, running, awaiting_llm, awaiting_tools, waiting_timer, stopped]
+                      agent_id:
+                        type: integer
+                      run_id:
+                        type: integer
+                        nullable: true
+                      step:
+                        type: integer
+                      conversation_id:
+                        type: integer
+                        nullable: true
+                      conversation_key:
+                        type: string
+                      message_count:
+                        type: integer
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /agents/{agent_id}/runs:
+    get:
+      operationId: listAgentRuns
+      summary: List runs for an agent
+      tags: [Runs]
+      parameters:
+        - $ref: "#/components/parameters/AgentIdNested"
+      responses:
+        "200":
+          description: List of runs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Run"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /agents/{agent_id}/conversations:
+    get:
+      operationId: listConversations
+      summary: List conversations for an agent
+      tags: [Conversations]
+      parameters:
+        - $ref: "#/components/parameters/AgentIdNested"
+      responses:
+        "200":
+          description: List of conversations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Conversation"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /agents/{agent_id}/conversations/{key}:
+    get:
+      operationId: getConversation
+      summary: Get a conversation by key
+      tags: [Conversations]
+      parameters:
+        - $ref: "#/components/parameters/AgentIdNested"
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Conversation details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Conversation"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      operationId: deleteConversation
+      summary: Delete a conversation (reset)
+      tags: [Conversations]
+      parameters:
+        - $ref: "#/components/parameters/AgentIdNested"
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Conversation deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /runs/{id}:
+    get:
+      operationId: getRun
+      summary: Show run details
+      tags: [Runs]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Run details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/Run"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /runs/{id}/events:
+    get:
+      operationId: listRunEvents
+      summary: Get event log for a run
+      tags: [Runs]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Event log
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RunEvent"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Tenant API key (e.g. nrn_...)
+
+  parameters:
+    AgentId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+
+    AgentIdNested:
+      name: agent_id
+      in: path
+      required: true
+      schema:
+        type: integer
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    ValidationError:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                additionalProperties:
+                  type: array
+                  items:
+                    type: string
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+    Agent:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        purpose:
+          type: string
+          nullable: true
+        status:
+          type: string
+        system_prompt:
+          type: string
+        model:
+          type: string
+          nullable: true
+        mode:
+          type: string
+          enum: [task, conversation]
+        context_strategy:
+          type: string
+          enum: [sliding_window, none]
+        context_window:
+          type: integer
+        max_steps:
+          type: integer
+          nullable: true
+        inserted_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AgentCreate:
+      type: object
+      required: [name, system_prompt, status]
+      properties:
+        name:
+          type: string
+        purpose:
+          type: string
+        status:
+          type: string
+        system_prompt:
+          type: string
+        model:
+          type: string
+        max_steps:
+          type: integer
+        model_config:
+          type: object
+          properties:
+            mode:
+              type: string
+              enum: [task, conversation]
+            checkpoint_policy:
+              type: string
+              enum: [every_step, on_tool_call, manual]
+            context_strategy:
+              type: string
+              enum: [sliding_window, none]
+            context_window:
+              type: integer
+            on_failure:
+              type: string
+              enum: [retry_last_step, fail]
+
+    Run:
+      type: object
+      properties:
+        id:
+          type: integer
+        agent_id:
+          type: integer
+        conversation_id:
+          type: integer
+          nullable: true
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        trigger_type:
+          type: string
+        input:
+          type: object
+        output:
+          type: string
+          nullable: true
+        failure_metadata:
+          type: object
+        failure_inspector:
+          type: object
+          nullable: true
+          properties:
+            error_class:
+              type: string
+            error_code:
+              type: string
+            retry_decision:
+              type: string
+            last_checkpoint:
+              type: object
+              nullable: true
+            last_event:
+              type: object
+              nullable: true
+        inserted_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    RunEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+        sequence:
+          type: integer
+        event_type:
+          type: string
+          enum:
+            - run_started
+            - llm_request
+            - llm_response
+            - tool_call
+            - tool_result
+            - tool_duplicate
+            - subagent_launched
+            - waiting_for_timer
+            - checkpoint_saved
+            - retry
+            - run_completed
+            - run_failed
+        payload:
+          type: object
+        source:
+          type: string
+        inserted_at:
+          type: string
+          format: date-time
+
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: integer
+        agent_id:
+          type: integer
+        key:
+          type: string
+        summary:
+          type: string
+          nullable: true
+        message_count:
+          type: integer
+        token_estimate:
+          type: integer
+        inserted_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
