@@ -52,8 +52,6 @@ defmodule Norns.Agents.RegistryTest do
 
       assert {:ok, run_id} = Registry.send_message(tenant.id, agent.id, "hello")
       assert is_integer(run_id)
-      Process.sleep(100)
-      assert {:ok, _pid} = Registry.lookup(tenant.id, agent.id)
     end
   end
 
