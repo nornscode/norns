@@ -8,7 +8,6 @@ defmodule Norns.Agents.AgentDef do
   defstruct [
     :model,
     :system_prompt,
-    mode: :task,
     context_strategy: :sliding_window,
     context_window: 20,
     tools: [],
@@ -17,7 +16,6 @@ defmodule Norns.Agents.AgentDef do
     on_failure: :stop
   ]
 
-  @type mode :: :task | :conversation
   @type context_strategy :: :sliding_window | :none
   @type checkpoint_policy :: :every_step | :on_tool_call | :manual
   @type failure_policy :: :stop | :retry_last_step
@@ -25,7 +23,6 @@ defmodule Norns.Agents.AgentDef do
   @type t :: %__MODULE__{
           model: String.t(),
           system_prompt: String.t(),
-          mode: mode(),
           context_strategy: context_strategy(),
           context_window: pos_integer(),
           tools: [Norns.Tools.Tool.t()],
@@ -36,7 +33,6 @@ defmodule Norns.Agents.AgentDef do
 
   @current_version 1
   @defaults %{
-    "mode" => :task,
     "context_strategy" => :sliding_window,
     "context_window" => 20,
     "tools" => [],
@@ -50,7 +46,6 @@ defmodule Norns.Agents.AgentDef do
     with :ok <- validate_version(Map.get(attrs, "version", @current_version)),
          {:ok, model} <- fetch_required_string(attrs, "model"),
          {:ok, system_prompt} <- fetch_required_string(attrs, "system_prompt"),
-         {:ok, mode} <- parse_enum(attrs, "mode", %{"task" => :task, "conversation" => :conversation}),
          {:ok, context_strategy} <-
            parse_enum(attrs, "context_strategy", %{"sliding_window" => :sliding_window, "none" => :none}),
          {:ok, checkpoint_policy} <-
@@ -63,7 +58,6 @@ defmodule Norns.Agents.AgentDef do
        %__MODULE__{
          model: model,
          system_prompt: system_prompt,
-         mode: mode,
          context_strategy: context_strategy,
          context_window: context_window,
          tools: tools,
@@ -85,7 +79,6 @@ defmodule Norns.Agents.AgentDef do
     %__MODULE__{
       model: agent.model,
       system_prompt: agent.system_prompt,
-      mode: parse_mode(config),
       context_strategy: parse_context_strategy(config),
       context_window: parse_context_window(config),
       tools: module_tools ++ extra_tools,
@@ -94,9 +87,6 @@ defmodule Norns.Agents.AgentDef do
       on_failure: parse_failure_policy(config)
     }
   end
-
-  defp parse_mode(%{"mode" => "conversation"}), do: :conversation
-  defp parse_mode(_), do: :task
 
   defp parse_context_strategy(%{"context_strategy" => "none"}), do: :none
   defp parse_context_strategy(_), do: :sliding_window

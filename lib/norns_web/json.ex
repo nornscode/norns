@@ -9,7 +9,6 @@ defmodule NornsWeb.JSON do
       status: agent.status,
       system_prompt: agent.system_prompt,
       model: agent.model,
-      mode: Map.get(agent.model_config || %{}, "mode", "task"),
       context_strategy: Map.get(agent.model_config || %{}, "context_strategy", "sliding_window"),
       context_window: Map.get(agent.model_config || %{}, "context_window", 20),
       max_steps: agent.max_steps,

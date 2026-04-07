@@ -750,12 +750,8 @@ defmodule Norns.Agents.Process do
     finish_run(state)
   end
 
-  defp finish_run(%{agent_def: %{mode: :conversation}} = state) do
-    %{state | status: :idle, retry_count: 0}
-  end
-
   defp finish_run(state) do
-    %{state | status: :idle, retry_count: 0, messages: []}
+    %{state | status: :idle, retry_count: 0}
   end
 
   defp maybe_checkpoint(state, context) do
@@ -794,7 +790,7 @@ defmodule Norns.Agents.Process do
 
   defp maybe_append_summary(prompt, _state), do: prompt
 
-  defp load_conversation_state(%{agent_def: %{mode: :conversation}} = state) do
+  defp load_conversation_state(state) do
     if state.conversation do
       state
     else
@@ -809,17 +805,11 @@ defmodule Norns.Agents.Process do
     end
   end
 
-  defp load_conversation_state(state), do: state
-
-  defp messages_for_new_run(%{agent_def: %{mode: :conversation}, messages: messages}, content) do
+  defp messages_for_new_run(%{messages: messages}, content) do
     messages ++ [%{role: "user", content: content}]
   end
 
-  defp messages_for_new_run(_state, content) do
-    [%{role: "user", content: content}]
-  end
-
-  defp persist_conversation_messages(%{agent_def: %{mode: :conversation}, conversation: conversation} = state)
+  defp persist_conversation_messages(%{conversation: conversation} = state)
        when not is_nil(conversation) do
     {:ok, conversation} =
       Conversations.update_conversation(conversation, %{
@@ -831,13 +821,10 @@ defmodule Norns.Agents.Process do
 
   defp persist_conversation_messages(state), do: state
 
-  defp apply_context_strategy(%{agent_def: %{mode: :conversation, context_strategy: :sliding_window}} = state) do
+  defp apply_context_strategy(%{agent_def: %{context_strategy: :sliding_window}} = state) do
     window = max(state.agent_def.context_window, 1)
     Enum.take(state.messages, -window)
   end
-
-  defp apply_context_strategy(%{agent_def: %{mode: :conversation, context_strategy: :none}, messages: messages}),
-    do: messages
 
   defp apply_context_strategy(%{messages: messages}), do: messages
 
@@ -882,13 +869,11 @@ defmodule Norns.Agents.Process do
     end
   end
 
-  defp restore_conversation_for_run(%{agent_def: %{mode: :conversation}} = state, run) do
+  defp restore_conversation_for_run(state, run) do
     conversation = run.conversation || state.conversation
     messages = if conversation, do: normalize_messages(conversation.messages), else: []
     %{state | conversation: conversation, messages: messages}
   end
-
-  defp restore_conversation_for_run(state, _run), do: state
 
   defp initial_messages_for_replay(state, run) do
     messages = state.messages

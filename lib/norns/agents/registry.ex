@@ -34,7 +34,7 @@ defmodule Norns.Agents.Registry do
 
   @doc "Send a message to a running agent."
   def send_message(tenant_id, agent_id, content, opts \\ []) do
-    conversation_key = Keyword.get(opts, :conversation_key) || default_conversation_key(tenant_id, agent_id)
+    conversation_key = Keyword.get(opts, :conversation_key) || "run_#{System.unique_integer([:positive])}"
 
     case ensure_started(agent_id, tenant_id, conversation_key, opts) do
       {:ok, pid} ->
@@ -86,14 +86,4 @@ defmodule Norns.Agents.Registry do
     end
   end
 
-  defp default_conversation_key(tenant_id, agent_id) do
-    agent = Norns.Agents.get_agent!(agent_id)
-    mode = get_in(agent.model_config || %{}, ["mode"])
-
-    if mode == "conversation" do
-      "default"
-    else
-      "task_#{System.unique_integer([:positive])}"
-    end
-  end
 end

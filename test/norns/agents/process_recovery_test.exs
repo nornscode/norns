@@ -170,6 +170,8 @@ defmodule Norns.Agents.ProcessRecoveryTest do
         max_steps: 50,
         run: nil,
         status: :idle,
+        conversation: nil,
+        conversation_key: "default",
       }
 
       {:ok, rebuilt} = AgentProcess.rebuild_state(run.id, base_state)
@@ -228,6 +230,8 @@ defmodule Norns.Agents.ProcessRecoveryTest do
         max_steps: 50,
         run: nil,
         status: :idle,
+        conversation: nil,
+        conversation_key: "default",
       }
 
       {:ok, rebuilt} = AgentProcess.rebuild_state(run.id, base_state)

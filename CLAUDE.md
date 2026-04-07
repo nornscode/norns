@@ -46,6 +46,28 @@ lib/norns_web/
   json.ex           — Serialization helpers
 ```
 
+## Debugging with nornsctl
+
+`nornsctl` is a CLI tool for inspecting the runtime. Use it to check agent state, inspect runs, and view event logs when debugging issues.
+
+```bash
+nornsctl agents list                          # List all agents
+nornsctl agents show <id>                     # Agent details
+nornsctl agents status <id>                   # Live process state (idle, running, awaiting_llm, etc.)
+nornsctl runs list [--agent <id>] [--limit N] # List runs
+nornsctl runs show <id>                       # Run details + failure inspector
+nornsctl runs events <id> [--json]            # Full event log for a run
+nornsctl runs retry <id>                      # Retry a failed run
+nornsctl conversations list <agent_id>        # List conversations
+nornsctl conversations show <agent_id> <key>  # Conversation details
+```
+
+Configuration is via environment (already set up in `.envrc`):
+- `NORNS_URL` — API base URL
+- `NORNS_API_KEY` — bearer token
+
+When debugging a failing run, start with `nornsctl runs show <id>` to check the failure inspector, then `nornsctl runs events <id> --json` to see the full event log.
+
 ## Conventions
 
 - The orchestrator NEVER executes anything — all work goes through connected workers
@@ -60,7 +82,7 @@ lib/norns_web/
 - **Agent process** is a pure state machine (GenServer): dispatches tasks, receives results, persists events
 - **States:** `:idle`, `:awaiting_llm`, `:awaiting_tools`, `:waiting` (human input)
 - **Workers** connect via `/worker` WebSocket, register capabilities `[:llm, :tools]`, receive task pushes
-- **Conversations:** task mode (stateless) or conversation mode (persistent, keyed by external ID)
+- **Conversations:** persistent chat history, keyed by external ID (auto-generated if not provided)
 - **Events:** versioned (`schema_version: 1`), validated, provider-neutral format
 - **Crash recovery:** replay from last checkpoint, re-dispatch pending tools
 - **Idempotency:** deterministic keys for side-effecting tools, skip on replay

@@ -14,7 +14,6 @@ defmodule Norns.Agents.AgentDefTest do
 
       assert agent_def.model == "claude-sonnet-4-20250514"
       assert agent_def.system_prompt == "You are helpful."
-      assert agent_def.mode == :task
       assert agent_def.context_strategy == :sliding_window
       assert agent_def.context_window == 20
       assert agent_def.checkpoint_policy == :on_tool_call
@@ -23,31 +22,9 @@ defmodule Norns.Agents.AgentDefTest do
       assert agent_def.tools == []
     end
 
-    test "accepts older payloads without version when optional fields are omitted" do
-      assert {:ok, agent_def} =
-               AgentDef.new(%{
-                 "model" => "claude-sonnet-4-20250514",
-                 "system_prompt" => "You are helpful.",
-                 "mode" => "conversation"
-               })
-
-      assert agent_def.mode == :conversation
-      assert agent_def.context_strategy == :sliding_window
-    end
-
     test "returns stable error details for missing required fields" do
       assert {:error, %{code: "missing_required_field", field: "model", message: "model is required"}} =
                AgentDef.new(%{"system_prompt" => "You are helpful."})
-    end
-
-    test "returns stable error details for invalid enum values" do
-      assert {:error,
-              %{code: "invalid_field", field: "mode", message: "mode must be one of: conversation, task"}} =
-               AgentDef.new(%{
-                 "model" => "claude-sonnet-4-20250514",
-                 "system_prompt" => "You are helpful.",
-                 "mode" => "freeform"
-               })
     end
 
     test "returns explicit version compatibility errors" do
@@ -120,20 +97,18 @@ defmodule Norns.Agents.AgentDefTest do
       assert agent_def.on_failure == :retry_last_step
     end
 
-    test "reads mode and context defaults from model_config" do
+    test "reads context defaults from model_config" do
       tenant = create_tenant()
 
       agent =
         create_agent(tenant, %{
           model_config: %{
-            "mode" => "conversation",
             "context_strategy" => "none",
             "context_window" => "12"
           }
         })
 
       agent_def = AgentDef.from_agent(agent)
-      assert agent_def.mode == :conversation
       assert agent_def.context_strategy == :none
       assert agent_def.context_window == 12
     end

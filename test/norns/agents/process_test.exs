@@ -77,7 +77,7 @@ defmodule Norns.Agents.ProcessTest do
       assert "run_completed" in event_types
     end
 
-    test "task mode starts fresh on each run", %{tenant: tenant, agent: agent} do
+    test "conversation persists messages across runs", %{tenant: tenant, agent: agent} do
       Fake.set_responses([
         %{content: [%{"type" => "text", "text" => "first"}], stop_reason: "end_turn"},
         %{content: [%{"type" => "text", "text" => "second"}], stop_reason: "end_turn"}
@@ -93,7 +93,9 @@ defmodule Norns.Agents.ProcessTest do
 
       [first_call, second_call] = Fake.calls()
       assert first_call.messages == [%{"role" => "user", "content" => "first message"}]
-      assert second_call.messages == [%{"role" => "user", "content" => "second message"}]
+      # Second run includes conversation history
+      assert length(second_call.messages) == 3
+      assert List.last(second_call.messages) == %{"role" => "user", "content" => "second message"}
     end
   end
 

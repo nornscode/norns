@@ -107,14 +107,6 @@ defmodule NornsWeb.AgentLive do
               </select>
             </div>
             <div>
-              <label class="text-xs text-gray-500 block mb-1">Mode</label>
-              <select name="mode"
-                class="w-full bg-gray-950 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-gray-500">
-                <option value="task" selected={@config["mode"] != "conversation"}>task</option>
-                <option value="conversation" selected={@config["mode"] == "conversation"}>conversation</option>
-              </select>
-            </div>
-            <div>
               <label class="text-xs text-gray-500 block mb-1">Checkpoint Policy</label>
               <select name="checkpoint_policy"
                 class="w-full bg-gray-950 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-gray-500">
@@ -142,10 +134,6 @@ defmodule NornsWeb.AgentLive do
           <div>
             <span class="text-gray-500">On Failure:</span>
             <span class="text-gray-300 ml-1"><%= @config["on_failure"] || "stop" %></span>
-          </div>
-          <div>
-            <span class="text-gray-500">Mode:</span>
-            <span class="text-gray-300 ml-1"><%= @config["mode"] || "task" %></span>
           </div>
           <div>
             <span class="text-gray-500">Checkpoint:</span>
@@ -232,7 +220,6 @@ defmodule NornsWeb.AgentLive do
       (agent.model_config || %{})
       |> Map.merge(%{
         "on_failure" => params["on_failure"],
-        "mode" => params["mode"],
         "checkpoint_policy" => params["checkpoint_policy"],
         "context_window" => params["context_window"]
       })
