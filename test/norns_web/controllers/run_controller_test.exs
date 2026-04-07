@@ -91,6 +91,89 @@ defmodule NornsWeb.RunControllerTest do
     end
   end
 
+  describe "GET /api/v1/runs" do
+    test "lists runs for the tenant", %{conn: conn, tenant: tenant, agent: agent} do
+      {:ok, _} = Norns.Runs.create_run(%{agent_id: agent.id, tenant_id: tenant.id, trigger_type: "message", input: %{}, status: "completed", output: "done"})
+      {:ok, _} = Norns.Runs.create_run(%{agent_id: agent.id, tenant_id: tenant.id, trigger_type: "message", input: %{}, status: "failed"})
+
+      conn = get(conn, "/api/v1/runs")
+      assert %{"data" => runs} = json_response(conn, 200)
+      assert length(runs) == 2
+    end
+
+    test "does not include runs from other tenants", %{conn: conn, tenant: tenant, agent: agent} do
+      {:ok, _} = Norns.Runs.create_run(%{agent_id: agent.id, tenant_id: tenant.id, trigger_type: "message", input: %{}, status: "completed"})
+
+      other_tenant = create_tenant()
+      other_agent = create_agent(other_tenant)
+      {:ok, _} = Norns.Runs.create_run(%{agent_id: other_agent.id, tenant_id: other_tenant.id, trigger_type: "message", input: %{}, status: "completed"})
+
+      conn = get(conn, "/api/v1/runs")
+      assert %{"data" => runs} = json_response(conn, 200)
+      assert length(runs) == 1
+    end
+
+    test "respects limit parameter", %{conn: conn, tenant: tenant, agent: agent} do
+      for _ <- 1..5 do
+        Norns.Runs.create_run(%{agent_id: agent.id, tenant_id: tenant.id, trigger_type: "message", input: %{}, status: "completed"})
+      end
+
+      conn = get(conn, "/api/v1/runs?limit=3")
+      assert %{"data" => runs} = json_response(conn, 200)
+      assert length(runs) == 3
+    end
+  end
+
+  describe "POST /api/v1/runs/:id/retry" do
+    test "retries a failed run", %{conn: conn, tenant: tenant, agent: agent} do
+      Norns.LLM.Fake.set_responses([
+        %{content: [%{"type" => "text", "text" => "retried"}], stop_reason: "end_turn"}
+      ])
+
+      {:ok, run} = Norns.Runs.create_run(%{
+        agent_id: agent.id, tenant_id: tenant.id, trigger_type: "message",
+        input: %{"user_message" => "hello"}, status: "failed"
+      })
+
+      conn = post(conn, "/api/v1/runs/#{run.id}/retry")
+      assert %{"status" => "accepted", "run_id" => new_run_id} = json_response(conn, 202)
+      assert new_run_id != run.id
+    end
+
+    test "rejects retry of a running run", %{conn: conn, tenant: tenant, agent: agent} do
+      {:ok, run} = Norns.Runs.create_run(%{
+        agent_id: agent.id, tenant_id: tenant.id, trigger_type: "message",
+        input: %{"user_message" => "hello"}, status: "running"
+      })
+
+      conn = post(conn, "/api/v1/runs/#{run.id}/retry")
+      assert json_response(conn, 409)
+    end
+
+    test "rejects retry when no user_message", %{conn: conn, tenant: tenant, agent: agent} do
+      {:ok, run} = Norns.Runs.create_run(%{
+        agent_id: agent.id, tenant_id: tenant.id, trigger_type: "message",
+        input: %{}, status: "failed"
+      })
+
+      conn = post(conn, "/api/v1/runs/#{run.id}/retry")
+      assert json_response(conn, 422)
+    end
+
+    test "returns 404 for another tenant's run", %{conn: conn} do
+      other_tenant = create_tenant()
+      other_agent = create_agent(other_tenant)
+
+      {:ok, run} = Norns.Runs.create_run(%{
+        agent_id: other_agent.id, tenant_id: other_tenant.id, trigger_type: "message",
+        input: %{"user_message" => "hello"}, status: "failed"
+      })
+
+      conn = post(conn, "/api/v1/runs/#{run.id}/retry")
+      assert json_response(conn, 404)
+    end
+  end
+
   describe "GET /api/v1/runs/:id/events" do
     test "returns event log", %{conn: conn, tenant: tenant, agent: agent} do
       {:ok, run} =
