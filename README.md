@@ -82,10 +82,11 @@ Open `http://localhost:4000` and set up a tenant.
 
 Then run a worker using one of the SDKs below.
 
-## SDKs and examples
+## SDKs, CLI, and examples
 
 - Python SDK: https://github.com/amackera/norns-sdk-python
 - Elixir SDK: https://github.com/amackera/norns-sdk-elixir
+- CLI (`nornsctl`): https://github.com/amackera/nornsctl
 - Hello example: https://github.com/amackera/norns-hello-agent
 - Full example app (Mimir): https://github.com/amackera/norns-mimir-agent
 
