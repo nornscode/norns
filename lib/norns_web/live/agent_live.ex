@@ -194,16 +194,26 @@ defmodule NornsWeb.AgentLive do
     <%= if @runs == [] do %>
       <p class="text-gray-600 text-xs">No runs yet.</p>
     <% else %>
-      <div class="space-y-1">
-        <%= for run <- @runs do %>
-          <a href={"/runs/#{run.id}"} class="flex items-center justify-between bg-gray-900 border border-gray-800 rounded px-4 py-2 hover:border-gray-700">
-            <div class="flex items-center gap-3">
-              <span class={["w-1.5 h-1.5 rounded-full", run_status_color(run.status)]}></span>
-              <span class="text-xs text-gray-400">Run #<%= run.id %></span>
-              <span class="text-xs text-gray-600"><%= run.status %></span>
-            </div>
-            <span class="text-xs text-gray-600"><%= format_time(run.inserted_at) %></span>
-          </a>
+      <div class="space-y-4">
+        <%= for {conv_id, runs} <- group_runs_by_conversation(@runs) do %>
+          <%= if conv_id do %>
+            <div class="text-xs text-gray-600 mt-1">conversation #<%= conv_id %></div>
+          <% end %>
+          <div class="space-y-1">
+            <%= for run <- runs do %>
+              <a href={"/runs/#{run.id}"} class="flex items-center justify-between bg-gray-900 border border-gray-800 rounded px-4 py-2 hover:border-gray-700">
+                <div class="flex items-center gap-3 min-w-0">
+                  <span class={["w-1.5 h-1.5 rounded-full shrink-0", run_status_color(run.status)]}></span>
+                  <span class="text-xs text-gray-400 shrink-0">Run #<%= run.id %></span>
+                  <span class="text-xs text-gray-600 shrink-0"><%= run.status %></span>
+                  <%= if preview = run_input_preview(run) do %>
+                    <span class="text-xs text-gray-500 truncate"><%= preview %></span>
+                  <% end %>
+                </div>
+                <span class="text-xs text-gray-600 shrink-0 ml-3"><%= format_time(run.inserted_at) %></span>
+              </a>
+            <% end %>
+          </div>
         <% end %>
       </div>
     <% end %>
@@ -345,6 +355,18 @@ defmodule NornsWeb.AgentLive do
   defp event_color(%{type: "completed"}), do: "text-green-400"
   defp event_color(%{type: "error"}), do: "text-red-400"
   defp event_color(_), do: "text-gray-400"
+
+  defp run_input_preview(%{input: %{"user_message" => msg}}) when is_binary(msg) and msg != "" do
+    String.slice(msg, 0, 80)
+  end
+
+  defp run_input_preview(_), do: nil
+
+  defp group_runs_by_conversation(runs) do
+    runs
+    |> Enum.group_by(& &1.conversation_id)
+    |> Enum.sort_by(fn {_conv_id, runs} -> hd(runs).inserted_at end, {:desc, DateTime})
+  end
 
   defp format_time(nil), do: ""
   defp format_time(dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
