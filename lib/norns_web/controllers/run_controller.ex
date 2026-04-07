@@ -1,7 +1,7 @@
 defmodule NornsWeb.RunController do
   use NornsWeb, :controller
 
-  alias Norns.{Agents, Runs}
+  alias Norns.Runs
   alias Norns.Agents.Registry
 
   def index(conn, params) do
