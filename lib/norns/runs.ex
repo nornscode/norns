@@ -20,6 +20,16 @@ defmodule Norns.Runs do
     |> Repo.all()
   end
 
+  def list_runs_for_tenant(tenant_id, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 50)
+
+    Run
+    |> where([r], r.tenant_id == ^tenant_id)
+    |> order_by([r], desc: r.inserted_at)
+    |> limit(^limit)
+    |> Repo.all()
+  end
+
   def create_run(attrs) do
     %Run{}
     |> Run.changeset(attrs)

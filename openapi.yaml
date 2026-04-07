@@ -287,6 +287,31 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /runs:
+    get:
+      operationId: listRuns
+      summary: List runs across all agents
+      tags: [Runs]
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: List of runs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Run"
+
   /runs/{id}:
     get:
       operationId: getRun
@@ -310,6 +335,45 @@ paths:
                     $ref: "#/components/schemas/Run"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  /runs/{id}/retry:
+    post:
+      operationId: retryRun
+      summary: Retry a failed run with the same input
+      tags: [Runs]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "202":
+          description: Retry accepted, new run started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: accepted
+                  run_id:
+                    type: integer
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Run still in progress or agent is busy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Run has no user_message to retry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /runs/{id}/events:
     get:
