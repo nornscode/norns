@@ -14,6 +14,8 @@
 
 https://github.com/user-attachments/assets/b300b164-dc0c-44ea-a794-1de00b4f01a7
 
+<p align="center"><sub>An agent calls <code>wait</code> (10s) then <code>say_hello</code>. The worker is killed twice mid-run. Each time, a new worker connects and the run resumes from where it left off. No state lost, no duplicate execution.</sub></p>
+
 Norns is an open-source durable runtime for AI agents.
 
 It uses an orchestrator/worker architecture: you run workers in your own infrastructure (Python/Elixir), and Norns coordinates runs, retries, checkpoints, and event timelines.
