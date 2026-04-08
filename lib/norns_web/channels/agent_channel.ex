@@ -12,8 +12,6 @@ defmodule NornsWeb.AgentChannel do
     agent = Agents.get_agent!(agent_id)
 
     if agent.tenant_id == tenant_id do
-      # Subscribe to the agent's PubSub topic for process events
-      Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{agent_id}")
       {:ok, assign(socket, :agent_id, agent_id)}
     else
       {:error, %{reason: "not found"}}
