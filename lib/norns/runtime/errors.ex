@@ -28,6 +28,10 @@ defmodule Norns.Runtime.Errors do
     %Error{class: :internal, code: :runtime_failure, message: message, details: %{}}
   end
 
+  def classify("worker disconnected") do
+    %Error{class: :transient, code: :worker_disconnected, message: "Worker disconnected", details: %{}}
+  end
+
   def classify({:timeout, reason}) do
     %Error{class: :transient, code: :timeout, message: "Timeout: #{inspect(reason)}", details: %{reason: inspect(reason)}}
   end
