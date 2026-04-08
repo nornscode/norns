@@ -12,7 +12,7 @@ defmodule Norns.Runtime.ErrorPolicy do
   end
 
   def decision(%Error{class: class, code: code}, retry_count)
-      when {class, code} in [{:transient, :timeout}, {:external_dependency, :upstream_unavailable}] do
+      when {class, code} in [{:transient, :timeout}, {:transient, :worker_disconnected}, {:external_dependency, :upstream_unavailable}] do
     bounded_decision(retry_count, @default_max_retries, 1000 * Integer.pow(2, retry_count))
   end
 
