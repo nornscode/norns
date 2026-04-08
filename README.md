@@ -69,21 +69,6 @@ If no worker is connected, tasks queue and resume when workers reconnect.
 - **Checkpoint**: durable state snapshot used for resume/replay
 - **Worker**: process that executes LLM/tool tasks
 
-## Quickstart
-
-```bash
-git clone https://github.com/amackera/norns.git
-cd norns
-docker compose up -d
-docker compose run --rm -e POSTGRES_HOST=db app mix ecto.create
-docker compose run --rm -e POSTGRES_HOST=db app mix ecto.migrate
-docker compose up
-```
-
-Open `http://localhost:4000` and set up a tenant.
-
-Then run a worker using one of the SDKs below.
-
 ## SDKs, CLI, and examples
 
 - Python SDK: https://github.com/amackera/norns-sdk-python
@@ -124,42 +109,12 @@ result = client.send_message("support-bot", "Where is my order?", wait=True)
 print(result.output)
 ```
 
-## API (v0 surface)
-
-```text
-POST   /api/v1/agents
-GET    /api/v1/agents
-GET    /api/v1/agents/:id
-POST   /api/v1/agents/:id/messages
-GET    /api/v1/agents/:id/runs
-GET    /api/v1/agents/:id/conversations
-GET    /api/v1/runs/:id
-GET    /api/v1/runs/:id/events
-```
-
-Auth: `Authorization: Bearer <token>`
-
 ## Current status
 
 - Runtime and core APIs are working
 - SDKs are active and evolving
 - Contracts are stabilizing
 - Still early-stage; expect changes
-
-## Architecture
-
-```text
-Norns.Supervisor
-├── Repo (PostgreSQL)
-├── PubSub
-├── DynamicSupervisor
-│   └── Agent processes
-├── WorkerRegistry
-├── TaskQueue
-└── Phoenix Endpoint (REST, WS, LiveView)
-```
-
-See `docs/architecture.md` for details.
 
 ## License
 
