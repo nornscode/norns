@@ -150,7 +150,7 @@ defmodule Norns.Workers.WorkerRegistry do
   end
 
   def handle_call({:dispatch_llm, tenant_id, task, from_pid}, _from, state) do
-    worker = find_worker(state, tenant_id, fn w -> :llm in w.capabilities end)
+    worker = find_worker(state, tenant_id, fn w -> :llm in w.capabilities and Process.alive?(w.channel_pid) end)
 
     case worker do
       {_key, w} ->
@@ -184,7 +184,7 @@ defmodule Norns.Workers.WorkerRegistry do
     run_id = Keyword.get(opts, :run_id)
     from_pid = Keyword.get(opts, :from_pid, self())
 
-    worker = find_worker(state, tenant_id, fn w -> Enum.any?(w.tools, &(tool_name(&1) == tool_name)) end)
+    worker = find_worker(state, tenant_id, fn w -> Process.alive?(w.channel_pid) and Enum.any?(w.tools, &(tool_name(&1) == tool_name)) end)
 
     case worker do
       {_key, w} ->
@@ -262,7 +262,7 @@ defmodule Norns.Workers.WorkerRegistry do
         Logger.info("Worker #{worker_id} disconnected from tenant #{tenant_id}")
         workers = Map.delete(state.workers, key)
 
-        # Fail all pending tasks that were dispatched to this worker
+        # Fail all pending tasks — agent retry policy will re-dispatch
         {failed, remaining} =
           Map.split_with(state.pending, fn {_task_id, info} ->
             info.tenant_id == tenant_id
