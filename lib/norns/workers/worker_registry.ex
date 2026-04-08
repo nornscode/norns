@@ -225,7 +225,19 @@ defmodule Norns.Workers.WorkerRegistry do
     case Map.pop(state.workers, key) do
       {%{monitor_ref: ref}, workers} ->
         Process.demonitor(ref, [:flush])
-        {:noreply, %{state | workers: workers}}
+        Logger.info("Worker #{worker_id} unregistered from tenant #{tenant_id}")
+
+        # Fail pending tasks so agents can retry instead of waiting for timeout
+        {failed, remaining} =
+          Map.split_with(state.pending, fn {_task_id, info} ->
+            info.tenant_id == tenant_id
+          end)
+
+        Enum.each(failed, fn {task_id, %{from_pid: pid}} ->
+          send(pid, {:task_result, task_id, {:error, "worker disconnected"}})
+        end)
+
+        {:noreply, %{state | workers: workers, pending: remaining}}
 
       {nil, _} ->
         {:noreply, state}
