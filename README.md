@@ -12,6 +12,8 @@
 
 <p align="center">Durable agent runtime on BEAM.</p>
 
+https://github.com/user-attachments/assets/b300b164-dc0c-44ea-a794-1de00b4f01a7
+
 Norns is an open-source durable runtime for AI agents.
 
 It uses an orchestrator/worker architecture: you run workers in your own infrastructure (Python/Elixir), and Norns coordinates runs, retries, checkpoints, and event timelines.
