@@ -22,9 +22,9 @@ Norns is an open-source durable runtime for AI agents. It survives crashes and r
 
 Your agent is 8 tool calls deep when the worker crashes. Without Norns, you start over from the beginning. With Norns, the next worker picks up at call 9.
 
-Your payment tool times out and the agent retries. Without Norns, you risk charging the customer twice. With Norns, the retry is idempotent and the LLM sees the same history both times.
+Your payment tool times out and the agent retries. Without Norns, you risk charging the customer twice. With Norns, the retry is idempotent — the charge happens once.
 
-A run fails at 3am. Without Norns, you dig through logs. With Norns, every step is an event in a timeline you can inspect and replay.
+Your agent is halfway through a 20-step research task when a deploy ships. Without Norns, in-flight runs die. With Norns, runs survive deploys and resume on the new version.
 
 Under the hood: checkpointed progress, deterministic retries, idempotent side effects, inspectable event logs.
 
