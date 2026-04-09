@@ -20,14 +20,13 @@ Norns is an open-source durable runtime for AI agents. It survives crashes and r
 
 ## Why use it
 
-When agents do real work, failures happen: process crashes, network timeouts, tool errors, duplicate retries.
+Your agent is 8 tool calls deep when the worker crashes. Without Norns, you start over from the beginning. With Norns, the next worker picks up at call 9.
 
-Norns gives you one execution model for those failures:
+Your payment tool times out and the agent retries. Without Norns, you risk charging the customer twice. With Norns, the retry is idempotent and the LLM sees the same history both times.
 
-- checkpointed progress
-- deterministic retries
-- idempotent side effects
-- inspectable timelines
+A run fails at 3am. Without Norns, you dig through logs. With Norns, every step is an event in a timeline you can inspect and replay.
+
+Under the hood: checkpointed progress, deterministic retries, idempotent side effects, inspectable event logs.
 
 ## How it works
 
@@ -99,10 +98,14 @@ print(result.output)
 
 ## Current status
 
-- Runtime and core APIs are working
-- SDKs are active and evolving
-- Contracts are stabilizing
-- Still early-stage; expect changes
+v0.1 — runtime and core APIs are working. SDKs are published and active. Breaking changes will be documented in releases.
+
+## What's next
+
+- HTTP push transport for serverless tool execution
+- Norns Cloud preview (hosted orchestrator)
+- MCP tool integration
+- Multi-node clustering via Horde
 
 ## License
 
