@@ -1,10 +1,6 @@
 <h1 align="center">Norns</h1>
 
 <p align="center">
-  <img src="images/norns-logo-simple.png" alt="Norns" width="80" />
-</p>
-
-<p align="center">
   <a href="https://github.com/amackera/norns/actions/workflows/ci.yml"><img src="https://github.com/amackera/norns/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://elixir-lang.org/"><img src="https://img.shields.io/badge/elixir-1.18-purple.svg" alt="Elixir" /></a>
