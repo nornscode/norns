@@ -26,6 +26,16 @@ defmodule NornsWeb.Router do
     live "/tools", ToolsLive
   end
 
+  pipeline :api_public do
+    plug :accepts, ["json"]
+  end
+
+  scope "/api/v1", NornsWeb do
+    pipe_through :api_public
+
+    post "/telemetry/first-run", TelemetryController, :first_run
+  end
+
   scope "/api/v1", NornsWeb do
     pipe_through :api
 
