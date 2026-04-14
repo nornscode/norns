@@ -1,5 +1,4 @@
-<h1 align="center">Norns</h1>
-<h2 align="center">ᚾᚾᚾ</h2>
+<h1 align="center">Norns<br><sub>ᚾᚾᚾ</sub></h1>
 
 <p align="center">
   <a href="https://github.com/amackera/norns/actions/workflows/ci.yml"><img src="https://github.com/amackera/norns/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
