@@ -6,13 +6,24 @@
   <a href="https://elixir-lang.org/"><img src="https://img.shields.io/badge/elixir-1.18-purple.svg" alt="Elixir" /></a>
 </p>
 
-<p align="center">Durable execution for AI agents, on the BEAM.</p>
+<p align="center">BEAM-based durable execution for AI agents</p>
 
 https://github.com/user-attachments/assets/b300b164-dc0c-44ea-a794-1de00b4f01a7
 
 <p align="center"><sub>An agent calls <code>wait</code> (10s) then <code>say_hello</code>. The worker is killed twice mid-run. Each time, a new worker connects and the run resumes from where it left off. No state lost, no duplicate execution.</sub></p>
 
 Norns is an open-source durable runtime for AI agents. It survives crashes and resumes from persisted state. You run workers in your own infrastructure (Python/Elixir), and Norns coordinates runs, retries, checkpoints, and event timelines. Norns never touches your API keys or data.
+
+## Get started
+
+```bash
+git clone https://github.com/amackera/norns.git && cd norns
+docker compose up -d
+docker compose run --rm -e POSTGRES_HOST=db app mix ecto.setup
+docker compose up
+```
+
+Open http://localhost:4000, create a tenant, then run the [hello example](https://github.com/amackera/norns-hello-agent) to see an agent in action.
 
 ## Why use it
 
@@ -75,11 +86,10 @@ agent = Agent(
     model="claude-sonnet-4-20250514",
     system_prompt="You are a support assistant.",
     tools=[search_docs],
-    mode="conversation",
 )
 
 norns = Norns("http://localhost:4000", api_key="nrn_...")
-norns.run(agent, llm_api_key=os.environ["ANTHROPIC_API_KEY"])
+norns.run(agent)
 ```
 
 ### Python (client)
@@ -92,16 +102,9 @@ result = client.send_message("support-bot", "Where is my order?", wait=True)
 print(result.output)
 ```
 
-## Current status
+## Status
 
-v0.1 — runtime and core APIs are working. SDKs are published and active. Breaking changes will be documented in releases.
-
-## What's next
-
-- HTTP push transport for serverless tool execution
-- Norns Cloud preview (hosted orchestrator)
-- MCP tool integration
-- Multi-node clustering via Horde
+Norns is v0.x. The runtime, SDKs, and CLI are working and in active development. APIs are stabilizing; breaking changes will be noted in releases. Pin versions for production use.
 
 ## License
 
