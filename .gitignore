@@ -12,3 +12,5 @@
 !/priv/static/assets/phoenix.min.js
 !/priv/static/assets/phoenix_live_view.min.js
 !/priv/static/assets/app.css
+
+.DS_Store/
