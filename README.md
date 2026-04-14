@@ -17,13 +17,12 @@ Norns is an open-source durable runtime for AI agents. It survives crashes and r
 ## Get started
 
 ```bash
-git clone https://github.com/amackera/norns.git && cd norns
-docker compose up -d
-docker compose run --rm -e POSTGRES_HOST=db app mix ecto.setup
-docker compose up
+go install github.com/amackera/nornsctl@latest
+nornsctl new my-agent
+nornsctl dev
 ```
 
-Open http://localhost:4000, create a tenant, then run the [hello example](https://github.com/amackera/norns-hello-agent) to see an agent in action.
+You'll have a Norns server running on http://localhost:4000 and a scaffolded agent ready to run. See the [hello example](https://github.com/amackera/norns-hello-agent) for a full walkthrough.
 
 ## Why use it
 
