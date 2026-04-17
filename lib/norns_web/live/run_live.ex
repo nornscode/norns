@@ -118,9 +118,10 @@ defmodule NornsWeb.RunLive do
           </div>
           <%= if detail = event_detail(event) do %>
             <%= if String.length(detail) > 200 do %>
-              <details class="mt-1 ml-9">
+              <details class="mt-1 ml-9 group">
                 <summary class="text-xs text-gray-600 cursor-pointer hover:text-gray-400">
-                  <%= String.slice(detail, 0, 200) %><span class="text-gray-700">...</span>
+                  <span class="group-open:hidden"><%= String.slice(detail, 0, 200) %><span class="text-gray-700">...</span></span>
+                  <span class="hidden group-open:inline text-gray-700">collapse</span>
                 </summary>
                 <div class="text-xs text-gray-600 whitespace-pre-wrap mt-1"><%= detail %></div>
               </details>
