@@ -55,24 +55,23 @@ defmodule NornsWeb.AgentLive do
     </div>
 
     <%!-- Agent info --%>
-    <div class="grid grid-cols-2 gap-4 mb-6">
-      <div class="bg-gray-900 border border-gray-800 rounded p-4">
-        <div class="text-xs text-gray-500 mb-1">System Prompt</div>
-        <div class="text-sm text-gray-300 whitespace-pre-wrap"><%= @agent.system_prompt %></div>
+    <div class="bg-gray-900 border border-gray-800 rounded p-4 mb-4">
+      <div class="text-xs text-gray-500 mb-1">System Prompt</div>
+      <div class="text-sm text-gray-300 whitespace-pre-wrap"><%= @agent.system_prompt %></div>
+    </div>
+
+    <div class="flex items-center gap-6 text-sm mb-6 bg-gray-900 border border-gray-800 rounded px-4 py-2">
+      <div>
+        <span class="text-xs text-gray-500">Status:</span>
+        <span class="ml-1"><%= if @state, do: @state.status, else: "stopped" %></span>
       </div>
-      <div class="bg-gray-900 border border-gray-800 rounded p-4 space-y-2">
-        <div>
-          <span class="text-xs text-gray-500">Status:</span>
-          <span class="text-sm ml-1"><%= if @state, do: @state.status, else: "stopped" %></span>
-        </div>
-        <div>
-          <span class="text-xs text-gray-500">Step:</span>
-          <span class="text-sm ml-1"><%= if @state, do: @state.step, else: "-" %></span>
-        </div>
-        <div>
-          <span class="text-xs text-gray-500">Max Steps:</span>
-          <span class="text-sm ml-1"><%= @agent.max_steps %></span>
-        </div>
+      <div>
+        <span class="text-xs text-gray-500">Step:</span>
+        <span class="ml-1"><%= if @state, do: @state.step, else: "-" %></span>
+      </div>
+      <div>
+        <span class="text-xs text-gray-500">Max Steps:</span>
+        <span class="ml-1"><%= @agent.max_steps %></span>
       </div>
     </div>
 
