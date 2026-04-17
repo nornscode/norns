@@ -6,7 +6,7 @@
   <a href="https://elixir-lang.org/"><img src="https://img.shields.io/badge/elixir-1.18-purple.svg" alt="Elixir" /></a>
 </p>
 
-<p align="center">BEAM-based durable execution for AI agents</p>
+<p align="center">Durable execution for AI agents</p>
 
 https://github.com/user-attachments/assets/b300b164-dc0c-44ea-a794-1de00b4f01a7
 
