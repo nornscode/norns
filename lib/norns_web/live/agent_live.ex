@@ -45,22 +45,22 @@ defmodule NornsWeb.AgentLive do
   def render(assigns) do
     ~H"""
     <div class="mb-6">
-      <a href="/" class="text-xs text-gray-500 hover:text-gray-400">&larr; agents</a>
+      <a href="/" class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-400">&larr; agents</a>
     </div>
 
     <div class="flex items-center gap-3 mb-6">
       <span class={["w-2.5 h-2.5 rounded-full", status_color(@state)]}></span>
-      <h1 class="text-xl font-bold text-white"><%= @agent.name %></h1>
+      <h1 class="text-xl font-bold text-gray-900 dark:text-white"><%= @agent.name %></h1>
       <span class="text-xs text-gray-500"><%= @agent.model %></span>
     </div>
 
     <%!-- Agent info --%>
-    <div class="bg-gray-900 border border-gray-800 rounded p-4 mb-4">
+    <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-4 mb-4">
       <div class="text-xs text-gray-500 mb-1">System Prompt</div>
-      <div class="text-sm text-gray-300 whitespace-pre-wrap"><%= @agent.system_prompt %></div>
+      <div class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap"><%= @agent.system_prompt %></div>
     </div>
 
-    <div class="flex items-center gap-6 text-sm mb-6 bg-gray-900 border border-gray-800 rounded px-4 py-2">
+    <div class="flex items-center gap-6 text-sm mb-6 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded px-4 py-2">
       <div>
         <span class="text-xs text-gray-500">Status:</span>
         <span class="ml-1"><%= if @state, do: @state.status, else: "stopped" %></span>
@@ -76,10 +76,10 @@ defmodule NornsWeb.AgentLive do
     </div>
 
     <%!-- Config --%>
-    <div class="bg-gray-900 border border-gray-800 rounded p-4 mb-6">
+    <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-4 mb-6">
       <div class="flex items-center justify-between mb-3">
         <span class="text-xs text-gray-500 font-medium">Configuration</span>
-        <button phx-click="toggle_config_edit" class="text-xs text-gray-500 hover:text-gray-400">
+        <button phx-click="toggle_config_edit" class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-400">
           <%= if @editing_config, do: "cancel", else: "edit" %>
         </button>
       </div>
@@ -90,17 +90,17 @@ defmodule NornsWeb.AgentLive do
             <div>
               <label class="text-xs text-gray-500 block mb-1">Model</label>
               <input type="text" name="model" value={@agent.model}
-                class="w-full bg-gray-950 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-gray-500" />
+                class="w-full bg-white dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-gray-500" />
             </div>
             <div>
               <label class="text-xs text-gray-500 block mb-1">Max Steps</label>
               <input type="number" name="max_steps" value={@agent.max_steps}
-                class="w-full bg-gray-950 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-gray-500" />
+                class="w-full bg-white dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-gray-500" />
             </div>
             <div>
               <label class="text-xs text-gray-500 block mb-1">On Failure</label>
               <select name="on_failure"
-                class="w-full bg-gray-950 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-gray-500">
+                class="w-full bg-white dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-gray-500">
                 <option value="stop" selected={@config["on_failure"] != "retry_last_step"}>stop</option>
                 <option value="retry_last_step" selected={@config["on_failure"] == "retry_last_step"}>retry_last_step</option>
               </select>
@@ -108,7 +108,7 @@ defmodule NornsWeb.AgentLive do
             <div>
               <label class="text-xs text-gray-500 block mb-1">Checkpoint Policy</label>
               <select name="checkpoint_policy"
-                class="w-full bg-gray-950 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-gray-500">
+                class="w-full bg-white dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-gray-500">
                 <option value="on_tool_call" selected={@config["checkpoint_policy"] not in ["every_step", "manual"]}>on_tool_call</option>
                 <option value="every_step" selected={@config["checkpoint_policy"] == "every_step"}>every_step</option>
                 <option value="manual" selected={@config["checkpoint_policy"] == "manual"}>manual</option>
@@ -117,10 +117,10 @@ defmodule NornsWeb.AgentLive do
             <div>
               <label class="text-xs text-gray-500 block mb-1">Context Window</label>
               <input type="number" name="context_window" value={@config["context_window"] || 20}
-                class="w-full bg-gray-950 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-gray-500" />
+                class="w-full bg-white dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-gray-500" />
             </div>
           </div>
-          <button type="submit" class="text-xs bg-white text-gray-950 font-medium px-3 py-1.5 rounded hover:bg-gray-200">
+          <button type="submit" class="text-xs bg-gray-900 dark:bg-white text-white dark:text-gray-950 font-medium px-3 py-1.5 rounded hover:bg-gray-800 dark:hover:bg-gray-200">
             Save
           </button>
         </form>
@@ -128,23 +128,23 @@ defmodule NornsWeb.AgentLive do
         <div class="grid grid-cols-3 gap-x-6 gap-y-1 text-sm">
           <div>
             <span class="text-gray-500">Model:</span>
-            <span class="text-gray-300 ml-1"><%= @agent.model %></span>
+            <span class="text-gray-700 dark:text-gray-300 ml-1"><%= @agent.model %></span>
           </div>
           <div>
             <span class="text-gray-500">On Failure:</span>
-            <span class="text-gray-300 ml-1"><%= @config["on_failure"] || "stop" %></span>
+            <span class="text-gray-700 dark:text-gray-300 ml-1"><%= @config["on_failure"] || "stop" %></span>
           </div>
           <div>
             <span class="text-gray-500">Checkpoint:</span>
-            <span class="text-gray-300 ml-1"><%= @config["checkpoint_policy"] || "on_tool_call" %></span>
+            <span class="text-gray-700 dark:text-gray-300 ml-1"><%= @config["checkpoint_policy"] || "on_tool_call" %></span>
           </div>
           <div>
             <span class="text-gray-500">Context Window:</span>
-            <span class="text-gray-300 ml-1"><%= @config["context_window"] || 20 %></span>
+            <span class="text-gray-700 dark:text-gray-300 ml-1"><%= @config["context_window"] || 20 %></span>
           </div>
           <div>
             <span class="text-gray-500">Max Steps:</span>
-            <span class="text-gray-300 ml-1"><%= @agent.max_steps %></span>
+            <span class="text-gray-700 dark:text-gray-300 ml-1"><%= @agent.max_steps %></span>
           </div>
         </div>
       <% end %>
@@ -154,8 +154,8 @@ defmodule NornsWeb.AgentLive do
     <div class="flex items-center gap-3 mb-6">
       <form phx-submit="send_message" class="flex items-center gap-2 flex-1">
         <input type="text" name="content" value={@message} placeholder="Send a message..."
-          class="flex-1 bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-gray-500" />
-        <button type="submit" class="text-xs text-blue-400 hover:text-blue-300 border border-blue-900 px-3 py-1.5 rounded">
+          class="flex-1 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded px-3 py-1.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:border-gray-500" />
+        <button type="submit" class="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 border border-blue-300 dark:border-blue-900 px-3 py-1.5 rounded">
           send
         </button>
       </form>
@@ -164,12 +164,12 @@ defmodule NornsWeb.AgentLive do
     <%!-- Live events --%>
     <%= if @events != [] do %>
       <div class="mb-6">
-        <h2 class="text-sm font-bold text-gray-400 mb-2">Live Events</h2>
+        <h2 class="text-sm font-bold text-gray-600 dark:text-gray-400 mb-2">Live Events</h2>
         <div class="space-y-1 max-h-60 overflow-y-auto">
           <%= for event <- Enum.reverse(@events) do %>
-            <div class="text-xs text-gray-400 bg-gray-900 border border-gray-800 rounded px-3 py-1.5">
+            <div class="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded px-3 py-1.5">
               <span class={event_color(event.type)}><%= event.type %></span>
-              <span class="text-gray-600 ml-2"><%= event.detail %></span>
+              <span class="text-gray-500 dark:text-gray-600 ml-2"><%= event.detail %></span>
             </div>
           <% end %>
         </div>
@@ -177,27 +177,27 @@ defmodule NornsWeb.AgentLive do
     <% end %>
 
     <%!-- Runs --%>
-    <h2 class="text-sm font-bold text-gray-400 mb-2">Runs</h2>
+    <h2 class="text-sm font-bold text-gray-600 dark:text-gray-400 mb-2">Runs</h2>
     <%= if @runs == [] do %>
-      <p class="text-gray-600 text-xs">No runs yet.</p>
+      <p class="text-gray-500 dark:text-gray-600 text-xs">No runs yet.</p>
     <% else %>
       <div class="space-y-4">
         <%= for {conv_id, runs} <- group_runs_by_conversation(@runs) do %>
           <%= if conv_id do %>
-            <div class="text-xs text-gray-600 mt-1">conversation #<%= conv_id %></div>
+            <div class="text-xs text-gray-500 dark:text-gray-600 mt-1">conversation #<%= conv_id %></div>
           <% end %>
           <div class="space-y-1">
             <%= for run <- runs do %>
-              <a href={"/runs/#{run.id}"} class="flex items-center justify-between bg-gray-900 border border-gray-800 rounded px-4 py-2 hover:border-gray-700">
+              <a href={"/runs/#{run.id}"} class="flex items-center justify-between bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded px-4 py-2 hover:border-gray-300 dark:hover:border-gray-700">
                 <div class="flex items-center gap-3 min-w-0">
                   <span class={["w-1.5 h-1.5 rounded-full shrink-0", run_status_color(run.status)]}></span>
-                  <span class="text-xs text-gray-400 shrink-0">Run #<%= run.id %></span>
-                  <span class="text-xs text-gray-600 shrink-0"><%= run.status %></span>
+                  <span class="text-xs text-gray-600 dark:text-gray-400 shrink-0">Run #<%= run.id %></span>
+                  <span class="text-xs text-gray-500 dark:text-gray-600 shrink-0"><%= run.status %></span>
                   <%= if preview = run_input_preview(run) do %>
                     <span class="text-xs text-gray-500 truncate"><%= preview %></span>
                   <% end %>
                 </div>
-                <span class="text-xs text-gray-600 shrink-0 ml-3"><%= format_time(run.inserted_at) %></span>
+                <span class="text-xs text-gray-500 dark:text-gray-600 shrink-0 ml-3"><%= format_time(run.inserted_at) %></span>
               </a>
             <% end %>
           </div>
@@ -326,21 +326,21 @@ defmodule NornsWeb.AgentLive do
   defp status_color(%{status: :running}), do: "bg-green-400 animate-pulse-dot"
   defp status_color(%{status: :waiting_timer}), do: "bg-yellow-400 animate-pulse-dot"
   defp status_color(%{status: :idle}), do: "bg-blue-400"
-  defp status_color(_), do: "bg-gray-600"
+  defp status_color(_), do: "bg-gray-400 dark:bg-gray-600"
 
   defp run_status_color("completed"), do: "bg-green-400"
   defp run_status_color("running"), do: "bg-blue-400 animate-pulse-dot"
   defp run_status_color("failed"), do: "bg-red-400"
-  defp run_status_color(_), do: "bg-gray-600"
+  defp run_status_color(_), do: "bg-gray-400 dark:bg-gray-600"
 
-  defp event_color(%{type: "message_sent"}), do: "text-white"
-  defp event_color(%{type: "waiting_timer"}), do: "text-yellow-400"
-  defp event_color(%{type: "tool_call"}), do: "text-yellow-400"
-  defp event_color(%{type: "tool_result"}), do: "text-yellow-300"
-  defp event_color(%{type: "llm_response"}), do: "text-blue-400"
-  defp event_color(%{type: "completed"}), do: "text-green-400"
-  defp event_color(%{type: "error"}), do: "text-red-400"
-  defp event_color(_), do: "text-gray-400"
+  defp event_color(%{type: "message_sent"}), do: "text-gray-900 dark:text-white"
+  defp event_color(%{type: "waiting_timer"}), do: "text-yellow-600 dark:text-yellow-400"
+  defp event_color(%{type: "tool_call"}), do: "text-yellow-600 dark:text-yellow-400"
+  defp event_color(%{type: "tool_result"}), do: "text-yellow-600 dark:text-yellow-300"
+  defp event_color(%{type: "llm_response"}), do: "text-blue-600 dark:text-blue-400"
+  defp event_color(%{type: "completed"}), do: "text-green-600 dark:text-green-400"
+  defp event_color(%{type: "error"}), do: "text-red-600 dark:text-red-400"
+  defp event_color(_), do: "text-gray-600 dark:text-gray-400"
 
   defp run_input_preview(%{input: %{"user_message" => msg}}) when is_binary(msg) and msg != "" do
     String.slice(msg, 0, 80)

@@ -26,35 +26,35 @@ defmodule NornsWeb.SetupLive do
   def render(assigns) do
     ~H"""
     <div class="max-w-md mx-auto mt-20">
-      <h1 class="text-2xl font-bold text-white mb-2">norns</h1>
+      <h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-2">norns</h1>
       <p class="text-sm text-gray-500 mb-8">Durable agent runtime on BEAM</p>
 
       <%= if @step == :form do %>
-        <div class="bg-gray-900 border border-gray-800 rounded p-6">
-          <h2 class="text-lg text-white mb-4">Create your first tenant</h2>
+        <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-6">
+          <h2 class="text-lg text-gray-900 dark:text-white mb-4">Create your first tenant</h2>
 
           <%= if @error do %>
-            <div class="bg-red-900/30 border border-red-800 text-red-300 px-3 py-2 rounded mb-4 text-sm">
+            <div class="bg-red-50 dark:bg-red-900/30 border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 px-3 py-2 rounded mb-4 text-sm">
               <%= @error %>
             </div>
           <% end %>
 
           <form phx-submit="create_tenant" class="space-y-4">
             <div>
-              <label class="text-xs text-gray-400 block mb-1">Tenant name</label>
+              <label class="text-xs text-gray-600 dark:text-gray-400 block mb-1">Tenant name</label>
               <input type="text" name="name" value={@name} required
                 placeholder="My Organization"
-                class="w-full bg-gray-950 border border-gray-700 rounded px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-gray-500" />
+                class="w-full bg-white dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:border-gray-500" />
             </div>
             <div>
-              <label class="text-xs text-gray-400 block mb-1">Anthropic API key <span class="text-gray-600">(optional)</span></label>
+              <label class="text-xs text-gray-600 dark:text-gray-400 block mb-1">Anthropic API key <span class="text-gray-400 dark:text-gray-600">(optional)</span></label>
               <input type="text" name="anthropic_key" value={@anthropic_key}
                 placeholder="sk-ant-..."
-                class="w-full bg-gray-950 border border-gray-700 rounded px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-gray-500" />
-              <p class="text-xs text-gray-600 mt-1">Used for LLM calls. Can be added later.</p>
+                class="w-full bg-white dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:border-gray-500" />
+              <p class="text-xs text-gray-500 dark:text-gray-600 mt-1">Used for LLM calls. Can be added later.</p>
             </div>
             <button type="submit"
-              class="w-full bg-white text-gray-950 font-medium text-sm py-2 rounded hover:bg-gray-200">
+              class="w-full bg-gray-900 dark:bg-white text-white dark:text-gray-950 font-medium text-sm py-2 rounded hover:bg-gray-800 dark:hover:bg-gray-200">
               Create tenant
             </button>
           </form>
@@ -62,18 +62,18 @@ defmodule NornsWeb.SetupLive do
       <% end %>
 
       <%= if @step == :done do %>
-        <div class="bg-gray-900 border border-gray-800 rounded p-6">
-          <h2 class="text-lg text-white mb-4">Tenant created</h2>
+        <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-6">
+          <h2 class="text-lg text-gray-900 dark:text-white mb-4">Tenant created</h2>
 
           <div class="space-y-4">
             <div>
-              <label class="text-xs text-gray-400 block mb-1">Tenant</label>
-              <div class="text-sm text-white"><%= @created_tenant.name %></div>
+              <label class="text-xs text-gray-600 dark:text-gray-400 block mb-1">Tenant</label>
+              <div class="text-sm text-gray-900 dark:text-white"><%= @created_tenant.name %></div>
             </div>
 
             <div>
-              <label class="text-xs text-gray-400 block mb-1">Your API key</label>
-              <div class="bg-gray-950 border border-gray-700 rounded px-3 py-2 text-sm text-green-400 font-mono break-all">
+              <label class="text-xs text-gray-600 dark:text-gray-400 block mb-1">Your API key</label>
+              <div class="bg-white dark:bg-gray-950 border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-sm text-green-600 dark:text-green-400 font-mono break-all">
                 <%= @api_key %>
               </div>
               <p class="text-xs text-gray-500 mt-1">
@@ -82,7 +82,7 @@ defmodule NornsWeb.SetupLive do
             </div>
 
             <a href={"/?token=#{@api_key}"}
-              class="block text-center w-full bg-white text-gray-950 font-medium text-sm py-2 rounded hover:bg-gray-200">
+              class="block text-center w-full bg-gray-900 dark:bg-white text-white dark:text-gray-950 font-medium text-sm py-2 rounded hover:bg-gray-800 dark:hover:bg-gray-200">
               Go to dashboard
             </a>
           </div>

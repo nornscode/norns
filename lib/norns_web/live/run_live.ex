@@ -30,15 +30,15 @@ defmodule NornsWeb.RunLive do
   def render(assigns) do
     ~H"""
     <div class="mb-6">
-      <a href={"/agents/#{@run.agent_id}"} class="text-xs text-gray-500 hover:text-gray-400">&larr; agent</a>
+      <a href={"/agents/#{@run.agent_id}"} class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-400">&larr; agent</a>
     </div>
 
     <div class="flex items-center gap-3 mb-6">
       <span class={["w-2.5 h-2.5 rounded-full", run_status_color(@run.status)]}></span>
-      <h1 class="text-xl font-bold text-white">Run #<%= @run.id %></h1>
+      <h1 class="text-xl font-bold text-gray-900 dark:text-white">Run #<%= @run.id %></h1>
       <span class="text-xs text-gray-500"><%= @run.status %></span>
       <%= if @run.status in ["running", "waiting", "pending"] do %>
-        <button phx-click="cancel" class="text-xs text-red-400 hover:text-red-300 border border-red-900 px-2 py-1 rounded">
+        <button phx-click="cancel" class="text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 border border-red-300 dark:border-red-900 px-2 py-1 rounded">
           cancel
         </button>
       <% end %>
@@ -46,27 +46,27 @@ defmodule NornsWeb.RunLive do
 
     <%!-- Input message --%>
     <%= if @run.input["user_message"] do %>
-      <div class="bg-gray-900 border border-gray-800 rounded p-4 mb-6">
+      <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-4 mb-6">
         <div class="text-xs text-gray-500 mb-1">Input</div>
-        <div class="text-sm text-gray-300"><%= @run.input["user_message"] %></div>
+        <div class="text-sm text-gray-700 dark:text-gray-300"><%= @run.input["user_message"] %></div>
       </div>
     <% end %>
 
     <%!-- Run info --%>
     <div class="grid grid-cols-4 gap-4 mb-6">
-      <div class="bg-gray-900 border border-gray-800 rounded p-3">
+      <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-3">
         <div class="text-xs text-gray-500">Trigger</div>
         <div class="text-sm"><%= @run.trigger_type %></div>
       </div>
-      <div class="bg-gray-900 border border-gray-800 rounded p-3">
+      <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-3">
         <div class="text-xs text-gray-500">Started</div>
         <div class="text-sm"><%= format_time(@run.inserted_at) %></div>
       </div>
-      <div class="bg-gray-900 border border-gray-800 rounded p-3">
+      <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-3">
         <div class="text-xs text-gray-500">Events</div>
         <div class="text-sm"><%= length(@events) %></div>
       </div>
-      <div class="bg-gray-900 border border-gray-800 rounded p-3">
+      <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-3">
         <div class="text-xs text-gray-500">Tokens</div>
         <div class="text-sm"><%= @run.input_tokens + @run.output_tokens %> total</div>
       </div>
@@ -75,8 +75,8 @@ defmodule NornsWeb.RunLive do
     <%!-- Output --%>
     <%= if @run.output do %>
       <div class="mb-6">
-        <h2 class="text-sm font-bold text-gray-400 mb-2">Output</h2>
-        <div class="bg-gray-900 border border-gray-800 rounded p-4 text-sm text-gray-300 whitespace-pre-wrap">
+        <h2 class="text-sm font-bold text-gray-600 dark:text-gray-400 mb-2">Output</h2>
+        <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-4 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
           <%= @run.output %>
         </div>
       </div>
@@ -85,20 +85,20 @@ defmodule NornsWeb.RunLive do
     <%= if @run.status == "failed" do %>
       <% inspector = Runs.failure_inspector(@run) %>
       <div class="mb-6">
-        <h2 class="text-sm font-bold text-gray-400 mb-2">Failure Inspector</h2>
-        <div class="bg-gray-900 border border-gray-800 rounded p-4 text-sm text-gray-300 space-y-2">
-          <div>Error class: <span class="text-white"><%= inspector["error_class"] || "unknown" %></span></div>
-          <div>Error code: <span class="text-white"><%= inspector["error_code"] || "unknown" %></span></div>
-          <div>Retry decision: <span class="text-white"><%= inspector["retry_decision"] || "unknown" %></span></div>
+        <h2 class="text-sm font-bold text-gray-600 dark:text-gray-400 mb-2">Failure Inspector</h2>
+        <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-4 text-sm text-gray-700 dark:text-gray-300 space-y-2">
+          <div>Error class: <span class="text-gray-900 dark:text-white"><%= inspector["error_class"] || "unknown" %></span></div>
+          <div>Error code: <span class="text-gray-900 dark:text-white"><%= inspector["error_code"] || "unknown" %></span></div>
+          <div>Retry decision: <span class="text-gray-900 dark:text-white"><%= inspector["retry_decision"] || "unknown" %></span></div>
           <%= if checkpoint = inspector["last_checkpoint"] do %>
-            <div>Last checkpoint: <span class="text-white">#<%= checkpoint["sequence"] %> <%= checkpoint["event_type"] %></span></div>
+            <div>Last checkpoint: <span class="text-gray-900 dark:text-white">#<%= checkpoint["sequence"] %> <%= checkpoint["event_type"] %></span></div>
           <% end %>
           <%= if event = inspector["last_event"] do %>
-            <div>Last event: <span class="text-white">#<%= event["sequence"] %> <%= event["event_type"] %></span></div>
+            <div>Last event: <span class="text-gray-900 dark:text-white">#<%= event["sequence"] %> <%= event["event_type"] %></span></div>
           <% end %>
           <%= if @run.input["user_message"] do %>
             <div class="pt-2">
-              <button phx-click="retry" class="text-xs text-blue-400 hover:text-blue-300 border border-blue-900 px-3 py-1.5 rounded">
+              <button phx-click="retry" class="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 border border-blue-300 dark:border-blue-900 px-3 py-1.5 rounded">
                 Retry with same message
               </button>
             </div>
@@ -108,29 +108,29 @@ defmodule NornsWeb.RunLive do
     <% end %>
 
     <%!-- Event timeline --%>
-    <h2 class="text-sm font-bold text-gray-400 mb-2">Event Log</h2>
+    <h2 class="text-sm font-bold text-gray-600 dark:text-gray-400 mb-2">Event Log</h2>
     <div class="space-y-1">
       <%= for event <- Enum.reverse(@events) do %>
-        <div class="bg-gray-900 border border-gray-800 rounded px-4 py-2">
+        <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded px-4 py-2">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3">
-              <span class="text-xs text-gray-600 w-6 text-right"><%= event.sequence %></span>
+              <span class="text-xs text-gray-500 dark:text-gray-600 w-6 text-right"><%= event.sequence %></span>
               <span class={["text-xs font-medium", event_type_color(event.event_type)]}><%= event.event_type %></span>
               <span class="text-xs text-gray-500"><%= event_summary(event) %></span>
             </div>
-            <span class="text-xs text-gray-700"><%= format_time(event.inserted_at) %></span>
+            <span class="text-xs text-gray-400 dark:text-gray-700"><%= format_time(event.inserted_at) %></span>
           </div>
           <%= if detail = event_detail(event) do %>
             <%= if String.length(detail) > 200 do %>
               <details class="mt-1 ml-9 group">
-                <summary class="text-xs text-gray-600 cursor-pointer hover:text-gray-400">
-                  <span class="group-open:hidden"><%= String.slice(detail, 0, 200) %><span class="text-gray-700">...</span></span>
-                  <span class="hidden group-open:inline text-gray-700">collapse</span>
+                <summary class="text-xs text-gray-500 dark:text-gray-600 cursor-pointer hover:text-gray-700 dark:hover:text-gray-400">
+                  <span class="group-open:hidden"><%= String.slice(detail, 0, 200) %><span class="text-gray-400 dark:text-gray-700">...</span></span>
+                  <span class="hidden group-open:inline text-gray-400 dark:text-gray-700">collapse</span>
                 </summary>
-                <div class="text-xs text-gray-600 whitespace-pre-wrap mt-1"><%= detail %></div>
+                <div class="text-xs text-gray-500 dark:text-gray-600 whitespace-pre-wrap mt-1"><%= detail %></div>
               </details>
             <% else %>
-              <div class="mt-1 ml-9 text-xs text-gray-600 whitespace-pre-wrap"><%= detail %></div>
+              <div class="mt-1 ml-9 text-xs text-gray-500 dark:text-gray-600 whitespace-pre-wrap"><%= detail %></div>
             <% end %>
           <% end %>
         </div>
@@ -211,24 +211,24 @@ defmodule NornsWeb.RunLive do
   defp run_status_color("running"), do: "bg-blue-400 animate-pulse-dot"
   defp run_status_color("waiting"), do: "bg-yellow-400 animate-pulse-dot"
   defp run_status_color("failed"), do: "bg-red-400"
-  defp run_status_color(_), do: "bg-gray-600"
+  defp run_status_color(_), do: "bg-gray-400 dark:bg-gray-600"
 
-  defp event_type_color("llm_request"), do: "text-blue-500"
-  defp event_type_color("llm_response"), do: "text-blue-400"
-  defp event_type_color("tool_call"), do: "text-yellow-400"
-  defp event_type_color("tool_result"), do: "text-yellow-300"
-  defp event_type_color("tool_duplicate"), do: "text-orange-300"
+  defp event_type_color("llm_request"), do: "text-blue-700 dark:text-blue-500"
+  defp event_type_color("llm_response"), do: "text-blue-600 dark:text-blue-400"
+  defp event_type_color("tool_call"), do: "text-yellow-600 dark:text-yellow-400"
+  defp event_type_color("tool_result"), do: "text-yellow-600 dark:text-yellow-300"
+  defp event_type_color("tool_duplicate"), do: "text-orange-600 dark:text-orange-300"
   defp event_type_color("checkpoint_saved"), do: "text-gray-500"
   defp event_type_color("checkpoint"), do: "text-gray-500"
-  defp event_type_color("retry"), do: "text-orange-400"
-  defp event_type_color("run_completed"), do: "text-green-400"
-  defp event_type_color("run_failed"), do: "text-red-400"
-  defp event_type_color("run_started"), do: "text-gray-400"
-  defp event_type_color("agent_completed"), do: "text-green-400"
-  defp event_type_color("agent_error"), do: "text-red-400"
-  defp event_type_color("waiting_for_user"), do: "text-yellow-400"
-  defp event_type_color("user_response"), do: "text-white"
-  defp event_type_color("agent_started"), do: "text-gray-400"
+  defp event_type_color("retry"), do: "text-orange-600 dark:text-orange-400"
+  defp event_type_color("run_completed"), do: "text-green-600 dark:text-green-400"
+  defp event_type_color("run_failed"), do: "text-red-600 dark:text-red-400"
+  defp event_type_color("run_started"), do: "text-gray-500 dark:text-gray-400"
+  defp event_type_color("agent_completed"), do: "text-green-600 dark:text-green-400"
+  defp event_type_color("agent_error"), do: "text-red-600 dark:text-red-400"
+  defp event_type_color("waiting_for_user"), do: "text-yellow-600 dark:text-yellow-400"
+  defp event_type_color("user_response"), do: "text-gray-900 dark:text-white"
+  defp event_type_color("agent_started"), do: "text-gray-500 dark:text-gray-400"
   defp event_type_color(_), do: "text-gray-500"
 
   defp event_summary(%{event_type: "llm_response", payload: %{"finish_reason" => fr}}), do: fr

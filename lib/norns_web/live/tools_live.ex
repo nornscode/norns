@@ -25,38 +25,38 @@ defmodule NornsWeb.ToolsLive do
     <%= if @tenant == nil do %>
       <div class="mt-20 text-center text-gray-500">
         <p class="text-lg mb-2">Not authenticated</p>
-        <p class="text-sm">Append <code class="text-gray-400">?token=your-api-key</code> to the URL</p>
+        <p class="text-sm">Append <code class="text-gray-600 dark:text-gray-400">?token=your-api-key</code> to the URL</p>
       </div>
     <% else %>
-      <h1 class="text-xl font-bold text-white mb-6">Tools</h1>
+      <h1 class="text-xl font-bold text-gray-900 dark:text-white mb-6">Tools</h1>
 
-      <h2 class="text-sm font-bold text-gray-400 mb-2">Built-in</h2>
+      <h2 class="text-sm font-bold text-gray-600 dark:text-gray-400 mb-2">Built-in</h2>
       <div class="space-y-1 mb-8">
         <%= for tool <- @built_in do %>
-          <div class="flex items-center justify-between bg-gray-900 border border-gray-800 rounded px-4 py-2">
+          <div class="flex items-center justify-between bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded px-4 py-2">
             <div>
-              <span class="text-sm text-white"><%= tool.name %></span>
+              <span class="text-sm text-gray-900 dark:text-white"><%= tool.name %></span>
               <span class="text-xs text-gray-500 ml-3"><%= tool.description %></span>
             </div>
-            <span class={"text-xs #{if tool.source == :builtin, do: "text-yellow-600", else: "text-green-600"}"}>
+            <span class={"text-xs #{if tool.source == :builtin, do: "text-yellow-700 dark:text-yellow-600", else: "text-green-700 dark:text-green-600"}"}>
               <%= if tool.source == :builtin, do: "builtin", else: "local" %>
             </span>
           </div>
         <% end %>
       </div>
 
-      <h2 class="text-sm font-bold text-gray-400 mb-2">Worker Tools</h2>
+      <h2 class="text-sm font-bold text-gray-600 dark:text-gray-400 mb-2">Worker Tools</h2>
       <%= if @worker_tools == [] do %>
-        <p class="text-xs text-gray-600">No workers connected.</p>
+        <p class="text-xs text-gray-500 dark:text-gray-600">No workers connected.</p>
       <% else %>
         <div class="space-y-1">
           <%= for tool <- @worker_tools do %>
-            <div class="flex items-center justify-between bg-gray-900 border border-gray-800 rounded px-4 py-2">
+            <div class="flex items-center justify-between bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded px-4 py-2">
               <div>
-                <span class="text-sm text-white"><%= tool.name %></span>
+                <span class="text-sm text-gray-900 dark:text-white"><%= tool.name %></span>
                 <span class="text-xs text-gray-500 ml-3"><%= tool.description %></span>
               </div>
-              <span class="text-xs text-blue-600">remote</span>
+              <span class="text-xs text-blue-700 dark:text-blue-600">remote</span>
             </div>
           <% end %>
         </div>

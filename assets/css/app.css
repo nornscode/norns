@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @source "../../lib/norns_web";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-mono: ui-monospace, 'JetBrains Mono', 'Fira Code', monospace;
 }

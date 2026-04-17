@@ -6,8 +6,13 @@
     <meta name="csrf-token" content={get_csrf_token()} />
     <title>Norns</title>
     <link rel="stylesheet" href="/assets/app.css" />
+    <script>
+      if (localStorage.getItem("theme") === "dark") {
+        document.documentElement.classList.add("dark");
+      }
+    </script>
   </head>
-  <body class="bg-gray-950 text-gray-200 min-h-screen">
+  <body class="bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-200 min-h-screen">
     <%= @inner_content %>
     <script src="/assets/phoenix.min.js">
     </script>
@@ -20,6 +25,11 @@
         params: { _csrf_token: csrfToken }
       });
       liveSocket.connect();
+
+      window.toggleTheme = function() {
+        let isDark = document.documentElement.classList.toggle("dark");
+        localStorage.setItem("theme", isDark ? "dark" : "light");
+      }
     </script>
   </body>
 </html>
