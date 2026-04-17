@@ -53,7 +53,7 @@ defmodule NornsWeb.RunLive do
     <% end %>
 
     <%!-- Run info --%>
-    <div class="grid grid-cols-3 gap-4 mb-6">
+    <div class="grid grid-cols-4 gap-4 mb-6">
       <div class="bg-gray-900 border border-gray-800 rounded p-3">
         <div class="text-xs text-gray-500">Trigger</div>
         <div class="text-sm"><%= @run.trigger_type %></div>
@@ -65,6 +65,10 @@ defmodule NornsWeb.RunLive do
       <div class="bg-gray-900 border border-gray-800 rounded p-3">
         <div class="text-xs text-gray-500">Events</div>
         <div class="text-sm"><%= length(@events) %></div>
+      </div>
+      <div class="bg-gray-900 border border-gray-800 rounded p-3">
+        <div class="text-xs text-gray-500">Tokens</div>
+        <div class="text-sm"><%= @run.input_tokens + @run.output_tokens %> total</div>
       </div>
     </div>
 

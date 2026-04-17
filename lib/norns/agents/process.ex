@@ -78,7 +78,9 @@ defmodule Norns.Agents.Process do
       task_timer: nil,
       pending_subagents: %{},
       resume_action: nil,
-      test_pid: Keyword.get(opts, :test_pid)
+      test_pid: Keyword.get(opts, :test_pid),
+      input_tokens: 0,
+      output_tokens: 0
     }
 
     state = load_conversation_state(state)
@@ -463,7 +465,18 @@ defmodule Norns.Agents.Process do
           }
         }
 
-        state = %{state | retry_count: 0}
+        state = %{state |
+          retry_count: 0,
+          input_tokens: state.input_tokens + response.usage.input_tokens,
+          output_tokens: state.output_tokens + response.usage.output_tokens
+        }
+
+        {:ok, run} = Runs.update_run(state.run, %{
+          input_tokens: state.input_tokens,
+          output_tokens: state.output_tokens
+        })
+        state = %{state | run: run}
+
         handle_llm_response(state, response)
 
       {:error, reason} ->
@@ -858,6 +871,7 @@ defmodule Norns.Agents.Process do
       base_state = restore_conversation_for_run(base_state, run)
       initial_messages = initial_messages_for_replay(base_state, run)
       {messages, step, resume_action} = replay_from_events(initial_messages, events)
+      {input_tokens, output_tokens} = sum_token_usage(events)
 
       {:ok,
        base_state
@@ -865,7 +879,9 @@ defmodule Norns.Agents.Process do
        |> Map.put(:messages, messages)
        |> Map.put(:step, step)
        |> Map.put(:status, :running)
-       |> Map.put(:resume_action, resume_action)}
+       |> Map.put(:resume_action, resume_action)
+       |> Map.put(:input_tokens, input_tokens)
+       |> Map.put(:output_tokens, output_tokens)}
     end
   end
 
@@ -968,6 +984,17 @@ defmodule Norns.Agents.Process do
       if pending_calls != [], do: {:resume_tools, pending_calls}, else: :llm_loop
 
     {msgs, current_step, resume_action}
+  end
+
+  defp sum_token_usage(events) do
+    Enum.reduce(events, {0, 0}, fn event, {in_acc, out_acc} ->
+      case event do
+        %{event_type: "llm_response", payload: %{"usage" => usage}} ->
+          {in_acc + (usage["input_tokens"] || 0), out_acc + (usage["output_tokens"] || 0)}
+        _ ->
+          {in_acc, out_acc}
+      end
+    end)
   end
 
   defp remove_pending_tool_call(pending_calls, tool_call_id) do

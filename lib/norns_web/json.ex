@@ -28,6 +28,8 @@ defmodule NornsWeb.JSON do
       output: run.output,
       failure_metadata: run.failure_metadata || %{},
       failure_inspector: Norns.Runs.failure_inspector(run),
+      input_tokens: run.input_tokens || 0,
+      output_tokens: run.output_tokens || 0,
       inserted_at: run.inserted_at,
       updated_at: run.updated_at
     }
