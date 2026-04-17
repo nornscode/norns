@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="images/norns-logo-simple.png" alt="Norns" width="80" />
+</p>
+
 <h1 align="center">Norns</h1>
 
 <p align="center">
