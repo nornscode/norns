@@ -116,8 +116,17 @@ defmodule NornsWeb.RunLive do
             </div>
             <span class="text-xs text-gray-700"><%= format_time(event.inserted_at) %></span>
           </div>
-          <%= if event_detail(event) do %>
-            <div class="mt-1 ml-9 text-xs text-gray-600 whitespace-pre-wrap"><%= event_detail(event) %></div>
+          <%= if detail = event_detail(event) do %>
+            <%= if String.length(detail) > 200 do %>
+              <details class="mt-1 ml-9">
+                <summary class="text-xs text-gray-600 cursor-pointer hover:text-gray-400">
+                  <%= String.slice(detail, 0, 200) %><span class="text-gray-700">...</span>
+                </summary>
+                <div class="text-xs text-gray-600 whitespace-pre-wrap mt-1"><%= detail %></div>
+              </details>
+            <% else %>
+              <div class="mt-1 ml-9 text-xs text-gray-600 whitespace-pre-wrap"><%= detail %></div>
+            <% end %>
           <% end %>
         </div>
       <% end %>
@@ -293,11 +302,11 @@ defmodule NornsWeb.RunLive do
 
   defp event_detail(%{event_type: "tool_call", payload: %{"arguments" => args}}) when is_map(args), do: inspect(args, pretty: true, limit: 500)
   defp event_detail(%{event_type: "tool_call", payload: %{"input" => input}}) when is_map(input), do: inspect(input, pretty: true, limit: 500)
-  defp event_detail(%{event_type: "tool_result", payload: %{"content" => c}}) when is_binary(c), do: String.slice(c, 0, 500)
+  defp event_detail(%{event_type: "tool_result", payload: %{"content" => c}}) when is_binary(c), do: c
   defp event_detail(%{event_type: "tool_duplicate", payload: %{"resolution" => resolution, "idempotency_key" => key}}), do: "#{resolution}: #{key}"
-  defp event_detail(%{event_type: "run_completed", payload: %{"output" => o}}), do: String.slice(o || "", 0, 500)
+  defp event_detail(%{event_type: "run_completed", payload: %{"output" => o}}), do: o || ""
   defp event_detail(%{event_type: "run_failed", payload: %{"error" => e}}), do: e
-  defp event_detail(%{event_type: "agent_completed", payload: %{"output" => o}}), do: String.slice(o || "", 0, 500)
+  defp event_detail(%{event_type: "agent_completed", payload: %{"output" => o}}), do: o || ""
   defp event_detail(%{event_type: "agent_error", payload: %{"error" => e}}), do: e
   defp event_detail(%{event_type: "waiting_for_user", payload: %{"question" => q}}), do: q
   defp event_detail(%{event_type: "user_response", payload: %{"content" => c}}), do: c
