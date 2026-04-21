@@ -24,6 +24,7 @@ defmodule NornsWeb.Router do
     live "/agents/:id", AgentLive
     live "/runs/:id", RunLive
     live "/tools", ToolsLive
+    live "/telemetry", TelemetryLive
   end
 
   pipeline :api_public do
