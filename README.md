@@ -5,7 +5,7 @@
 <h1 align="center">Norns</h1>
 
 <p align="center">
-  <a href="https://github.com/amackera/norns/actions/workflows/ci.yml"><img src="https://github.com/amackera/norns/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/nornscode/norns/actions/workflows/ci.yml"><img src="https://github.com/nornscode/norns/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://elixir-lang.org/"><img src="https://img.shields.io/badge/elixir-1.18-purple.svg" alt="Elixir" /></a>
 </p>
@@ -21,7 +21,7 @@ Norns is an open-source durable runtime for AI agents. It survives crashes and r
 ## Get started
 
 ```bash
-brew install amackera/tap/nornsctl
+brew install nornscode/tap/nornsctl
 nornsctl dev
 nornsctl new my-agent
 cd my-agent
@@ -29,7 +29,7 @@ uv sync
 uv run my-agent-worker
 ```
 
-That's it. You have a running Norns server and a connected agent worker. See the [hello example](https://github.com/amackera/norns-hello-agent) for a full walkthrough.
+That's it. You have a running Norns server and a connected agent worker. See the [hello example](https://github.com/nornscode/norns-hello-agent) for a full walkthrough.
 
 ## Why use it
 
@@ -71,11 +71,11 @@ If no worker is connected, tasks queue and resume when workers reconnect.
 
 ## SDKs, CLI, and examples
 
-- Python SDK: https://github.com/amackera/norns-sdk-python
-- Elixir SDK: https://github.com/amackera/norns-sdk-elixir
-- CLI (`nornsctl`): https://github.com/amackera/nornsctl
-- Hello example: https://github.com/amackera/norns-hello-agent
-- Full example app (Mimir): https://github.com/amackera/norns-mimir-agent
+- Python SDK: https://github.com/nornscode/norns-sdk-python
+- Elixir SDK: https://github.com/nornscode/norns-sdk-elixir
+- CLI (`nornsctl`): https://github.com/nornscode/nornsctl
+- Hello example: https://github.com/nornscode/norns-hello-agent
+- Full example app (Mimir): https://github.com/nornscode/norns-mimir-agent
 
 ### Python (worker)
 
