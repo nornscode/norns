@@ -27,12 +27,27 @@ defmodule Norns.Tools.Builtins do
   defp launch_agent do
     %Tool{
       name: "launch_agent",
-      description: "Launch another agent as a sub-task and wait for its result. The child agent will run asynchronously and the result will be returned when it completes.",
+      description: "Launch another agent as a sub-task and wait for its result. The child agent will run asynchronously and the result will be returned when it completes. You may optionally pass context to give the child agent relevant history and data from the current conversation.",
       input_schema: %{
         "type" => "object",
         "properties" => %{
           "agent_name" => %{"type" => "string", "description" => "Name of the agent to launch"},
-          "message" => %{"type" => "string", "description" => "Message to send to the child agent"}
+          "message" => %{"type" => "string", "description" => "Message to send to the child agent"},
+          "context" => %{
+            "type" => "object",
+            "description" => "Optional context to pass to the child agent",
+            "properties" => %{
+              "messages" => %{
+                "type" => "array",
+                "description" => "Relevant message history to seed the child agent's conversation",
+                "items" => %{"type" => "object"}
+              },
+              "data" => %{
+                "type" => "object",
+                "description" => "Structured data the child agent needs (will be included as a system context message)"
+              }
+            }
+          }
         },
         "required" => ["agent_name", "message"]
       },

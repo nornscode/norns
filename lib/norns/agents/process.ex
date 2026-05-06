@@ -26,8 +26,9 @@ defmodule Norns.Agents.Process do
     GenServer.start_link(__MODULE__, opts, name: name)
   end
 
-  def send_message(pid, content) when is_binary(content) do
-    GenServer.call(pid, {:send_message, content}, 10_000)
+  def send_message(pid, content, opts \\ []) when is_binary(content) do
+    context = Keyword.get(opts, :context)
+    GenServer.call(pid, {:send_message, content, context}, 10_000)
   end
 
   def get_state(pid) do
@@ -93,9 +94,12 @@ defmodule Norns.Agents.Process do
   end
 
   @impl true
-  def handle_call({:send_message, content}, _from, %{status: :idle} = state) do
+  def handle_call({:send_message, content, context}, _from, %{status: :idle} = state) do
     state = load_conversation_state(state)
-    messages = messages_for_new_run(state, content)
+    messages = messages_for_new_run(state, content, context)
+
+    input = %{"user_message" => content}
+    input = if context, do: Map.put(input, "context", context), else: input
 
     {:ok, run} =
       Runs.create_run(%{
@@ -103,7 +107,7 @@ defmodule Norns.Agents.Process do
         tenant_id: state.tenant_id,
         conversation_id: state.conversation && state.conversation.id,
         trigger_type: "message",
-        input: %{"user_message" => content},
+        input: input,
         status: "pending"
       })
 
@@ -116,7 +120,7 @@ defmodule Norns.Agents.Process do
     {:reply, {:ok, run.id}, state, {:continue, :llm_loop}}
   end
 
-  def handle_call({:send_message, _content}, _from, state) do
+  def handle_call({:send_message, _content, _context}, _from, state) do
     Logger.warning("Agent #{state.agent_id} received message while #{state.status}, ignoring")
     {:reply, {:error, :busy}, state}
   end
@@ -337,6 +341,7 @@ defmodule Norns.Agents.Process do
 
       agent_name = get_in(block, ["arguments", "agent_name"]) || ""
       message = get_in(block, ["arguments", "message"]) || ""
+      context = get_in(block, ["arguments", "context"])
 
       child_agent = Agents.get_agent_by_name(st.tenant_id, agent_name)
 
@@ -357,16 +362,22 @@ defmodule Norns.Agents.Process do
 
           conversation_key = "subagent_#{block["id"]}_#{System.unique_integer([:positive])}"
 
-          case Norns.Agents.Registry.send_message(st.tenant_id, child_agent.id, message, conversation_key: conversation_key) do
+          spawn_opts = [conversation_key: conversation_key]
+          spawn_opts = if context, do: Keyword.put(spawn_opts, :context, context), else: spawn_opts
+
+          case Norns.Agents.Registry.send_message(st.tenant_id, child_agent.id, message, spawn_opts) do
             {:ok, child_run_id} ->
               task_id = "subagent_#{block["id"]}"
 
-              append(st.run, Events.subagent_launched(%{
+              launched_payload = %{
                 "tool_call_id" => block["id"],
                 "child_agent_name" => agent_name,
                 "child_run_id" => to_string(child_run_id),
                 "step" => st.step
-              }))
+              }
+              launched_payload = if context, do: Map.put(launched_payload, "context", context), else: launched_payload
+
+              append(st.run, Events.subagent_launched(launched_payload))
 
               broadcast(st, :tool_call, %{name: "launch_agent", arguments: block["arguments"]})
 
@@ -818,9 +829,37 @@ defmodule Norns.Agents.Process do
     end
   end
 
-  defp messages_for_new_run(%{messages: messages}, content) do
-    messages ++ [%{role: "user", content: content}]
+  defp messages_for_new_run(%{messages: messages}, content, context) do
+    context_messages = build_context_messages(context)
+    messages ++ context_messages ++ [%{role: "user", content: content}]
   end
+
+  defp build_context_messages(nil), do: []
+  defp build_context_messages(context) when is_map(context) do
+    inherited_messages = normalize_context_messages(context["messages"] || context[:messages])
+    data_messages = build_data_message(context["data"] || context[:data])
+    inherited_messages ++ data_messages
+  end
+  defp build_context_messages(_), do: []
+
+  defp normalize_context_messages(nil), do: []
+  defp normalize_context_messages(messages) when is_list(messages) do
+    Enum.map(messages, fn
+      %{role: role, content: content} -> %{role: role, content: content}
+      %{"role" => role, "content" => content} -> %{role: role, content: content}
+      _ -> nil
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+  defp normalize_context_messages(_), do: []
+
+  defp build_data_message(nil), do: []
+  defp build_data_message(data) when data == %{}, do: []
+  defp build_data_message(data) when is_map(data) do
+    encoded = Jason.encode!(data)
+    [%{role: "user", content: "[Inherited context from parent agent]\n#{encoded}"}]
+  end
+  defp build_data_message(_), do: []
 
   defp persist_conversation_messages(%{conversation: conversation} = state)
        when not is_nil(conversation) do
@@ -893,7 +932,12 @@ defmodule Norns.Agents.Process do
 
   defp initial_messages_for_replay(state, run) do
     messages = state.messages
+    context = get_in(run.input, ["context"])
     user_message = get_in(run.input, ["user_message"])
+
+    context_messages = build_context_messages(context)
+
+    messages = messages ++ context_messages
 
     if is_binary(user_message) do
       messages ++ [%{role: "user", content: user_message}]

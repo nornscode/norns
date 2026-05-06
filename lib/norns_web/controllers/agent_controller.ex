@@ -65,7 +65,9 @@ defmodule NornsWeb.AgentController do
   def send_message(conn, %{"agent_id" => agent_id, "content" => content} = params) do
     tenant = conn.assigns.current_tenant
     conversation_key = Map.get(params, "conversation_key")
+    context = Map.get(params, "context")
     opts = if is_binary(conversation_key) and conversation_key != "", do: [conversation_key: conversation_key], else: []
+    opts = if is_map(context), do: Keyword.put(opts, :context, context), else: opts
 
     with {:ok, agent} <- fetch_agent(agent_id, tenant.id) do
       case Registry.send_message(tenant.id, agent.id, content, opts) do
