@@ -16,7 +16,7 @@ https://github.com/user-attachments/assets/b300b164-dc0c-44ea-a794-1de00b4f01a7
 
 <p align="center"><sub>An agent calls <code>wait</code> (10s) then <code>say_hello</code>. The worker is killed twice mid-run. Each time, a new worker connects and the run resumes from where it left off. No state lost, no duplicate execution.</sub></p>
 
-Norns is an open-source durable runtime for AI agents. It survives crashes and resumes from persisted state. You run workers in your own infrastructure (Python/Elixir), and Norns coordinates runs, retries, checkpoints, and event timelines. Norns never touches your API keys or data.
+Norns is an open-source durable runtime for AI agents, built in Elixir on the BEAM. If a worker crashes mid-run, the next worker picks up where it left off. Every step is persisted to an event log. Completed tools don't re-execute. Norns never touches your API keys or data.
 
 ## Get started
 
@@ -31,21 +31,17 @@ uv run my-agent-worker
 
 That's it. You have a running Norns server and a connected agent worker. See the [hello example](https://github.com/nornscode/norns-hello-agent) for a full walkthrough.
 
-## Why use it
+## The problem
 
-Your agent is 8 tool calls deep when the worker crashes. Without Norns, you start over from the beginning. With Norns, the next worker picks up at call 9.
+Your agent is 8 tool calls deep when the worker crashes. Without something like Norns, you start over from the beginning. With Norns, the next worker picks up at call 9.
 
-Your payment tool times out and the agent retries. Without Norns, you risk charging the customer twice. With Norns, the retry is idempotent — the charge happens once.
+Your payment tool times out and the agent retries. Without idempotency, you risk charging the customer twice. With Norns, the retry skips the completed charge — same idempotency key, same result.
 
-Your agent is halfway through a 20-step research task when a deploy ships. Without Norns, in-flight runs die. With Norns, runs survive deploys and resume on the new version.
-
-Under the hood: checkpointed progress, deterministic retries, idempotent side effects, inspectable event logs.
+Your agent is halfway through a 20-step research task when a deploy ships. Without durable execution, in-flight runs die. With Norns, runs survive deploys and resume on the new version.
 
 ## How it works
 
-Norns orchestrator is a state machine. It does not execute your business tools directly.
-
-Workers execute tasks and return results.
+The Norns orchestrator is a state machine. It doesn't call LLMs or execute tools. It manages state transitions and persists events. Workers do the actual work.
 
 ```text
 Orchestrator                         Worker (your code)
@@ -59,25 +55,21 @@ Orchestrator                         Worker (your code)
   │  (checkpoint, repeat)                │
 ```
 
-If no worker is connected, tasks queue and resume when workers reconnect.
+Workers connect via WebSocket, register their tools and capabilities, and hold all the API keys. If no worker is connected, tasks queue and resume when one reconnects. If a worker dies mid-task, the orchestrator notices and puts the task back in the queue.
 
-## Core runtime concepts
+Each agent is a GenServer under a DynamicSupervisor — process isolation, crash recovery, and concurrency come from the BEAM. What Norns adds is the orchestration layer: event logs, checkpoints, idempotency, and error classification.
 
-- **Agent**: definition of model, system prompt, tools, and mode
-- **Run**: one execution instance for a message/trigger
-- **Event log**: append-only run timeline (requests, results, failures, retries)
-- **Checkpoint**: durable state snapshot used for resume/replay
-- **Worker**: process that executes LLM/tool tasks
+Side-effecting tools get deterministic idempotency keys derived from the run ID, step number, and tool call ID. On replay, if a result already exists for that key, the tool is skipped. Not all errors are the same either — transient failures get retried with backoff, rate limits get patient retries, and validation errors are terminal.
 
-## SDKs, CLI, and examples
+## SDKs and examples
 
-- Python SDK: https://github.com/nornscode/norns-sdk-python
-- Elixir SDK: https://github.com/nornscode/norns-sdk-elixir
-- CLI (`nornsctl`): https://github.com/nornscode/nornsctl
-- Hello example: https://github.com/nornscode/norns-hello-agent
-- Full example app (Mimir): https://github.com/nornscode/norns-mimir-agent
+- [Python SDK](https://github.com/nornscode/norns-sdk-python)
+- [Elixir SDK](https://github.com/nornscode/norns-sdk-elixir)
+- [CLI (`nornsctl`)](https://github.com/nornscode/nornsctl)
+- [Hello example](https://github.com/nornscode/norns-hello-agent)
+- [Mimir (full example app)](https://github.com/nornscode/norns-mimir-agent)
 
-### Python (worker)
+### Worker
 
 ```python
 from norns import Norns, Agent, tool
@@ -98,7 +90,7 @@ norns = Norns("http://localhost:4000", api_key="nrn_...")
 norns.run(agent)
 ```
 
-### Python (client)
+### Client
 
 ```python
 from norns import NornsClient
@@ -110,7 +102,7 @@ print(result.output)
 
 ## Status
 
-Norns is v0.x. The runtime, SDKs, and CLI are working and in active development. APIs are stabilizing; breaking changes will be noted in releases. Pin versions for production use.
+Norns is v0.x. The runtime, SDKs, and CLI work and are in active development. APIs are stabilizing; breaking changes will be noted in releases. Pin versions if you're using this in production.
 
 ## License
 
