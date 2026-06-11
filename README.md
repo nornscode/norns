@@ -33,7 +33,9 @@ That's it. You have a running Norns server and a connected agent worker. See the
 
 ## The problem
 
-Your agent is 8 tool calls deep when the worker crashes. Without something like Norns, you start over from the beginning. With Norns, the next worker picks up at call 9.
+If you run agents locally, durability doesn't feel like a problem. Your machine stays on, the process stays alive, and the conversation transcript is right there. Cloud infrastructure is different. Containers get evicted. VMs get preempted. Deploys ship new code and kill in-flight processes. The environment your agent is running in can disappear at any moment, and there's no filesystem or long-lived process to fall back on.
+
+Your agent is 8 tool calls deep when the container gets evicted. Without something like Norns, you start over from the beginning. With Norns, the next worker picks up at call 9.
 
 Your payment tool times out and the agent retries. Without idempotency, you risk charging the customer twice. With Norns, the retry skips the completed charge — same idempotency key, same result.
 
