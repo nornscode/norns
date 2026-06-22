@@ -43,18 +43,7 @@ COPY --from=build /app/_build/prod/rel/norns ./
 COPY --from=build /app/priv/repo/migrations ./priv/repo/migrations
 
 # Entrypoint: run migrations then start
-COPY <<'EOF' /app/entrypoint.sh
-#!/bin/sh
-set -e
-
-echo "Running migrations..."
-./bin/norns eval "Norns.Release.migrate()"
-echo "Migrations complete."
-
-echo "Starting Norns on port ${PORT}..."
-exec ./bin/norns start
-EOF
-
+COPY docker-entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 EXPOSE 4000
