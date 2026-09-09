@@ -1,7 +1,7 @@
 # Norns Roadmap
 
 **Status:** v6
-**Last updated:** 2026-09-09 (v6.2: SDK graceful shutdown shipped; fork and the coding-agent demo slotted alongside)
+**Last updated:** 2026-09-09 (v6.3: the harness sequenced as step 7, ahead of tenant self-serve; opaque-content audit alongside; chains templating moves to the worker)
 
 Sequencing for the next phase of work. For what's already built and why, see
 `decision-log.md`. For the product direction this sequence serves, see
@@ -17,8 +17,8 @@ orchestration, and both SDKs published (Python at 0.4.0 with gard support
 and graceful shutdown, PyPI publish pending; Elixir on Hex). Norns itself is at **v0.5** ("agents are
 configuration"). Steps 1–5 below are shipped, and the provisioner (step 6)
 has its P0 and P1 landed and hardened, with CI and a machine-readable
-status seam in place for P2 — the sequence now adds one primitive on top
-of that foundation: chains (step 7).
+status seam in place for P2 — the sequence now adds two things on top of
+that foundation: the harness (step 7) and chains (step 8).
 
 The v1 roadmap's "Now" tier is **done**: subagent allowlists shipped
 (`SubagentPolicy`), human-in-the-loop is fully wired (`ask_human` /
@@ -63,8 +63,9 @@ flowchart TB
     D["4 — Fabricate toolkit ✓<br/>templates · scaffold AGENTS.md · --wait — shipped 2026-08-11"]
     E["5 — Inbound webhooks ✓<br/>POST /api/v1/hooks/:token · signatures — shipped 2026-08-13"]
     F["6 — Provisioner (volund) ◐<br/>separate repo · P0 + P1 shipped 2026-08-16 · hardened + CI + list --json 2026-09-03 · P2 managed product open"]
-    G["7 — Chains<br/>ordered agent defs as tenant data · transactional advance · plan-chains.md"]
-    A --> B --> C --> D --> E --> F --> G
+    H["7 — The harness<br/>tool worker · compaction · nornsctl chat · fork · E2E after P2a · plan-harness-e2e.md"]
+    G["8 — Chains<br/>ordered agent defs as tenant data · transactional advance · plan-chains.md"]
+    A --> B --> C --> D --> E --> F --> H --> G
 ```
 
 ### 1. Per-agent tool selection — done (2026-08-10)
@@ -202,7 +203,38 @@ SDK graceful shutdown — **shipped 2026-09-09** (core `drain` event; the
 Python SDK drains on SIGTERM/SIGINT, released as 0.4.0) — and tenant
 self-serve, which remains.
 
-### 7. Chains (`plan-chains.md`)
+### 7. The harness (`plan-harness-e2e.md`)
+
+A Norns-native coding agent in the shape of pi or amp: a small tool worker
+on the developer's machine, `nornsctl chat` to type into, and the loop
+running in the orchestrator, where the log already lives. What it has that
+no other harness does falls out of where the loop runs: sessions that
+survive the laptop, fork from any step, durable sub-agents, runs started
+from a cron or a Slack thread. Sequenced ahead of tenant self-serve
+(decided 2026-09-09) because it is the demo people can run on their own
+repo before the cloud exists, and because a month of using it on norns is
+what will harden the edit tool, compaction, and fork. Cost: about three
+weeks of delay to tenant self-serve, which nobody external is waiting on.
+
+- **P0 (first, alongside):** the opaque-content audit — three days in core
+  that make "the orchestrator never reads content" true. See Alongside.
+- **H1–H3:** the `norns-harness` worker (six tools, allow list,
+  `AGENTS.md` on start), compaction in core (`context_policy`,
+  `context_compacted`, summarisation as an LLM task), and `nornsctl chat`.
+  Fork (`plan-coding-agent-runs.md` Phase F) lands here because `/fork`
+  in the client needs it. About two and a half weeks.
+- **H4:** a week of dogfooding on norns; the README demo on a real repo.
+- **E1–E4 (after P2a):** end-to-end encryption — SDK content cipher and
+  key file, validator accepts the opaque block, browser-side decrypt in
+  the dashboard, Elixir SDK. Waits for P2a so both modes can be shown
+  honestly: "end-to-end encrypted" when every worker is tenant-run,
+  "encrypted at rest with your key" when the LLM worker runs in the
+  cloud. About two weeks.
+
+**Order from here (v6.3):** P0 audit → H1–H4 → tenant self-serve → P2a →
+E1–E4 → Slack connector image → chains phase 1.
+
+### 8. Chains (`plan-chains.md`)
 
 An ordered list of agent defs that run one after another, each step's
 output becoming the next step's message. Tenant data like a trigger — no
@@ -226,8 +258,10 @@ a step parked on `ask_human` parks the chain, a retried step run advances
 it from where it stopped. An optional chain-level gard lands the whole case
 on one deployment.
 
-- **P1:** tables, `Norns.Chains`, `{{input}}` / `{{output}}` templates,
-  transactional advance, REST CRUD + `POST /chains/:id/start`,
+- **P1:** tables, `Norns.Chains`, `{{input}}` / `{{output}}` templates
+  (rendered in the LLM worker, not core — `run.output` is content under
+  the opaque-content principle in `plan-harness-e2e.md`), transactional
+  advance, REST CRUD + `POST /chains/:id/start`,
   `nornsctl chains`. Acceptance: a three-step chain with `ask_human` in
   step 2, node killed mid-step, reply, chain completes with exactly one run
   per step.
@@ -259,13 +293,16 @@ compiler and the learning loop stay with the cloud builder.
   scaffold templates; SDK 0.3.0 carries the exclusion itself.
 - **Skírnir** (`skirnir-v0.1-spec.md`) — its runtime blocker (HITL wiring) is
   gone; build whenever the Elixir flagship demo is wanted.
-- **Fork and the coding-agent template** (`plan-coding-agent-runs.md`
-  Phases F and 0, about four days together). `POST /runs/:id/fork` needs
-  no new worker — checkpoints already hold `messages` and `step` — and is
-  the cheapest "time travel" demo; the `coding-agent` template is the
-  README demo on a repo people recognise. Slotted here rather than as
-  step 8 so they are not queued behind tenant self-serve, P2a, and chains.
-  Phases 1 and 2 of that plan stay unsequenced.
+- **Opaque-content audit** (`plan-harness-e2e.md` P0, three days). Eight
+  places core reads or generates content today (tool-result truncation,
+  the final-output fallback, the inherited-context preamble, the def
+  system prompt, the `ask_human` question, the timer result, tool error
+  text, and the validator's string/map requirements), plus a conformance
+  test that replays a run whose content is random bytes. Goes first and
+  before chains phase 1 whatever happens to encryption: it stops
+  compaction and chains templating from growing content reads. Fork
+  (`plan-coding-agent-runs.md` Phase F) moved into step 7; the
+  `coding-agent` template (Phase 0) is dropped, superseded by the harness.
 
 ---
 
@@ -293,7 +330,8 @@ app layout so cloud pages appear in the dashboard nav. Gotchas: cloud's
 migration core doesn't ship); core's `test/support` only exists when the dep
 is compiled in the test env. First cloud table: `deployments`, shaped like
 volund's `list --json` record, with a Deployments page.
-- **Tenant self-serve** — signup → tenant → key issuance. Cloud-repo work.
+- **Tenant self-serve** — signup → tenant → key issuance. Cloud-repo work;
+  sequenced after the harness (step 7) as of v6.3.
 - **Retention plan** — cron-triggered agents generate events unboundedly;
   needed before cloud launch, not before growth forces it.
 - **SDK hardening** — serial task handling (0.3.1) and graceful shutdown
@@ -349,8 +387,8 @@ promise in-process behaviour that the multi-tenant product cannot deliver.
 - `plan-agent-builder.md` — product direction: compose/fabricate, triggers, pruned alternatives
 - `gards.md` — worker affinity design (v9; Phase 1 shipped, provisioner phases + the no-gard-connectors correction)
 - `plan-chains.md` — ordered agent defs as tenant data (proposed)
-- `plan-coding-agent-runs.md` — coding agents as Norns runs: mirror, fork, time travel, prompt experiments (proposed 2026-09-09; fork + template slotted alongside)
-- `plan-harness-e2e.md` — the Norns-native coding harness and the opaque-content principle that lets the log be end-to-end encrypted (proposed 2026-09-09)
+- `plan-coding-agent-runs.md` — coding agents as Norns runs: mirror, fork, time travel, prompt experiments (proposed 2026-09-09; fork folded into step 7, Phase 0 dropped, Phase 2 superseded by `plan-harness-e2e.md`, mirroring deferred)
+- `plan-harness-e2e.md` — the Norns-native coding harness and the opaque-content principle that lets the log be end-to-end encrypted (proposed 2026-09-09; step 7 and the audit alongside)
 - `plan-subagent-allowlists.md` — agent authorization (Phase 1 shipped)
 - `plan-durable-mcp.md` — durable step protocol (parked)
 - `plan-custom-agent-workflows.md` — `@agent` + `ctx.*` durable primitives (parked)

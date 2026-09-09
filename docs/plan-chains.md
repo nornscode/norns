@@ -78,7 +78,11 @@ runs
   `"{{input}}"`. Named access to earlier steps
   (`{{steps.find-contact.output}}`) is a later addition if a real chain needs
   it — the parked workflows plan is where anything richer than a template
-  belongs.
+  belongs. Rendering happens in the LLM worker, not the orchestrator:
+  `run.output` is content under the opaque-content principle
+  (`plan-harness-e2e.md`), so core forwards `{{output}}` and `{{input}}`
+  as opaque blocks and the worker substitutes them into the surrounding
+  text after decrypting, if there is a key.
 - Each step run starts a fresh conversation (task mode). Per-case persistent
   history (so a follow-up lands on the same agent that sent the notice) needs
   structured input to derive a key from; deferred, see Open questions.
@@ -246,7 +250,7 @@ stored form has proven itself.
 
 ## Phases
 
-1. **Core:** tables, `Norns.Chains` context, template rendering, transactional
+1. **Core:** tables, `Norns.Chains` context, template forwarding (rendering is worker-side, see above), transactional
    advance, `chain_run_id` on runs, REST CRUD + start, `nornsctl chains`.
    Test: a three-step chain where step 2 calls `ask_human`; kill the node
    mid-step-2; reply; assert the chain completes with step 3's output and

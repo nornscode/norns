@@ -1,7 +1,9 @@
 # Plan: Coding-Agent Runs
 
-**Status:** Proposed (2026-09-09). Phases F and 0 sit under "Alongside" in
-`roadmap.md`; Phases 1 and 2 are not sequenced.
+**Status:** Proposed (2026-09-09), superseded in part by `plan-harness-e2e.md`
+the same day: Phase F (fork) is part of roadmap step 7, Phase 0 is
+dropped, Phase 2 is the harness plan, and Phase 1 (mirroring) is deferred
+until someone asks for a fleet view of agents Norns does not run.
 **Depends on:** gards Phase 1 (shipped), `nornsctl new` templates (shipped),
 provisioner P1 gard deployments (shipped in volund). Phase 2 wants managed
 gards (volund P2b) but does not block on them.

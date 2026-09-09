@@ -1,6 +1,7 @@
 # Plan: The Harness, and Opaque Content
 
-**Status:** Proposed (2026-09-09)
+**Status:** Proposed (2026-09-09); sequenced as roadmap step 7 with P0 under
+"Alongside" (roadmap v6.3, same day)
 **Depends on:** gards Phase 1 (shipped), `drain` / SDK 0.4.0 (shipped),
 `GET /api/v1/workers` (shipped). The encrypted mode wants P2a's secrets
 context for cloud-run workers but does not block on it.
