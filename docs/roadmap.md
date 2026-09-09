@@ -350,6 +350,7 @@ promise in-process behaviour that the multi-tenant product cannot deliver.
 - `gards.md` — worker affinity design (v9; Phase 1 shipped, provisioner phases + the no-gard-connectors correction)
 - `plan-chains.md` — ordered agent defs as tenant data (proposed)
 - `plan-coding-agent-runs.md` — coding agents as Norns runs: mirror, fork, time travel, prompt experiments (proposed 2026-09-09; fork + template slotted alongside)
+- `plan-harness-e2e.md` — the Norns-native coding harness and the opaque-content principle that lets the log be end-to-end encrypted (proposed 2026-09-09)
 - `plan-subagent-allowlists.md` — agent authorization (Phase 1 shipped)
 - `plan-durable-mcp.md` — durable step protocol (parked)
 - `plan-custom-agent-workflows.md` — `@agent` + `ctx.*` durable primitives (parked)
