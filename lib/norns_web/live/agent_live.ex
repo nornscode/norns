@@ -287,7 +287,7 @@ defmodule NornsWeb.AgentLive do
   end
 
   def handle_info({:tool_result, %{tool_use_id: id, content: content}}, socket) do
-    preview = String.slice(content || "", 0, 60)
+    preview = content |> Norns.Runtime.Content.to_text() |> String.slice(0, 60)
     events = [%{type: "tool_result", detail: "#{id}: #{preview}"} | socket.assigns.events]
     {:noreply, assign(socket, events: events)}
   end

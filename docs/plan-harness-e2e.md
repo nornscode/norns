@@ -1,7 +1,8 @@
 # Plan: The Harness, and Opaque Content
 
 **Status:** Proposed (2026-09-09); sequenced as roadmap step 7 with P0 under
-"Alongside" (roadmap v6.3, same day)
+"Alongside" (roadmap v6.3, same day). **P0 shipped 2026-09-09** — see
+§ What P0 landed.
 **Depends on:** gards Phase 1 (shipped), `drain` / SDK 0.4.0 (shipped),
 `GET /api/v1/workers` (shipped). The encrypted mode wants P2a's secrets
 context for cloud-run workers but does not block on it.
@@ -108,9 +109,8 @@ Rules that follow:
    each holds the key if there is one, and is therefore a place the tenant
    chooses to trust.
 
-On adoption this section moves to `decision-log.md` § Product Decisions,
-next to "Pure orchestrator, no execution," of which it is the data-plane
-half.
+Adopted 2026-09-09: `decision-log.md` § Content is opaque, next to "Pure
+orchestrator, no execution," of which it is the data-plane half.
 
 ### Where core reads content today
 
@@ -133,6 +133,43 @@ that way: idempotency keys are built from run id, step, tool-call id, tool
 name, and gard, never from arguments; `side_effecting?/2` reads arguments
 only for the built-in `http_request` method; checkpoints store the message
 list without inspecting it; fork (Phase F) truncates by step.
+
+### What P0 landed (2026-09-09)
+
+`Norns.Runtime.Content`, `EventValidator.content_fields/1`, the eight fixes,
+and `test/norns/runtime/opaque_content_test.exs` — a run whose every content
+position is random ciphertext validates, replays, resumes, and completes.
+Where the landing differs from the table:
+
+- **Elision moved to the LLM worker, not the tool worker.** The old cap was
+  a context-cost policy applied to tool results older than the last two
+  turns, not a size limit on what a tool may return. The LLM worker holds
+  the plaintext and the same policy (200 chars, then "...(truncated)"), so
+  behaviour is unchanged for upgraded workers. Compaction (H2) replaces it.
+- **Every result core resolves itself is a kind.** The audit named the
+  timer; the same rule covered denied tools, sub-agent outcomes and
+  refusals, and `list_agents`. Tenant content on such a result (a child's
+  output, a worker's error) stays in `content`; the structure is in
+  envelope `data`; `content` is `""` otherwise. `Format.render_message/1`
+  is the reference rendering; the Python and Elixir SDKs mirror it.
+- **The date joined the summary.** `build_system_prompt/1` also appended
+  "Current date: …". Both now ride in the task envelope (`summary`,
+  `date`) and the worker composes the prompt.
+- **Still plain, still core-written:** `run_failed.error` and
+  `retry.error` text, and the registry's `worker disconnected`. They are
+  diagnostics with no tenant content; the validator types them as content
+  so a worker may send a block, but core keeps writing strings.
+- **`runs.output` stays a string column** until E2. A block lands there
+  JSON-encoded (`Content.to_column/1`); clients decode.
+- **Ingress is still string-only.** The REST message and reply endpoints,
+  hook ingest, and the dashboard's send box accept text. Accepting a
+  block over the API is E2 work; `Process.send_message/3` and
+  `reply_to_human/2` already take either.
+- **Older workers degrade, not break.** A pre-0.5 Python worker sends no
+  `final_output` (an empty final turn yields empty output), renders no
+  kinds (the model sees `""` for a timer or a denial), and gets no date or
+  summary line. The one hard break is `launch_agent` with `context.data`,
+  which now arrives as a kinded map the old converter cannot send.
 
 ---
 

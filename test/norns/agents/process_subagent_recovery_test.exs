@@ -152,8 +152,9 @@ defmodule Norns.Agents.ProcessSubagentRecoveryTest do
       assert [result] = launch_results(parent_run.id)
       refute result.payload["is_error"]
 
-      assert %{"run_id" => run_id, "status" => "completed", "output" => "42"} =
-               Jason.decode!(result.payload["content"])
+      assert result.payload["kind"] == "subagent_completed"
+      assert result.payload["content"] == "42"
+      assert %{"run_id" => run_id, "status" => "completed"} = result.payload["data"]
 
       assert run_id == done.id
     end
@@ -181,8 +182,9 @@ defmodule Norns.Agents.ProcessSubagentRecoveryTest do
       assert [result] = launch_results(parent_run.id)
       assert result.payload["is_error"]
 
-      assert %{"status" => "failed", "error" => "upstream exploded"} =
-               Jason.decode!(result.payload["content"])
+      assert result.payload["kind"] == "subagent_failed"
+      assert result.payload["data"]["status"] == "failed"
+      assert result.payload["content"] == "upstream exploded"
     end
 
     test "waits for a child that is still in flight, and resumes it", ctx do
@@ -238,7 +240,8 @@ defmodule Norns.Agents.ProcessSubagentRecoveryTest do
       assert_receive {:completed, %{agent_id: ^parent_id}}, 5000
 
       assert [result] = launch_results(parent_run.id)
-      assert %{"run_id" => run_id, "status" => "completed"} = Jason.decode!(result.payload["content"])
+      assert result.payload["kind"] == "subagent_completed"
+      assert %{"run_id" => run_id, "status" => "completed"} = result.payload["data"]
       assert run_id == pending.id
     end
 
@@ -280,7 +283,8 @@ defmodule Norns.Agents.ProcessSubagentRecoveryTest do
       assert run_ids_for(child) == [done.id]
 
       assert [result] = launch_results(parent_run.id)
-      assert %{"output" => "still adopted"} = Jason.decode!(result.payload["content"])
+      assert result.payload["kind"] == "subagent_completed"
+      assert result.payload["content"] == "still adopted"
     end
 
     test "reports a vanished child rather than silently relaunching", ctx do
@@ -300,7 +304,8 @@ defmodule Norns.Agents.ProcessSubagentRecoveryTest do
 
       assert [result] = launch_results(parent_run.id)
       assert result.payload["is_error"]
-      assert result.payload["content"] =~ "999999"
+      assert result.payload["kind"] == "subagent_missing"
+      assert result.payload["data"]["run_id"] == 999_999
     end
   end
 
@@ -351,7 +356,7 @@ defmodule Norns.Agents.ProcessSubagentRecoveryTest do
       assert Enum.sort(Enum.map(results, & &1.payload["tool_call_id"])) == ["call_a", "call_b"]
 
       # Two children ran, and each call reports the run that actually served it.
-      reported = results |> Enum.map(&Jason.decode!(&1.payload["content"])["run_id"]) |> Enum.sort()
+      reported = results |> Enum.map(& &1.payload["data"]["run_id"]) |> Enum.sort()
       assert length(Enum.uniq(reported)) == 2
       assert reported == Enum.sort(run_ids_for(child))
     end

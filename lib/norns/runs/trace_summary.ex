@@ -243,6 +243,7 @@ defmodule Norns.Runs.TraceSummary do
   # should compare.
   defp excerpt(value) when is_binary(value), do: value
   defp excerpt(nil), do: ""
+  defp excerpt(%{"$enc" => _}), do: "[encrypted]"
   defp excerpt(value), do: inspect(value)
 
   defp truncate(str, max) when byte_size(str) > max do

@@ -1,9 +1,27 @@
 defmodule Norns.Runtime.EventValidator do
   @moduledoc false
 
-  alias Norns.Runtime.Event
+  alias Norns.Runtime.{Content, Event}
 
   @schema_version 1
+
+  # Content positions per event type: fields core stores and forwards but
+  # never reads. Each accepts a string, a structured map, or an opaque block
+  # (`Norns.Runtime.Content`). `messages` lists on `llm_request` and
+  # `checkpoint_saved` carry content inside every element and are validated
+  # only as lists.
+  @content_fields %{
+    "llm_request" => ["system_prompt", "summary"],
+    "llm_response" => ["content"],
+    "tool_call" => ["arguments"],
+    "tool_result" => ["content"],
+    "run_completed" => ["output"],
+    "run_failed" => ["error"],
+    "retry" => ["error"],
+    "waiting_for_user" => ["question"],
+    "user_response" => ["content"],
+    "subagent_launched" => ["context"]
+  }
 
   @spec validate(map() | Event.t()) :: {:ok, map()} | {:error, map()}
   def validate(%Event{} = event) do
@@ -36,6 +54,9 @@ defmodule Norns.Runtime.EventValidator do
 
   def schema_version, do: @schema_version
 
+  @doc "The content positions of an event type — the fields core never reads."
+  def content_fields(event_type), do: Map.get(@content_fields, event_type, [])
+
   defp event_type(attrs) do
     Map.get(attrs, :event_type) || Map.get(attrs, "event_type") || raise ArgumentError, "missing event_type"
   end
@@ -67,15 +88,15 @@ defmodule Norns.Runtime.EventValidator do
   defp validators_for(event_type) do
     case event_type do
       "run_started" -> [schema_version_validator()]
-      "llm_request" -> [schema_version_validator(), required_integer("step"), required_integer("message_count"), optional_list("messages"), optional_string("system_prompt"), optional_string("model"), optional_list("tools")]
-      "llm_response" -> [schema_version_validator(), required_integer("step"), optional_string("content"), optional_string("finish_reason"), optional_list("tool_calls"), optional_map("usage")]
+      "llm_request" -> [schema_version_validator(), required_integer("step"), required_integer("message_count"), optional_list("messages"), content("system_prompt"), content("summary"), optional_string("model"), optional_list("tools")]
+      "llm_response" -> [schema_version_validator(), required_integer("step"), content("content"), optional_string("finish_reason"), optional_list("tool_calls"), optional_map("usage")]
       "tool_call" -> [schema_version_validator(), required_string("tool_call_id"), required_string("name"), required_map("arguments"), required_integer("step"), optional_string("idempotency_key"), optional_boolean("side_effect")]
       "tool_duplicate" -> [schema_version_validator(), required_string("tool_call_id"), required_string("name"), required_string("idempotency_key"), required_integer("step"), required_integer("original_event_sequence"), required_string("resolution")]
-      "tool_result" -> [schema_version_validator(), required_string("tool_call_id"), required_string("name"), required_field("content"), required_boolean("is_error"), required_integer("step"), optional_string("idempotency_key")]
+      "tool_result" -> [schema_version_validator(), required_string("tool_call_id"), required_string("name"), required_content("content"), required_boolean("is_error"), required_integer("step"), optional_string("idempotency_key"), optional_string("kind"), optional_map("data")]
       "checkpoint_saved" -> [schema_version_validator(), required_list("messages"), required_integer("step")]
-      "run_failed" -> [schema_version_validator(), required_string("error"), required_string("error_class"), required_string("error_code"), required_string("retry_decision")]
-      "run_completed" -> [schema_version_validator(), required_string("output")]
-      "subagent_launched" -> [schema_version_validator(), required_string("tool_call_id"), required_string("child_agent_name"), required_string("child_run_id"), required_integer("step"), optional_map("context")]
+      "run_failed" -> [schema_version_validator(), required_content("error"), required_string("error_class"), required_string("error_code"), required_string("retry_decision")]
+      "run_completed" -> [schema_version_validator(), required_content("output")]
+      "subagent_launched" -> [schema_version_validator(), required_string("tool_call_id"), required_string("child_agent_name"), required_string("child_run_id"), required_integer("step"), content("context")]
       decision when decision in ["subagent_launch_allowed", "subagent_launch_denied", "subagent_list_allowed", "subagent_list_denied"] ->
         [schema_version_validator(), required_integer("requesting_agent_id"), required_string("mode"), required_integer("step")]
 
@@ -83,9 +104,9 @@ defmodule Norns.Runtime.EventValidator do
         [schema_version_validator(), required_integer("requesting_agent_id"), required_string("mode"), required_string("tool_name"), required_string("reason"), required_integer("step")]
 
       "waiting_for_timer" -> [schema_version_validator(), required_string("tool_call_id"), required_integer("seconds"), required_integer("step")]
-      "waiting_for_user" -> [schema_version_validator(), required_string("question"), required_string("tool_call_id"), required_integer("step")]
-      "user_response" -> [schema_version_validator(), required_string("content"), required_string("tool_call_id"), required_integer("step")]
-      "retry" -> [schema_version_validator(), required_string("error"), required_integer("attempt"), required_integer("delay_ms"), required_integer("step"), required_string("error_class"), required_string("error_code"), required_string("retry_decision")]
+      "waiting_for_user" -> [schema_version_validator(), required_content("question"), required_string("tool_call_id"), required_integer("step")]
+      "user_response" -> [schema_version_validator(), required_content("content"), required_string("tool_call_id"), required_integer("step")]
+      "retry" -> [schema_version_validator(), required_content("error"), required_integer("attempt"), required_integer("delay_ms"), required_integer("step"), required_string("error_class"), required_string("error_code"), required_string("retry_decision")]
       legacy when legacy in ["agent_started", "agent_completed", "agent_error", "checkpoint"] -> [schema_version_validator()]
       _ -> [schema_version_validator()]
     end
@@ -185,9 +206,24 @@ defmodule Norns.Runtime.EventValidator do
     end
   end
 
-  defp required_field(key) do
+  # A content position: present, and a string, a map, or an opaque block.
+  # Empty strings are allowed — whether content is empty is not core's call.
+  defp required_content(key) do
     fn payload ->
-      if Map.has_key?(payload, key), do: :ok, else: {:error, %{payload: "#{key} is required"}}
+      cond do
+        not Map.has_key?(payload, key) -> {:error, %{payload: "#{key} is required"}}
+        Content.valid?(payload[key]) -> :ok
+        true -> {:error, %{payload: "#{key} must be a string, a map, or an opaque block"}}
+      end
+    end
+  end
+
+  defp content(key) do
+    fn payload ->
+      case payload[key] do
+        nil -> :ok
+        value -> if Content.valid?(value), do: :ok, else: {:error, %{payload: "#{key} must be a string, a map, or an opaque block"}}
+      end
     end
   end
 

@@ -79,13 +79,28 @@ Task dispatch uses a provider-neutral format. The worker translates to/from what
 
 | Direction | Event | Payload |
 |-----------|-------|---------|
-| Server → Worker | `llm_task` | model, system_prompt, messages, tools |
-| Worker → Server | `tool_result` | task_id, status, content/tool_calls, finish_reason, usage |
+| Server → Worker | `llm_task` | model, system_prompt, summary, date, messages, tools |
+| Worker → Server | `tool_result` | task_id, status, content/tool_calls, finish_reason, usage, final_output |
 | Server → Worker | `tool_task` | task_id, tool_name, input |
 | Worker → Server | `tool_result` | task_id, status, result/error |
 | Worker → Server | `register_port` | internal_port, name, protocol, url (gard workers only) |
 | Worker → Server | `drain` | — : stop dispatching to me; I will finish my in-flight tasks, then leave |
 | Server → Worker | `gard_destroyed` | — : the gard this worker claimed is gone; the channel closes |
+
+**Content is opaque to the orchestrator** (`Norns.Runtime.Content`,
+`decision-log.md` § Content is opaque). Core routes on the envelope — roles,
+kinds, tool names, ids, steps, usage — and never reads or writes the text
+the model sees. Consequences on the wire: the def's `system_prompt` goes out
+verbatim and the worker composes the prompt (appending `summary` and
+`date`); the worker reports `final_output` because deciding what the run
+said needs to read text; tool results older than the last two turns are
+elided by the LLM worker, not by core; and every result core resolves
+itself carries a `kind` plus envelope `data` (`timer_completed`,
+`tool_denied`, `subagent_completed`, `list_agents`, …) that the worker
+renders to prose. `Norns.LLM.Format.render_message/1` is the reference
+rendering. Any content position — message text, tool arguments, tool
+results, questions, output — may hold a string, a map, or an opaque block
+`{"$enc": "v1", ...}` that only a worker holding a key can read.
 
 A worker shutting down cleanly sends `drain`, finishes and reports the
 tasks it already holds, then leaves. New work that would have reached it

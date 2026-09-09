@@ -128,7 +128,8 @@ defmodule Norns.Agents.ProcessToolPolicyTest do
         end)
 
       assert result.payload["is_error"] == true
-      assert result.payload["content"] =~ "not in this agent's allowed tools"
+      assert result.payload["kind"] == "tool_denied"
+      assert result.payload["data"]["tool_name"] == "web_search"
 
       # The denial fed back to the LLM, which ran again and finished.
       assert Enum.count(events, &(&1.event_type == "llm_request")) == 2

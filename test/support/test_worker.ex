@@ -78,7 +78,7 @@ defmodule Norns.TestWorker do
     # The worker owns the provider key. The orchestrator never sends one.
     api_key = "test-worker-key"
     model = task.model
-    system_prompt = task.system_prompt
+    system_prompt = Format.compose_system_prompt(task)
     messages = task.messages
     tools = task[:tools] || []
 
@@ -98,7 +98,10 @@ defmodule Norns.TestWorker do
         }
 
         neutral = Format.from_anthropic_response(anthropic_body)
-        Map.put(neutral, "status", "ok")
+
+        neutral
+        |> Map.put("status", "ok")
+        |> Map.put("final_output", Format.final_output(messages, neutral["content"]))
 
       {:error, reason} ->
         %{"status" => "error", "error" => reason}

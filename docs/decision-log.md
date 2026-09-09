@@ -1,6 +1,6 @@
 # Decision Log
 
-Last updated: 2026-09-03
+Last updated: 2026-09-09
 
 ## Product Decisions
 
@@ -10,6 +10,11 @@ Last updated: 2026-09-03
 - Built-in tools (wait, ask_human, launch_agent, list_agents) are intercepted by the orchestrator, never sent to workers. All other tools are worker-provided.
 - The orchestrator's job: dispatch tasks, persist events, manage state, crash recovery.
 - Purity means the orchestrator never touches the outside world — no credentials, no user data, no third-party APIs. Reading/writing the runtime's own state (runs, defs, events) does not break it; holding a Slack token would.
+
+### Content is opaque (decided 2026-09-09)
+- The data-plane half of purity. The orchestrator routes on the **envelope** (roles, kinds, tool names, tool-call ids, steps, usage, stop reasons, error classes, agent and gard ids) and never reads, transforms, or generates **content** (message text, tool arguments, tool results, system prompts, questions and answers, run output). A content position holds a string, a structured map, or an opaque block a worker encrypted with a key core does not hold — and core treats all three the same: store, forward, never look inside. `Norns.Runtime.Content`; the conformance suite is `test/norns/runtime/opaque_content_test.exs`.
+- Why: the coding harness puts source code in the event log, and "we cannot read your log" is only credible if core never needed to. Writing the rule down before compaction and chains land is what keeps them from growing content reads; the audit that made it true was eight small fixes (`plan-harness-e2e.md`).
+- Consequences: workers compose the system prompt (`summary` and `date` ride in the task envelope), report `final_output`, elide old tool results, and render every result core resolves itself from a `kind` plus envelope `data` — `Norns.LLM.Format.render_message/1` is the reference. What stays plain and core-written: diagnostic error text on `run_failed`/`retry` and the registry's `worker disconnected`, none of which carries tenant content. `runs.output` is still a string column; a block lands there JSON-encoded until encryption ships (E2).
 
 ### Tools are infrastructure, agents are configuration
 - Workers are the tenant's long-lived capability layer (the Slack worker, the DB worker), maintained like services.

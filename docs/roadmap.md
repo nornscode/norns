@@ -216,8 +216,12 @@ repo before the cloud exists, and because a month of using it on norns is
 what will harden the edit tool, compaction, and fork. Cost: about three
 weeks of delay to tenant self-serve, which nobody external is waiting on.
 
-- **P0 (first, alongside):** the opaque-content audit — three days in core
-  that make "the orchestrator never reads content" true. See Alongside.
+- **P0 — shipped 2026-09-09:** the opaque-content audit. `Norns.Runtime.Content`,
+  the eight fixes, kinded system results, and a conformance suite that
+  runs a fully-ciphertext log through validate, replay, resume, and
+  complete. Adopted as `decision-log.md` § Content is opaque. Python SDK
+  0.5.0 and the Elixir SDK carry the worker side (prompt composition,
+  `final_output`, kind rendering, elision).
 - **H1–H3:** the `norns-harness` worker (six tools, allow list,
   `AGENTS.md` on start), compaction in core (`context_policy`,
   `context_compacted`, summarisation as an LLM task), and `nornsctl chat`.
@@ -293,16 +297,12 @@ compiler and the learning loop stay with the cloud builder.
   scaffold templates; SDK 0.3.0 carries the exclusion itself.
 - **Skírnir** (`skirnir-v0.1-spec.md`) — its runtime blocker (HITL wiring) is
   gone; build whenever the Elixir flagship demo is wanted.
-- **Opaque-content audit** (`plan-harness-e2e.md` P0, three days). Eight
-  places core reads or generates content today (tool-result truncation,
-  the final-output fallback, the inherited-context preamble, the def
-  system prompt, the `ask_human` question, the timer result, tool error
-  text, and the validator's string/map requirements), plus a conformance
-  test that replays a run whose content is random bytes. Goes first and
-  before chains phase 1 whatever happens to encryption: it stops
-  compaction and chains templating from growing content reads. Fork
-  (`plan-coding-agent-runs.md` Phase F) moved into step 7; the
-  `coding-agent` template (Phase 0) is dropped, superseded by the harness.
+- **Opaque-content audit — done (2026-09-09)** (`plan-harness-e2e.md` P0,
+  § What P0 landed). Core no longer reads or writes content anywhere in
+  the orchestrator; the conformance suite keeps it that way ahead of
+  compaction and chains. Fork (`plan-coding-agent-runs.md` Phase F) moved
+  into step 7; the `coding-agent` template (Phase 0) is dropped,
+  superseded by the harness.
 
 ---
 

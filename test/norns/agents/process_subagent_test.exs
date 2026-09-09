@@ -62,8 +62,8 @@ defmodule Norns.Agents.ProcessSubagentTest do
       tool_result = Enum.find(events, &(&1.event_type == "tool_result" && &1.payload["name"] == "list_agents"))
       assert tool_result != nil
 
-      result = Jason.decode!(tool_result.payload["content"])
-      agent_names = Enum.map(result, & &1["name"])
+      assert tool_result.payload["kind"] == "list_agents"
+      agent_names = Enum.map(tool_result.payload["data"]["agents"], & &1["name"])
 
       # Should include other agent but NOT self
       assert "helper-agent" in agent_names
@@ -145,18 +145,17 @@ defmodule Norns.Agents.ProcessSubagentTest do
 
       events = Runs.list_events(AgentProcess.get_state(pid).run_id)
 
-      result =
+      payload =
         events
         |> Enum.find(&(&1.event_type == "tool_result" && &1.payload["name"] == "launch_agent"))
         |> Map.fetch!(:payload)
-        |> Map.fetch!("content")
-        |> Jason.decode!()
 
-      assert result["status"] == "completed"
-      assert result["output"] == "child output here"
+      assert payload["kind"] == "subagent_completed"
+      assert payload["data"]["status"] == "completed"
+      assert payload["content"] == "child output here"
 
       # The run id must actually resolve, and point at the child, not the parent.
-      child_run = Runs.get_run!(result["run_id"])
+      child_run = Runs.get_run!(payload["data"]["run_id"])
       assert child_run.depth == 1
       assert child_run.parent_run_id == AgentProcess.get_state(pid).run_id
     end
@@ -229,7 +228,8 @@ defmodule Norns.Agents.ProcessSubagentTest do
 
       tool_result = Enum.find(events, &(&1.event_type == "tool_result" && &1.payload["name"] == "launch_agent"))
       assert tool_result.payload["is_error"] == true
-      assert tool_result.payload["content"] =~ "Cannot launch self"
+      assert tool_result.payload["kind"] == "subagent_self"
+      assert tool_result.payload["content"] == ""
     end
 
     test "passes context to child agent via launch_agent tool", %{tenant: tenant, agent: agent} do
@@ -305,10 +305,11 @@ defmodule Norns.Agents.ProcessSubagentTest do
         m["content"] == "Original ticket: printer is broken" || m[:content] == "Original ticket: printer is broken"
       end)
 
-      # Check data context message is present
+      # The data context is forwarded as a kinded message, not prose: core
+      # never writes the preamble — the LLM worker renders it.
       assert Enum.any?(messages, fn m ->
-        content = m["content"] || m[:content] || ""
-        String.contains?(content, "T-123") and String.contains?(content, "Inherited context")
+        (m["kind"] || m[:kind]) == "inherited_context" and
+          get_in(m["content"] || m[:content], ["ticket_id"]) == "T-123"
       end)
     end
 
@@ -381,7 +382,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
 
       tool_result = Enum.find(events, &(&1.event_type == "tool_result" && &1.payload["name"] == "launch_agent"))
       assert tool_result.payload["is_error"] == true
-      assert tool_result.payload["content"] =~ "not found"
+      assert tool_result.payload["kind"] == "subagent_not_found"
     end
   end
 
@@ -539,7 +540,8 @@ defmodule Norns.Agents.ProcessSubagentTest do
       denied = Enum.find(events, &(&1.event_type == "subagent_launch_denied"))
 
       assert denied.payload["reason"] == "disabled"
-      assert launch_tool_result(events).payload["content"] =~ "not permitted"
+      assert launch_tool_result(events).payload["kind"] == "subagent_denied"
+      assert launch_tool_result(events).payload["data"]["reason"] == "disabled"
     end
 
     test "a cross-tenant target is never launchable", %{tenant: tenant} do
@@ -555,7 +557,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
 
       result = launch_tool_result(run_events(pid))
       assert result.payload["is_error"] == true
-      assert result.payload["content"] =~ "not found"
+      assert result.payload["kind"] == "subagent_not_found"
     end
 
     test "allow_list_agents=false denies listing", %{tenant: tenant} do
@@ -592,7 +594,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
       assert Enum.any?(events, &(&1.event_type == "subagent_list_allowed"))
 
       result = Enum.find(events, &(&1.event_type == "tool_result" && &1.payload["name"] == "list_agents"))
-      assert result.payload["content"] =~ "listable-agent"
+      assert Enum.any?(result.payload["data"]["agents"], &(&1["name"] == "listable-agent"))
     end
   end
 end

@@ -2,6 +2,7 @@ defmodule NornsWeb.RunLive do
   use NornsWeb, :live_view
 
   alias Norns.Runs
+  alias Norns.Runtime.Content
 
   @impl true
   def mount(%{"id" => id}, session, socket) do
@@ -243,10 +244,10 @@ defmodule NornsWeb.RunLive do
   defp event_summary(%{event_type: "checkpoint_saved", payload: %{"step" => s}}), do: "step #{s}"
   defp event_summary(%{event_type: "checkpoint", payload: %{"step" => s}}), do: "step #{s}"
   defp event_summary(%{event_type: "retry", payload: %{"attempt" => a}}), do: "attempt #{a}"
-  defp event_summary(%{event_type: "run_failed", payload: %{"error" => e}}), do: String.slice(e, 0, 120)
-  defp event_summary(%{event_type: "agent_error", payload: %{"error" => e}}), do: String.slice(e, 0, 120)
-  defp event_summary(%{event_type: "waiting_for_user", payload: %{"question" => q}}), do: String.slice(q, 0, 80)
-  defp event_summary(%{event_type: "user_response", payload: %{"content" => c}}), do: String.slice(c, 0, 80)
+  defp event_summary(%{event_type: "run_failed", payload: %{"error" => e}}), do: e |> Content.to_text() |> String.slice(0, 120)
+  defp event_summary(%{event_type: "agent_error", payload: %{"error" => e}}), do: e |> Content.to_text() |> String.slice(0, 120)
+  defp event_summary(%{event_type: "waiting_for_user", payload: %{"question" => q}}), do: q |> Content.to_text() |> String.slice(0, 80)
+  defp event_summary(%{event_type: "user_response", payload: %{"content" => c}}), do: c |> Content.to_text() |> String.slice(0, 80)
   defp event_summary(_), do: ""
 
   defp event_detail(%{event_type: "llm_request", payload: payload}) do
@@ -316,7 +317,7 @@ defmodule NornsWeb.RunLive do
   defp event_detail(%{event_type: "agent_completed", payload: %{"output" => o}}), do: o || ""
   defp event_detail(%{event_type: "agent_error", payload: %{"error" => e}}), do: e
   defp event_detail(%{event_type: "waiting_for_user", payload: %{"question" => q}}), do: q
-  defp event_detail(%{event_type: "user_response", payload: %{"content" => c}}), do: c
+  defp event_detail(%{event_type: "user_response", payload: %{"content" => c}}), do: Content.to_text(c)
   defp event_detail(_), do: nil
 
   # Truncate to `limit` chars, then trim back to the last word boundary so

@@ -14,13 +14,133 @@ defmodule Norns.LLM.Format do
     - %{name: "search", description: "...", parameters: %{...}}
 
   Finish reasons: "stop", "tool_call", "length", "error"
+
+  ## Kinds
+
+  The orchestrator never writes prose for the model (`Norns.Runtime.Content`).
+  Where it used to — a timer result, a denied tool, a sub-agent's outcome, a
+  parent's inherited context — the message carries a `kind` plus envelope
+  `data`, and the worker renders it with `render_message/1` before the
+  provider call. Tenant content on such a message (a child's output, the
+  inherited data) stays in `content`; only the structure is in `data`.
+
+  Workers also compose the system prompt (`compose_system_prompt/1`) and
+  decide the run's final output (`final_output/2`), because both need to
+  read text.
   """
+
+  # --- Worker-side rendering ---
+
+  @doc "Render a kinded message to a plain-content message. Messages without a kind pass through."
+  def render_message(msg) do
+    case msg[:kind] || msg["kind"] do
+      nil -> msg
+      kind -> put_content(msg, render_kind(kind, msg[:data] || msg["data"] || %{}, msg[:content] || msg["content"]))
+    end
+  end
+
+  def render_messages(messages), do: Enum.map(messages, &render_message/1)
+
+  defp put_content(%{role: _} = msg, content), do: msg |> Map.put(:content, content) |> Map.drop([:kind, :data])
+  defp put_content(msg, content), do: msg |> Map.put("content", content) |> Map.drop(["kind", "data"])
+
+  defp render_kind("inherited_context", _data, content) do
+    "[Inherited context from parent agent]\n" <> encode(content)
+  end
+
+  defp render_kind("timer_completed", _data, _content), do: "Timer completed."
+
+  defp render_kind("tool_denied", data, _content) do
+    "Tool '#{data["tool_name"]}' is not in this agent's allowed tools."
+  end
+
+  defp render_kind("subagent_denied", %{"reason" => "disabled"}, _content) do
+    "This agent is not permitted to launch sub-agents."
+  end
+
+  defp render_kind("subagent_denied", %{"reason" => "max_depth"} = data, _content) do
+    "Sub-agent nesting limit reached (max depth #{data["max_depth"]}). " <>
+      "Do the work in this agent instead of delegating further."
+  end
+
+  defp render_kind("subagent_denied", data, _content) do
+    "Agent '#{data["agent_name"]}' is not in this agent's allowed sub-agents."
+  end
+
+  defp render_kind("subagent_list_denied", _data, _content) do
+    "Listing agents is not permitted for this agent."
+  end
+
+  defp render_kind("subagent_not_found", data, _content), do: "Agent '#{data["agent_name"]}' not found"
+  defp render_kind("subagent_self", _data, _content), do: "Cannot launch self as a sub-agent"
+
+  defp render_kind("subagent_missing", data, _content) do
+    "Sub-agent run #{data["run_id"]} no longer exists, so its result cannot be recovered."
+  end
+
+  defp render_kind("subagent_launch_failed", data, _content) do
+    "Failed to launch agent '#{data["agent_name"]}': #{data["reason"]}"
+  end
+
+  # The child's run id rides along with its text so the parent has a handle
+  # to inspect *how* the child got there, not just what it said.
+  defp render_kind("subagent_completed", data, content) do
+    encode(%{"run_id" => data["run_id"], "status" => "completed", "output" => content || ""})
+  end
+
+  defp render_kind("subagent_failed", data, content) do
+    encode(%{"run_id" => data["run_id"], "status" => "failed", "error" => content || ""})
+  end
+
+  defp render_kind("list_agents", data, _content), do: encode(data["agents"] || [])
+  defp render_kind(_unknown, data, content) when content in [nil, ""], do: encode(data)
+  defp render_kind(_unknown, _data, content), do: content
+
+  defp encode(value) when is_binary(value), do: value
+  defp encode(value), do: Jason.encode!(value)
+
+  @doc """
+  The system prompt the model sees: the def's prompt verbatim, then the
+  conversation summary and the date the orchestrator put in the task envelope.
+  """
+  def compose_system_prompt(task) do
+    prompt = task[:system_prompt] || task["system_prompt"] || ""
+    summary = task[:summary] || task["summary"]
+    date = task[:date] || task["date"]
+
+    prompt
+    |> then(fn p -> if is_binary(summary) and summary != "", do: p <> "\n\nSummary of earlier conversation: " <> summary, else: p end)
+    |> then(fn p -> if date, do: p <> "\n\nCurrent date: #{date}.", else: p end)
+  end
+
+  @doc """
+  The run's output when the model stops. A turn can produce substantive text
+  alongside a tool call and then end with an empty "stop" turn; fall back to
+  the last non-empty assistant text rather than losing it.
+  """
+  def final_output(messages, content) do
+    text = if is_binary(content), do: content, else: ""
+
+    if String.trim(text) == "" do
+      messages
+      |> Enum.reverse()
+      |> Enum.find_value(text, fn msg ->
+        case {msg_role(msg), msg[:content] || msg["content"]} do
+          {"assistant", c} when is_binary(c) -> if String.trim(c) == "", do: nil, else: c
+          _ -> nil
+        end
+      end)
+    else
+      text
+    end
+  end
 
   # --- Neutral → Anthropic API ---
 
-  @doc "Convert neutral messages to Anthropic API format."
+  @doc "Convert neutral messages to Anthropic API format. Kinded messages are rendered first."
   def to_anthropic_messages(messages) do
     messages
+    |> render_messages()
     |> Enum.chunk_by(fn msg -> msg_role(msg) == "tool" end)
     |> Enum.flat_map(&convert_chunk_to_anthropic/1)
   end

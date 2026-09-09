@@ -10,10 +10,9 @@ defmodule Norns.Agents.Process do
 
   alias Norns.{Agents, Conversations, Runs}
   alias Norns.Agents.{AgentDef, SubagentPolicy, ToolPolicy}
-  alias Norns.Runtime.{ErrorPolicy, Errors, Events}
+  alias Norns.Runtime.{Content, ErrorPolicy, Errors, Events}
   alias Norns.Workers.WorkerRegistry
   alias Norns.Tools.{Builtins, Idempotency, Tool}
-  @tool_result_cap 200
   @task_timeout_ms 300_000  # 5 minutes
 
   # -- Public API --
@@ -39,7 +38,7 @@ defmodule Norns.Agents.Process do
     * `:gard_id` — bind this run to a gard: all tool dispatch goes only to
       workers in that gard. Per-run, not per-process.
   """
-  def send_message(pid, content, opts \\ []) when is_binary(content) do
+  def send_message(pid, content, opts \\ []) when is_binary(content) or is_map(content) do
     lineage =
       opts
       |> Keyword.take([:context, :parent_run_id, :depth, :trigger_type, :gard_id])
@@ -53,7 +52,7 @@ defmodule Norns.Agents.Process do
   end
 
   @doc "Deliver a human's answer to an agent parked in `:waiting` on `ask_human`."
-  def reply_to_human(pid, answer) when is_binary(answer) do
+  def reply_to_human(pid, answer) when is_binary(answer) or is_map(answer) do
     GenServer.call(pid, {:reply_to_human, answer}, 10_000)
   end
 
@@ -246,18 +245,20 @@ defmodule Norns.Agents.Process do
       all_tools = (builtin_tools ++ agent_tools ++ worker_tools) |> Enum.uniq_by(& &1.name)
       tools = Enum.map(all_tools, &Tool.to_api_format/1)
 
-      messages_for_llm =
-        state
-        |> apply_context_strategy()
-        |> compact_messages()
+      messages_for_llm = apply_context_strategy(state)
 
-      system_prompt = build_system_prompt(state)
+      # The def's prompt goes out verbatim. The conversation summary and the
+      # date ride in the envelope; the worker composes the prompt the model
+      # sees (Format.compose_system_prompt/1) — core writes no prose.
+      system_prompt = state.agent_def.system_prompt
+      summary = conversation_summary(state)
 
       append(state.run, Events.llm_request(%{
         "step" => state.step,
         "message_count" => length(messages_for_llm),
         "messages" => messages_for_llm,
         "system_prompt" => system_prompt,
+        "summary" => summary,
         "model" => state.agent_def.model,
         # Names only. Enough to tell later whether the model called something it
         # was never offered, or was offered tools and ignored them — neither of
@@ -270,6 +271,8 @@ defmodule Norns.Agents.Process do
       llm_task = %{
         model: state.agent_def.model,
         system_prompt: system_prompt,
+        summary: summary,
+        date: Date.to_iso8601(Date.utc_today()),
         messages: messages_for_llm,
         tools: tools,
         agent_id: state.agent_id,
@@ -446,12 +449,7 @@ defmodule Norns.Agents.Process do
         "step" => state.step
       }))
 
-      make_error_tool_result(
-        state,
-        block,
-        block["name"],
-        "Tool '#{block["name"]}' is not in this agent's allowed tools."
-      )
+      make_system_result(state, block, block["name"], "tool_denied", %{"tool_name" => block["name"]}, "", true)
     end)
   end
 
@@ -472,34 +470,18 @@ defmodule Norns.Agents.Process do
         {:error, reason} ->
           append_subagent_decision(state, "subagent_list_denied", policy, nil, reason)
 
-          make_error_tool_result(
-            state,
-            block,
-            "list_agents",
-            "Listing agents is not permitted for this agent."
-          )
+          make_system_result(state, block, "list_agents", "subagent_list_denied", %{}, "", true)
 
         :ok ->
           append_subagent_decision(state, "subagent_list_allowed", policy, nil, nil)
 
-          result =
+          agents =
             state.tenant_id
             |> Agents.list_agents()
             |> Enum.reject(&(&1.id == state.agent_id))
             |> Enum.map(fn a -> %{"name" => a.name, "purpose" => a.purpose || ""} end)
-            |> Jason.encode!()
 
-          append(state.run, Events.tool_result(%{
-            "tool_call_id" => block["id"],
-            "name" => "list_agents",
-            "content" => result,
-            "is_error" => false,
-            "step" => state.step
-          }))
-
-          broadcast(state, :tool_result, %{tool_call_id: block["id"], name: "list_agents", content: result})
-
-          %{role: "tool", tool_call_id: block["id"], name: "list_agents", content: result}
+          make_system_result(state, block, "list_agents", "list_agents", %{"agents" => agents}, "", false)
       end
     end)
   end
@@ -534,10 +516,8 @@ defmodule Norns.Agents.Process do
   defp reattach_subagent(block, child_run_id, {results, pending, st}) do
     case Runs.get_run(child_run_id) do
       nil ->
-        error_msg =
-          "Sub-agent run #{child_run_id} no longer exists, so its result cannot be recovered."
-
-        {results ++ [make_error_tool_result(st, block, "launch_agent", error_msg)], pending, st}
+        result = make_system_result(st, block, "launch_agent", "subagent_missing", %{"run_id" => child_run_id}, "", true)
+        {results ++ [result], pending, st}
 
       child_run ->
         # Subscribe before reading the status: if the child finishes in the gap
@@ -549,14 +529,14 @@ defmodule Norns.Agents.Process do
   end
 
   defp reattach_to_status(block, %{status: "completed"} = child_run, {results, pending, st}) do
-    content = subagent_result(child_run.id, "completed", %{"output" => child_run.output || ""})
-    {results ++ [make_tool_result(st, block, "launch_agent", content, false)], pending, st}
+    {kind, data, content} = subagent_outcome(child_run.id, "completed", child_run.output)
+    {results ++ [make_system_result(st, block, "launch_agent", kind, data, content, false)], pending, st}
   end
 
   defp reattach_to_status(block, %{status: "failed"} = child_run, {results, pending, st}) do
     error = get_in(child_run.failure_metadata, ["error"]) || "sub-agent run failed"
-    content = subagent_result(child_run.id, "failed", %{"error" => error})
-    {results ++ [make_tool_result(st, block, "launch_agent", content, true)], pending, st}
+    {kind, data, content} = subagent_outcome(child_run.id, "failed", error)
+    {results ++ [make_system_result(st, block, "launch_agent", kind, data, content, true)], pending, st}
   end
 
   defp reattach_to_status(block, child_run, {results, pending, st}) do
@@ -616,33 +596,25 @@ defmodule Norns.Agents.Process do
         {:error, reason} = authorization
         append_subagent_decision(st, "subagent_launch_denied", policy, agent_name, reason)
 
-        error_msg =
-          case reason do
-            "disabled" -> "This agent is not permitted to launch sub-agents."
-            _ -> "Agent '#{agent_name}' is not in this agent's allowed sub-agents."
-          end
-
-        result = make_error_tool_result(st, block, "launch_agent", error_msg)
+        data = %{"agent_name" => agent_name, "reason" => reason}
+        result = make_system_result(st, block, "launch_agent", "subagent_denied", data, "", true)
         {results ++ [result], pending, st}
 
       match?({:error, _}, depth_authorization) ->
         append_subagent_decision(st, "subagent_launch_denied", policy, agent_name, "max_depth")
 
-        error_msg =
-          "Sub-agent nesting limit reached (max depth #{policy.max_depth}). " <>
-            "Do the work in this agent instead of delegating further."
-
-        result = make_error_tool_result(st, block, "launch_agent", error_msg)
+        data = %{"agent_name" => agent_name, "reason" => "max_depth", "max_depth" => policy.max_depth}
+        result = make_system_result(st, block, "launch_agent", "subagent_denied", data, "", true)
         {results ++ [result], pending, st}
 
       is_nil(child_agent) ->
-        error_msg = "Agent '#{agent_name}' not found"
-        result = make_error_tool_result(st, block, "launch_agent", error_msg)
+        data = %{"agent_name" => agent_name}
+        result = make_system_result(st, block, "launch_agent", "subagent_not_found", data, "", true)
         {results ++ [result], pending, st}
 
       child_agent.id == st.agent_id ->
-        error_msg = "Cannot launch self as a sub-agent"
-        result = make_error_tool_result(st, block, "launch_agent", error_msg)
+        data = %{"agent_name" => agent_name}
+        result = make_system_result(st, block, "launch_agent", "subagent_self", data, "", true)
         {results ++ [result], pending, st}
 
       true ->
@@ -701,31 +673,39 @@ defmodule Norns.Agents.Process do
             {results, pending ++ [{task_id, synthetic_tc}], st}
 
           {:error, reason} ->
-            error_msg = "Failed to launch agent '#{agent_name}': #{inspect(reason)}"
-            result = make_error_tool_result(st, block, "launch_agent", error_msg)
+            data = %{"agent_name" => agent_name, "reason" => inspect(reason)}
+            result = make_system_result(st, block, "launch_agent", "subagent_launch_failed", data, "", true)
             {results ++ [result], pending, st}
         end
     end
   end
 
-  defp make_error_tool_result(state, block, name, error_msg) do
-    make_tool_result(state, block, name, error_msg, true)
+  # A tool result the orchestrator resolves itself. Core writes no prose for
+  # the model: the message carries a `kind` and envelope `data`, and the LLM
+  # worker renders it (Format.render_message/1). Tenant content on such a
+  # result — a child's output, an error a worker raised — stays in `content`.
+  defp make_system_result(state, block, name, kind, data, content, is_error?) do
+    make_tool_result(state, block, name, content, is_error?, %{"kind" => kind, "data" => data})
   end
 
-  defp make_tool_result(state, block, name, content, is_error?) do
-    append(state.run, Events.tool_result(%{
+  defp make_tool_result(state, block, name, content, is_error?, extra) do
+    append(state.run, Events.tool_result(Map.merge(%{
       "tool_call_id" => block["id"],
       "name" => name,
       "content" => content,
       "is_error" => is_error?,
       "step" => state.step
-    }))
+    }, extra)))
 
-    broadcast(state, :tool_result, %{tool_call_id: block["id"], name: name, content: content})
+    broadcast(state, :tool_result, Map.merge(%{tool_call_id: block["id"], name: name, content: content}, atomize(extra)))
 
     result = %{role: "tool", tool_call_id: block["id"], name: name, content: content}
+    result = Map.merge(result, atomize(extra))
     if is_error?, do: Map.put(result, :is_error, true), else: result
   end
+
+  defp atomize(%{"kind" => kind, "data" => data}), do: %{kind: kind, data: data}
+  defp atomize(_), do: %{}
 
   defp handle_pause_or_continue(state, wait_blocks, ask_blocks, regular_results, log_calls?) do
     cond do
@@ -813,6 +793,7 @@ defmodule Norns.Agents.Process do
       {:ok, %{"finish_reason" => finish_reason, "usage" => usage} = resp} ->
         response = %{
           content: resp["content"] || "",
+          final_output: resp["final_output"],
           tool_calls: resp["tool_calls"] || [],
           finish_reason: finish_reason,
           usage: %{
@@ -849,11 +830,14 @@ defmodule Norns.Agents.Process do
         {:noreply, state}
 
       {tc, remaining_tasks} ->
-        # Build the tool result as a neutral message
-        {status, content} =
+        # Build the tool result as a neutral message. A sub-agent outcome
+        # arrives kinded; a worker result is content, forwarded verbatim.
+        {status, content, extra} =
           case result do
-            {:ok, result_str} -> {:ok, result_str}
-            {:error, reason} -> {:error, if(is_binary(reason), do: reason, else: inspect(reason))}
+            {:ok, {:kind, kind, data, content}} -> {:ok, content, %{"kind" => kind, "data" => data}}
+            {:error, {:kind, kind, data, content}} -> {:error, content, %{"kind" => kind, "data" => data}}
+            {:ok, content} -> {:ok, content, %{}}
+            {:error, reason} -> {:error, if(Content.valid?(reason), do: reason, else: inspect(reason)), %{}}
           end
 
         tool_msg = %{
@@ -863,21 +847,22 @@ defmodule Norns.Agents.Process do
           content: content
         }
 
+        tool_msg = Map.merge(tool_msg, atomize(extra))
         tool_msg = if status == :error, do: Map.put(tool_msg, :is_error, true), else: tool_msg
 
         # Log the result event
         append(
           state.run,
-          Events.tool_result(%{
+          Events.tool_result(Map.merge(%{
             "tool_call_id" => tc["id"],
             "name" => tc["name"],
             "content" => content,
             "is_error" => status == :error,
             "step" => state.step
-          })
+          }, extra))
         )
 
-        broadcast(state, :tool_result, %{tool_call_id: tc["id"], name: tc["name"], content: content})
+        broadcast(state, :tool_result, Map.merge(%{tool_call_id: tc["id"], name: tc["name"], content: content}, atomize(extra)))
 
         results = Map.put(pending.results, tc["id"], tool_msg)
 
@@ -908,22 +893,7 @@ defmodule Norns.Agents.Process do
 
   def handle_info({:timer_complete, tool_call_id, pending_results, log_calls?}, %{status: :waiting_timer} = state) do
     # Timer fired — deliver the wait tool result and continue
-    wait_result = %{
-      role: "tool",
-      tool_call_id: tool_call_id,
-      name: "wait",
-      content: "Timer completed."
-    }
-
-    append(state.run, Events.tool_result(%{
-      "tool_call_id" => tool_call_id,
-      "name" => "wait",
-      "content" => "Timer completed.",
-      "is_error" => false,
-      "step" => state.step
-    }))
-
-    broadcast(state, :tool_result, %{tool_call_id: tool_call_id, name: "wait", content: "Timer completed."})
+    wait_result = make_system_result(state, %{"id" => tool_call_id}, "wait", "timer_completed", %{}, "", false)
 
     all_results = pending_results ++ [wait_result]
     state = %{state | task_timer: nil}
@@ -954,7 +924,7 @@ defmodule Norns.Agents.Process do
   def handle_info({:completed, %{run_id: child_run_id, output: output}}, %{status: :awaiting_tools} = state) do
     {:noreply,
      resolve_subagent(state, child_run_id, fn ->
-       {:ok, subagent_result(child_run_id, "completed", %{"output" => output || ""})}
+       {:ok, {:kind, "subagent_completed", %{"run_id" => child_run_id, "status" => "completed"}, output || ""}}
      end)}
   end
 
@@ -962,7 +932,7 @@ defmodule Norns.Agents.Process do
   def handle_info({:error, %{run_id: child_run_id, error: error}}, %{status: :awaiting_tools} = state) do
     {:noreply,
      resolve_subagent(state, child_run_id, fn ->
-       {:error, subagent_result(child_run_id, "failed", %{"error" => to_string(error)})}
+       {:error, {:kind, "subagent_failed", %{"run_id" => child_run_id, "status" => "failed"}, error || ""}}
      end)}
   end
 
@@ -1030,7 +1000,7 @@ defmodule Norns.Agents.Process do
 
     case response.finish_reason do
       "stop" ->
-        {:noreply, complete_successfully(state, response.content)}
+        {:noreply, complete_successfully(state, response)}
 
       "tool_call" ->
         {:noreply, state, {:continue, {:execute_tools, response.tool_calls}}}
@@ -1040,7 +1010,7 @@ defmodule Norns.Agents.Process do
 
       other ->
         Logger.info("Unknown finish_reason #{inspect(other)}, treating as stop")
-        {:noreply, complete_successfully(state, response.content)}
+        {:noreply, complete_successfully(state, response)}
     end
   end
 
@@ -1077,48 +1047,23 @@ defmodule Norns.Agents.Process do
     end
   end
 
-  defp compact_messages(messages) when length(messages) <= 4, do: messages
+  # The worker decides what the run's output is (`final_output`, see
+  # Format.final_output/2) because deciding needs to read text. Core stores
+  # what it was told; an older worker that reports no final_output gets the
+  # last turn's content as-is.
+  defp complete_successfully(state, response) do
+    output = response.final_output || response.content || ""
 
-  defp compact_messages(messages) do
-    {old, recent} = Enum.split(messages, length(messages) - 2)
-    Enum.map(old, &compact_message/1) ++ recent
-  end
+    append(state.run, Events.run_completed(%{"output" => output}))
 
-  defp compact_message(%{role: "tool", content: content} = msg)
-       when is_binary(content) and byte_size(content) > @tool_result_cap do
-    truncated = String.slice(content, 0, @tool_result_cap) <> "...(truncated)"
-    %{msg | content: truncated}
-  end
+    {:ok, run} =
+      Runs.update_run(state.run, %{status: "completed", output: Content.to_column(output), failure_metadata: %{}})
 
-  defp compact_message(msg), do: msg
-
-  defp complete_successfully(state, content) do
-    text = if is_binary(content), do: content, else: ""
-    text = if String.trim(text) == "", do: last_non_empty_assistant_content(state.messages) || text, else: text
-
-    append(state.run, Events.run_completed(%{"output" => text}))
-
-    {:ok, run} = Runs.update_run(state.run, %{status: "completed", output: text, failure_metadata: %{}})
     state = %{state | run: run}
     state = persist_conversation_messages(state)
 
-    broadcast(state, :completed, %{output: text})
+    broadcast(state, :completed, %{output: output})
     finish_run(state)
-  end
-
-  # A turn can produce substantive content alongside a tool call, then end
-  # with an empty "stop" turn. Fall back to the last non-empty assistant
-  # text rather than losing that content.
-  defp last_non_empty_assistant_content(messages) do
-    messages
-    |> Enum.reverse()
-    |> Enum.find_value(fn
-      %{role: "assistant", content: content} when is_binary(content) ->
-        if String.trim(content) == "", do: nil, else: content
-
-      _other ->
-        nil
-    end)
   end
 
   defp complete_with_error(state, reason) when is_binary(reason) do
@@ -1173,18 +1118,8 @@ defmodule Norns.Agents.Process do
     state
   end
 
-  defp build_system_prompt(state) do
-    state.agent_def.system_prompt
-    |> maybe_append_summary(state)
-    |> Kernel.<>("\n\nCurrent date: #{Date.utc_today()}.")
-  end
-
-  defp maybe_append_summary(prompt, %{conversation: %{summary: summary}})
-       when is_binary(summary) and summary != "" do
-    prompt <> "\n\nSummary of earlier conversation: " <> summary
-  end
-
-  defp maybe_append_summary(prompt, _state), do: prompt
+  defp conversation_summary(%{conversation: %{summary: summary}}) when summary not in [nil, ""], do: summary
+  defp conversation_summary(_state), do: nil
 
   defp load_conversation_state(state) do
     if state.conversation do
@@ -1225,11 +1160,12 @@ defmodule Norns.Agents.Process do
   end
   defp normalize_context_messages(_), do: []
 
+  # The parent's data is forwarded as it came; the LLM worker renders the
+  # preamble the model reads.
   defp build_data_message(nil), do: []
   defp build_data_message(data) when data == %{}, do: []
-  defp build_data_message(data) when is_map(data) do
-    encoded = Jason.encode!(data)
-    [%{role: "user", content: "[Inherited context from parent agent]\n#{encoded}"}]
+  defp build_data_message(data) when is_map(data) or is_binary(data) do
+    [%{role: "user", kind: "inherited_context", content: data}]
   end
   defp build_data_message(_), do: []
 
@@ -1287,6 +1223,8 @@ defmodule Norns.Agents.Process do
     |> maybe_put(:tool_call_id, m["tool_call_id"])
     |> maybe_put(:name, m["name"])
     |> maybe_put(:is_error, m["is_error"])
+    |> maybe_put(:kind, m["kind"])
+    |> maybe_put(:data, m["data"])
   end
 
   defp maybe_put(map, _key, nil), do: map
@@ -1349,7 +1287,7 @@ defmodule Norns.Agents.Process do
 
     messages = messages ++ context_messages
 
-    if is_binary(user_message) do
+    if Content.valid?(user_message) do
       messages ++ [%{role: "user", content: user_message}]
     else
       messages
@@ -1391,12 +1329,15 @@ defmodule Norns.Agents.Process do
             {msgs ++ [assistant_msg], event.payload["step"] || current_step, tool_calls}
 
           "tool_result" ->
-            tool_msg = %{
-              role: "tool",
-              tool_call_id: event.payload["tool_call_id"],
-              name: event.payload["name"],
-              content: event.payload["content"]
-            }
+            tool_msg =
+              %{
+                role: "tool",
+                tool_call_id: event.payload["tool_call_id"],
+                name: event.payload["name"],
+                content: event.payload["content"]
+              }
+              |> maybe_put(:kind, event.payload["kind"])
+              |> maybe_put(:data, event.payload["data"])
 
             tool_msg =
               if event.payload["is_error"] do
@@ -1516,13 +1457,15 @@ defmodule Norns.Agents.Process do
     end
   end
 
-  # The launch_agent tool result carries the child's run id, not just its text.
-  # Without it a parent can see *what* a sub-agent said but has no handle to
-  # inspect *how* it got there — which is the whole point of the event log.
-  defp subagent_result(run_id, status, extra) do
-    %{"run_id" => run_id, "status" => status}
-    |> Map.merge(extra)
-    |> Jason.encode!()
+  # The launch_agent result carries the child's run id in the envelope, not
+  # just its text. Without it a parent can see *what* a sub-agent said but has
+  # no handle to inspect *how* it got there — which is the point of the log.
+  defp subagent_outcome(run_id, "completed", output) do
+    {"subagent_completed", %{"run_id" => run_id, "status" => "completed"}, output || ""}
+  end
+
+  defp subagent_outcome(run_id, "failed", error) do
+    {"subagent_failed", %{"run_id" => run_id, "status" => "failed"}, error || ""}
   end
 
   defp append(run, {:ok, event}), do: Runs.append_event(run, event)
