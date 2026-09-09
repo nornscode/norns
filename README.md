@@ -10,13 +10,18 @@
   <a href="https://elixir-lang.org/"><img src="https://img.shields.io/badge/elixir-1.18-purple.svg" alt="Elixir" /></a>
 </p>
 
-<p align="center">Durable execution for AI agents</p>
+<p align="center">Kill the worker. The run picks up where it left off.</p>
 
 https://github.com/user-attachments/assets/b300b164-dc0c-44ea-a794-1de00b4f01a7
 
 <p align="center"><sub>An agent calls <code>wait</code> (10s), then <code>say_hello</code>. I kill the worker twice mid-run. Each time a new worker connects, the run picks up where it left off. Nothing is lost and nothing runs twice.</sub></p>
 
-Norns is a durable execution runtime for AI agents, built in Elixir on the BEAM. If the worker running an agent dies mid-run, the next worker replays the run's event log and continues from the last completed step. Tools that already ran don't run again. Norns never sees your API keys.
+Norns is a durable execution runtime for AI agents, built in Elixir on the BEAM. Every LLM call, tool call, and tool result is an event in a Postgres log, and any connected worker can replay that log and carry the run forward.
+
+- **A deploy or an eviction doesn't kill the run.** If the worker dies eight tool calls into a job, the next worker replays the event log and continues from the last completed step.
+- **Resuming never sends the same email twice.** Side-effecting tools get a deterministic idempotency key, so a tool that already ran is skipped on replay.
+- **Your API keys stay on your worker.** Norns dispatches tasks and records results; it never holds provider credentials and never calls a model or a tool itself.
+- **You keep the model and the language you already use.** The wire format is provider-neutral, and there are Python and Elixir SDKs.
 
 ## Get started
 
@@ -35,9 +40,11 @@ That gives you a Norns server and a worker connected to it. The [hello agent](ht
 
 On your laptop, durability is mostly a solved problem. The process stays up, the disk is reliable, and the transcript is right there. In the cloud, none of that holds. Containers get evicted, VMs get preempted, and every deploy kills whatever was in flight. An agent eight tool calls into a job can lose its whole environment at any moment, with no long-lived process or file system to fall back on.
 
-Norns moves the agent's state out of the process and into Postgres. Every LLM call, tool call, and tool result is an event in the run's log, so the run doesn't live in any one container. When a worker disappears, the next one replays the log and carries on.
+Norns is built for the second case. The run's state lives in Postgres instead of the container, so losing the container costs you nothing.
 
 ## How it works
+
+Postgres is the only thing you run besides Norns. Background jobs go through Oban on the same database, and there is no Redis or message broker.
 
 The orchestrator is a state machine. It never calls an LLM and never runs a tool. It manages state transitions and persists events. Workers do the actual work.
 
