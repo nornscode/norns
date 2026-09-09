@@ -277,3 +277,10 @@ stored form has proven itself.
   step is an agent def, full stop. A step *agent* may `launch_chain` once
   P2 lands, which gives nesting through the policy model rather than the
   data model.
+- **Fork on a chain run.** `plan-coding-agent-runs.md` proposes
+  `POST /runs/:id/fork`. Forking a step run forks that run only; the fork
+  carries no `chain_run_id`, so its completion does not advance any chain.
+  A chain-level fork ("rerun from step 2 with a different step-2 agent")
+  is a snapshot edit plus a new chain run and is a natural later addition.
+  Both plans use "kill the node mid-step" as the acceptance test; share
+  the harness.

@@ -1,7 +1,7 @@
 # Norns Roadmap
 
 **Status:** v6
-**Last updated:** 2026-09-03 (v6.1: control plane relocated to the cloud app)
+**Last updated:** 2026-09-09 (v6.2: SDK graceful shutdown shipped; fork and the coding-agent demo slotted alongside)
 
 Sequencing for the next phase of work. For what's already built and why, see
 `decision-log.md`. For the product direction this sequence serves, see
@@ -13,8 +13,8 @@ Sequencing for the next phase of work. For what's already built and why, see
 
 The core is shipping: durable agent process, orchestrator/worker split,
 provider-neutral LLM format, conversations, REST API + dashboard, multi-agent
-orchestration, and both SDKs published (Python on PyPI at 0.3.0 with gard
-support, Elixir on Hex). Norns itself is at **v0.5** ("agents are
+orchestration, and both SDKs published (Python at 0.4.0 with gard support
+and graceful shutdown, PyPI publish pending; Elixir on Hex). Norns itself is at **v0.5** ("agents are
 configuration"). Steps 1–5 below are shipped, and the provisioner (step 6)
 has its P0 and P1 landed and hardened, with CI and a machine-readable
 status seam in place for P2 — the sequence now adds one primitive on top
@@ -252,13 +252,20 @@ compiler and the learning loop stay with the cloud builder.
   ["Is This Still Happening?"](https://mackeracher.com/posts/is-this-still-happening/)
   (2026-08-08).
 - **Cross-SDK parity gaps** — Python serial task handling shipped as SDK
-  0.3.1; still open: per-request LLM keys, model-string separator, graceful
-  shutdown. Small and independently shippable — and no longer optional once
-  connectors run 24/7 under the provisioner (see Cloud readiness).
+  0.3.1 and graceful shutdown as 0.4.0 (2026-09-09); still open:
+  per-request LLM keys, model-string separator. Small and independently
+  shippable.
 - **Template hygiene** — drop the `litellm!=1.96.1` uv constraint from the
   scaffold templates; SDK 0.3.0 carries the exclusion itself.
 - **Skírnir** (`skirnir-v0.1-spec.md`) — its runtime blocker (HITL wiring) is
   gone; build whenever the Elixir flagship demo is wanted.
+- **Fork and the coding-agent template** (`plan-coding-agent-runs.md`
+  Phases F and 0, about four days together). `POST /runs/:id/fork` needs
+  no new worker — checkpoints already hold `messages` and `step` — and is
+  the cheapest "time travel" demo; the `coding-agent` template is the
+  README demo on a repo people recognise. Slotted here rather than as
+  step 8 so they are not queued behind tenant self-serve, P2a, and chains.
+  Phases 1 and 2 of that plan stay unsequenced.
 
 ---
 
@@ -289,8 +296,8 @@ volund's `list --json` record, with a Deployments page.
 - **Tenant self-serve** — signup → tenant → key issuance. Cloud-repo work.
 - **Retention plan** — cron-triggered agents generate events unboundedly;
   needed before cloud launch, not before growth forces it.
-- **SDK hardening** — serial task handling and graceful shutdown, for
-  connectors that run 24/7.
+- **SDK hardening** — serial task handling (0.3.1) and graceful shutdown
+  (0.4.0, core `drain` event) — both shipped, for connectors that run 24/7.
 
 ---
 
@@ -342,7 +349,7 @@ promise in-process behaviour that the multi-tenant product cannot deliver.
 - `plan-agent-builder.md` — product direction: compose/fabricate, triggers, pruned alternatives
 - `gards.md` — worker affinity design (v9; Phase 1 shipped, provisioner phases + the no-gard-connectors correction)
 - `plan-chains.md` — ordered agent defs as tenant data (proposed)
-- `plan-coding-agent-runs.md` — coding agents as Norns runs: mirror, fork, time travel, prompt experiments (proposed 2026-09-09)
+- `plan-coding-agent-runs.md` — coding agents as Norns runs: mirror, fork, time travel, prompt experiments (proposed 2026-09-09; fork + template slotted alongside)
 - `plan-subagent-allowlists.md` — agent authorization (Phase 1 shipped)
 - `plan-durable-mcp.md` — durable step protocol (parked)
 - `plan-custom-agent-workflows.md` — `@agent` + `ctx.*` durable primitives (parked)

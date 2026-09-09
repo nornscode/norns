@@ -1,7 +1,7 @@
 # Plan: Coding-Agent Runs
 
-**Status:** Proposed (2026-09-09). Not sequenced; candidate for step 8 in
-`roadmap.md` after chains.
+**Status:** Proposed (2026-09-09). Phases F and 0 sit under "Alongside" in
+`roadmap.md`; Phases 1 and 2 are not sequenced.
 **Depends on:** gards Phase 1 (shipped), `nornsctl new` templates (shipped),
 provisioner P1 gard deployments (shipped in volund). Phase 2 wants managed
 gards (volund P2b) but does not block on them.
@@ -75,7 +75,11 @@ What it buys, in rough order of value:
 - **Blocked means `:waiting`.** A CLI `Notification` or permission prompt maps
   to the existing `ask_human` and `:waiting` state, so the existing
   `POST /runs/:id/reply` path, and anything built on it (Slack, Telegram,
-  the dashboard), answers a stuck coding agent.
+  the dashboard), answers a stuck coding agent. This is not free: today a
+  reply resumes the agent process, and an observed run has none. The reply
+  has to be pushed to the observer worker holding the CLI's prompt, so
+  Phase 1a is an events ingress *and* a reply leg to the worker.
+  `ResumeAgents` must also skip observed runs on boot.
 - **A queryable transcript.** Cost per task, tool-call histograms, which
   files an agent touched, all in Postgres, across runs and machines.
 - **Resume, weakly.** On worker loss the observer restarts the CLI with its
@@ -116,7 +120,21 @@ With a per-step SHA in every tool result, the log is a full timeline of
   endpoint is worth building before Phase 2 finishes, because for
   non-coding agents it needs no filesystem at all: the `checkpoint_saved`
   event already holds `messages` and `step`. Fork on the hello agent is the
-  cheapest "time travel" demo we have.
+  cheapest "time travel" demo we have. Three details that are not just
+  truncation:
+  - **Any step is forkable, whatever the checkpoint policy.** Checkpoints
+    are written every step, on tool call, or manually. Fork takes the last
+    checkpoint at or before `step` and replays events forward to it, which
+    is what resume already does; it does not need a checkpoint at `step`.
+  - **Overrides clone the def.** The agent process re-reads its def every
+    step by design ("agents are configuration"), so a `system_prompt` or
+    `model` override has nowhere to live on the run. Fork with overrides
+    creates a variant agent (the def with the overrides applied) and forks
+    the run onto it. One agent per variant also makes prompt experiments
+    legible in the dashboard.
+  - **A fork starts its own conversation.** A run inside a persistent
+    conversation must not append its fork's turns to the parent's history.
+    Forks are task-mode runs with a fresh conversation, as chain steps are.
 - **Time travel in the dashboard.** The run page already lists events. Add a
   "fork from here" button on any step and a diff view against the step's
   SHA. Scrubbing a run is reading the log; branching it is fork.
