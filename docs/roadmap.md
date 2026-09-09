@@ -197,9 +197,10 @@ Calling core contexts in-process means no tenant API key, so key scoping
 is off the P2a critical path. Sequence: **P2a** managed connectors
 (records, secrets, reconciler, Fly driver, prebuilt images, dashboard
 page; customers bring an image, no build service), **P2b** managed gards
-(workspace, export, tunnel), **P2c** billing and snapshots. Prerequisites
-that remain: SDK graceful shutdown (connectors get stopped and restarted
-routinely under a reconciler) and tenant self-serve.
+(workspace, export, tunnel), **P2c** billing and snapshots. Prerequisites:
+SDK graceful shutdown — **shipped 2026-09-09** (core `drain` event; the
+Python SDK drains on SIGTERM/SIGINT, released as 0.4.0) — and tenant
+self-serve, which remains.
 
 ### 7. Chains (`plan-chains.md`)
 
