@@ -32,6 +32,15 @@ defmodule NornsWeb.WorkerChannel do
     {:reply, :ok, socket}
   end
 
+  # The worker is shutting down cleanly: stop sending it new tasks, let it
+  # finish and report the ones it has, then it leaves. Without this a
+  # supervisor restart (volund, a Fly reconciler) fails every in-flight task
+  # and hands new ones to a worker that is about to exit.
+  def handle_in("drain", _params, socket) do
+    WorkerRegistry.drain_worker(socket.assigns.tenant_id, socket.assigns.worker_id)
+    {:reply, :ok, socket}
+  end
+
   # Ports arrive on the worker channel rather than a separate HTTP call —
   # reuses the worker's authentication, and the gard is inferred from the
   # connection (the worker declared it at join; re-specifying it per port

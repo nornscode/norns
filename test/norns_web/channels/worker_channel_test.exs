@@ -13,6 +13,27 @@ defmodule NornsWeb.WorkerChannelTest do
     %{socket: socket, tenant: tenant}
   end
 
+  describe "drain" do
+    test "marks the worker draining so it is skipped by dispatch", %{socket: socket, tenant: tenant} do
+      {:ok, _, socket} =
+        subscribe_and_join(socket, WorkerChannel, "worker:lobby", %{
+          "worker_id" => "draining-worker",
+          "tools" => [%{"name" => "t", "description" => "t", "input_schema" => %{}}],
+          "capabilities" => ["llm", "tools"]
+        })
+
+      ref = push(socket, "drain", %{})
+      assert_reply ref, :ok
+
+      assert [%{worker_id: "draining-worker", draining: true}] = WorkerRegistry.connected_workers(tenant.id)
+
+      {:ok, task_id} = WorkerRegistry.dispatch_task(tenant.id, "t", %{}, from_pid: self())
+      refute_push "tool_task", %{"task_id" => ^task_id}, 50
+
+      WorkerRegistry.unregister_worker(tenant.id, "draining-worker")
+    end
+  end
+
   describe "join" do
     test "worker joins with tools", %{socket: socket} do
       tools = [%{"name" => "my_tool", "description" => "Does stuff", "input_schema" => %{}}]

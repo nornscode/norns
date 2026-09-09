@@ -44,6 +44,18 @@ defmodule Norns.Workers.WorkerRegistry do
     GenServer.call(__MODULE__, {:available_tools, tenant_id, Keyword.get(opts, :gard)})
   end
 
+  @doc """
+  Mark a worker as draining: it keeps the tasks already in flight to it and
+  is expected to finish them, but is skipped by dispatch from now on. A
+  worker sends this when it is shutting down cleanly, then leaves once its
+  in-flight tasks are done. New tasks that would have gone to it queue
+  (or go to another matching worker), so a connector restarted under a
+  supervisor loses nothing.
+  """
+  def drain_worker(tenant_id, worker_id) do
+    GenServer.cast(__MODULE__, {:drain, tenant_id, worker_id})
+  end
+
   @doc "Kick every worker claiming `gard_id` — used when the gard is destroyed."
   def kick_gard_workers(tenant_id, gard_id) do
     GenServer.cast(__MODULE__, {:kick_gard_workers, tenant_id, gard_id})
@@ -130,7 +142,8 @@ defmodule Norns.Workers.WorkerRegistry do
       capabilities: capabilities,
       monitor_ref: ref,
       tenant_id: tenant_id,
-      gard: gard
+      gard: gard,
+      draining: false
     }
 
     state = put_in(state.workers[key], worker)
@@ -193,7 +206,13 @@ defmodule Norns.Workers.WorkerRegistry do
       state.workers
       |> Enum.filter(fn {{tid, _}, w} -> tid == tenant_id and Process.alive?(w.channel_pid) end)
       |> Enum.map(fn {{_tid, worker_id}, w} ->
-        %{worker_id: worker_id, capabilities: w.capabilities, tool_count: length(w.tools), gard: w.gard}
+        %{
+          worker_id: worker_id,
+          capabilities: w.capabilities,
+          tool_count: length(w.tools),
+          gard: w.gard,
+          draining: w.draining
+        }
       end)
 
     {:reply, workers, state}
@@ -211,7 +230,7 @@ defmodule Norns.Workers.WorkerRegistry do
   def handle_call({:dispatch_llm, tenant_id, task, from_pid, gard}, _from, state) do
     worker =
       find_worker(state, tenant_id, fn w ->
-        :llm in w.capabilities and w.gard == gard and Process.alive?(w.channel_pid)
+        :llm in w.capabilities and w.gard == gard and dispatchable?(w)
       end)
 
     case worker do
@@ -255,7 +274,7 @@ defmodule Norns.Workers.WorkerRegistry do
     # gard is nil — a gard-bound run never falls back to a generic worker.
     worker =
       find_worker(state, tenant_id, fn w ->
-        Process.alive?(w.channel_pid) and w.gard == gard and
+        dispatchable?(w) and w.gard == gard and
           Enum.any?(w.tools, &(tool_name(&1) == tool_name))
       end)
 
@@ -313,6 +332,19 @@ defmodule Norns.Workers.WorkerRegistry do
         # No worker under this key, or a late terminate from a connection that
         # has already been replaced by a reconnect — don't evict the new worker.
         {:noreply, state}
+    end
+  end
+
+  def handle_cast({:drain, tenant_id, worker_id}, state) do
+    key = {tenant_id, worker_id}
+
+    case state.workers[key] do
+      nil ->
+        {:noreply, state}
+
+      worker ->
+        Logger.info("Worker #{worker_id} draining (tenant #{tenant_id})")
+        {:noreply, put_in(state.workers[key], %{worker | draining: true})}
     end
   end
 
@@ -433,6 +465,10 @@ defmodule Norns.Workers.WorkerRegistry do
     |> Map.get(:input, %{})
     |> Map.put(:task_id, task.task_id)
   end
+
+  # A worker takes new tasks while its channel is alive and it has not
+  # announced it is shutting down. In-flight tasks are unaffected either way.
+  defp dispatchable?(worker), do: Process.alive?(worker.channel_pid) and not worker.draining
 
   defp find_worker(state, tenant_id, matcher) do
     Enum.find(state.workers, fn {{tid, _}, worker} -> tid == tenant_id and matcher.(worker) end) ||

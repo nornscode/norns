@@ -83,6 +83,15 @@ Task dispatch uses a provider-neutral format. The worker translates to/from what
 | Worker → Server | `tool_result` | task_id, status, content/tool_calls, finish_reason, usage |
 | Server → Worker | `tool_task` | task_id, tool_name, input |
 | Worker → Server | `tool_result` | task_id, status, result/error |
+| Worker → Server | `register_port` | internal_port, name, protocol, url (gard workers only) |
+| Worker → Server | `drain` | — : stop dispatching to me; I will finish my in-flight tasks, then leave |
+| Server → Worker | `gard_destroyed` | — : the gard this worker claimed is gone; the channel closes |
+
+A worker shutting down cleanly sends `drain`, finishes and reports the
+tasks it already holds, then leaves. New work that would have reached it
+queues (or goes to another matching worker) until a replacement registers.
+A worker that just disconnects has its in-flight tasks failed with
+`worker disconnected`, which the agent's retry policy re-dispatches.
 
 ## Runtime Contracts
 
