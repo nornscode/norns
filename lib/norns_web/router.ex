@@ -69,6 +69,8 @@ defmodule NornsWeb.Router do
     # /hooks/:token, and nothing here answers POST on /hooks/:id.
     resources "/hooks", HookController, only: [:create, :index, :show, :update, :delete]
 
+    get "/sessions", SessionController, :index
+    get "/sessions/:id", SessionController, :show
     get "/runs", RunController, :index
     get "/runs/:id", RunController, :show
     get "/runs/:id/events", RunController, :events

@@ -365,6 +365,8 @@ GET    /api/v1/runs/:id                      — run details + failure inspector
 GET    /api/v1/runs/:id/events               — event log
 GET    /api/v1/runs/:id/summary              — fixed-size trace summary
 POST   /api/v1/runs/:id/fork                 — new run from the history after `step`; optional message, system_prompt, model
+GET    /api/v1/sessions                      — every conversation across agents and gards with its latest run and live state (`?limit=`)
+GET    /api/v1/sessions/:id                  — one session with its messages
 GET    /api/v1/tools                         — tools callable in this tenant
 ```
 

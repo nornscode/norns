@@ -6,6 +6,50 @@ defmodule Norns.Conversations do
   alias Norns.Conversations.Conversation
   alias Norns.Repo
 
+  @doc """
+  Every conversation of a tenant, newest first, each with its agent and its
+  latest run. This is the session list a client shows: one row per
+  conversation across every agent and gard.
+  """
+  def list_sessions(tenant_id, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 100)
+
+    conversations =
+      Conversation
+      |> where([c], c.tenant_id == ^tenant_id)
+      |> order_by([c], desc: c.updated_at)
+      |> limit(^limit)
+      |> preload(:agent)
+      |> Repo.all()
+
+    with_latest_runs(conversations)
+  end
+
+  @doc "One conversation of a tenant with its agent and latest run, or nil."
+  def get_session(tenant_id, id) do
+    case Repo.get_by(Conversation, id: id, tenant_id: tenant_id) do
+      nil -> nil
+      conversation -> conversation |> Repo.preload(:agent) |> List.wrap() |> with_latest_runs() |> hd()
+    end
+  end
+
+  defp with_latest_runs([]), do: []
+
+  defp with_latest_runs(conversations) do
+    ids = Enum.map(conversations, & &1.id)
+
+    latest =
+      from(r in Norns.Runs.Run,
+        where: r.conversation_id in ^ids,
+        distinct: r.conversation_id,
+        order_by: [asc: r.conversation_id, desc: r.inserted_at, desc: r.id]
+      )
+      |> Repo.all()
+      |> Map.new(&{&1.conversation_id, &1})
+
+    Enum.map(conversations, fn c -> %{conversation: c, run: Map.get(latest, c.id)} end)
+  end
+
   def list_conversations(agent_id) do
     Conversation
     |> where([c], c.agent_id == ^agent_id)
