@@ -4,7 +4,8 @@
 "Alongside" (roadmap v6.3, same day). **P0 shipped 2026-09-09** — see
 § What P0 landed. **H1 shipped 2026-09-09** as `sleipnir` — see § What H1
 landed. **H2 shipped 2026-09-09** — `decision-log.md` § Compaction is an LLM
-task.
+task. **F and H3 shipped 2026-09-09** — see § What F landed, § What H3
+landed. Next: H4, a week of dogfooding.
 **Depends on:** gards Phase 1 (shipped), `drain` / SDK 0.4.0 (shipped),
 `GET /api/v1/workers` (shipped). The encrypted mode wants P2a's secrets
 context for cloud-run workers but does not block on it.
@@ -395,6 +396,31 @@ with a changed instruction produced a run that started from that step's
 five messages plus the carried summary, asked one permission question,
 and landed the new test instead of the old one.
 
+### What H3 landed (2026-09-09)
+
+The client is sleipnir itself, not `nornsctl chat` (decided the same
+day, `decision-log.md` § Sleipnir is the tool): one process that is the
+worker for this repository and the session client, Python with Textual so
+both share one asyncio loop and the H1 code. The sidebar is a new core
+endpoint, `GET /api/v1/sessions`: every conversation across every agent
+and gard with its latest run, its pending question, and the live state of
+its process, polled every two seconds; the pane is the session's history
+from `GET /sessions/:id` plus live events from the agent channel, one
+socket joined per agent. Typing sends to the session on this
+repository's gard; when the run is parked on `ask_human`, the next line
+answers it. `/new`, `/fork N [message]`, `/resume`. Each repository gets
+a gard on first start, with the claim token kept in `~/.sleipnir`, which
+is what makes "spaces are gards" real: the list shows where a session
+lives, and its tool calls only ever reach that machine. `sleipnir serve`
+and `sleipnir chat` are the halves alone. Driven headlessly against the
+dev server with the worker in-process, a new session went from the first
+typed line through live events, a question answered through the client,
+and completion.
+
+Not yet: token streaming (Norns emits whole turns), tabs closing,
+decrypt (E3), and the "always allow" answer editing the allow list from
+the client rather than through the worker.
+
 ## Chains
 
 `plan-chains.md` renders `{{output}}` in core from `run.output`. Under the
@@ -438,7 +464,7 @@ Either way, the chains plan should not grow a core-side string renderer.
 | P0 | Opaque-content audit: the eight fixes above, `content_fields/1` in the validator, and a conformance test that replays a run whose content is random bytes | norns | 3 days |
 | H1 | `sleipnir` worker: six tools, allow list, `AGENTS.md` on start, self-config CLI. Shipped 2026-09-09 | new repo | 3 days |
 | H2 | Compaction: `context_policy`, `context_compacted` event, LLM-task summarisation. Core shipped 2026-09-09; SDKs 0.6/0.3 carry the worker side | norns + SDK | 4 days |
-| H3 | `nornsctl chat`: session list with status across gards, tabs, streaming, permissions inline, `/fork`, `/resume` | nornsctl | 1 week |
+| H3 | The session client, in sleipnir itself: session list with status across gards, tabs, live events, permissions inline, `/fork`, `/resume`. Shipped 2026-09-09 | sleipnir + core | 1 week |
 | H4 | Dogfood on norns for a week, fix the edit tool, write the README demo | all | 1 week, overlapping |
 | E1 | SDK `ContentCipher`, key file, `nornsctl keys new`, built-in argument splitting | SDK + nornsctl | 3 days |
 | E2 | Validator accepts the block shape; `run_started` records the kid; mode shown on the run page | norns | 1 day |

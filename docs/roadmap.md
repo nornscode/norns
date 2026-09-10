@@ -235,9 +235,11 @@ weeks of delay to tenant self-serve, which nobody external is waiting on.
 - **F — shipped 2026-09-09:** `POST /runs/:id/fork`, `nornsctl runs fork`,
   and "fork from step" on the run page (`decision-log.md` § Fork is a
   checkpoint in a new run).
-- **H3:** `nornsctl chat` as a session client:
-  every conversation across every gard with live status, tabs, streaming,
-  permissions inline, `/fork` and `/resume`. About a week.
+- **H3 — shipped 2026-09-09:** the session client, as sleipnir itself
+  (Python, Textual, the worker in the same process; `decision-log.md`
+  § Sleipnir is the tool): every conversation across every gard with
+  live status from `GET /api/v1/sessions`, tabs, live events, permissions
+  inline, `/fork` and `/resume`. Spaces are gards: one per repository.
 - **H4:** a week of dogfooding on norns; the README demo on a real repo.
 - **E1–E4 (after P2a):** end-to-end encryption — SDK content cipher and
   key file, validator accepts the opaque block, browser-side decrypt in

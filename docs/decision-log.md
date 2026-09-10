@@ -48,6 +48,24 @@ every step. Rejected: overrides on the run row (the process would ignore
 them), and appending a fork to the parent's conversation (it would corrupt
 the parent's history).
 
+### Sleipnir is the tool (decided 2026-09-09)
+
+The harness product is one command in your repository that is both the
+worker (tools and model calls on your machine) and the client (the
+sessions you look at), with the loop in Norns: pi's experience with pi's
+loop replaced. Two processes to install and start was the usability gap.
+Language: Python with Textual, because the worker and the SDK already
+exist in Python, the worker loop and the TUI share one asyncio process,
+and we have no user of the tool yet, so a week of use will change the
+design more than the language will; `uv tool install` is close enough to
+a binary for the developers it is for. Rust (single static binary,
+in-process sandboxing, Codex's path) is the decision to revisit after H4,
+and only as the whole shape: a Rust sleipnir absorbs the worker, and the
+Python one becomes the reference and library path. Rejected: growing
+`nornsctl chat` into the client (nornsctl is the operator tool; the
+client is a daily driver for a different audience), and a Rust client
+alone (a fourth language to draw text).
+
 ### Tools are infrastructure, agents are configuration
 - Workers are the tenant's long-lived capability layer (the Slack worker, the DB worker), maintained like services.
 - Agents are cheap, disposable data: prompt + model + tool selection + triggers, created and tested entirely through the API.
