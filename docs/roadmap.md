@@ -223,11 +223,15 @@ weeks of delay to tenant self-serve, which nobody external is waiting on.
   complete. Adopted as `decision-log.md` § Content is opaque. Python SDK
   0.5.0 and the Elixir SDK carry the worker side (prompt composition,
   `final_output`, kind rendering, elision).
-- **H1–H3:** the `norns-harness` worker (six tools, allow list,
-  `AGENTS.md` on start), compaction in core (`context_policy`,
-  `context_compacted`, summarisation as an LLM task), and `nornsctl chat`.
-  Fork (`plan-coding-agent-runs.md` Phase F) lands here because `/fork`
-  in the client needs it. About two and a half weeks.
+- **H1 — shipped 2026-09-09:** the `sleipnir` worker: six tools, allow
+  list with the `ask_human` approval loop enforced worker-side,
+  `AGENTS.md` on start. A self-configuring CLI (`sleipnir
+  allow|config|docs`, so the agent can set up its own harness) follows.
+- **H2–H3:** compaction in core (`context_policy`, `context_compacted`,
+  summarisation as an LLM task), and `nornsctl chat` as a session client:
+  every conversation across every gard with live status, tabs, streaming,
+  permissions inline. Fork (`plan-coding-agent-runs.md` Phase F) lands
+  here because `/fork` in the client needs it. About two weeks.
 - **H4:** a week of dogfooding on norns; the README demo on a real repo.
 - **E1–E4 (after P2a):** end-to-end encryption — SDK content cipher and
   key file, validator accepts the opaque block, browser-side decrypt in

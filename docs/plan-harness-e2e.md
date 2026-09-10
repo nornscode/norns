@@ -2,7 +2,8 @@
 
 **Status:** Proposed (2026-09-09); sequenced as roadmap step 7 with P0 under
 "Alongside" (roadmap v6.3, same day). **P0 shipped 2026-09-09** — see
-§ What P0 landed.
+§ What P0 landed. **H1 shipped 2026-09-09** as `sleipnir` — see § What H1
+landed.
 **Depends on:** gards Phase 1 (shipped), `drain` / SDK 0.4.0 (shipped),
 `GET /api/v1/workers` (shipped). The encrypted mode wants P2a's secrets
 context for cloud-run workers but does not block on it.
@@ -277,7 +278,7 @@ There is no escrow in v1; a team shares the key out of band.
 
 ## The harness itself
 
-**Worker** (`norns-harness`, new repo, Python SDK): `read_file`,
+**Worker** (`sleipnir`, new repo, Python SDK): `read_file`,
 `write_file`, `edit_file`, `bash`, `grep`, `glob`, registered with
 side-effect flags set for the mutating three. Runs on a gard on the
 developer's machine, `cwd` the repo. Output truncation, bash timeouts,
@@ -294,11 +295,15 @@ hook stays in "Not now."
 on the def (token threshold from the LLM response usage, which is
 envelope). It benefits every long-running agent, not only this one.
 
-**Client**: `nornsctl chat <agent>` over the agent channel. Streamed
+**Client**: `nornsctl chat` over the agent channel. A session list down
+the side (every conversation across every gard, grouped by repository,
+with live status from the envelope: idle, thinking, running `bash`,
+waiting for you), tabs to switch between them, and in the pane: streamed
 assistant text, tool calls with a one-line summary, permission prompts
-inline, `/fork <step>` and `/resume`. Bubble Tea, a few days for something
-we would use. This is a chat client for one run, not the multiplexer
-`plan-coding-agent-runs.md` rules out.
+inline, `/fork <step>` and `/resume`. Bubble Tea, about a week for
+something we would use. Sessions are runs, never shells; nothing here
+multiplexes a PTY, which is the multiplexer `plan-coding-agent-runs.md`
+rules out. See § What herdr got right.
 
 **Prompts**: a system prompt that reads `AGENTS.md` (via the worker, at
 run start, as a tool result, so it is content) and a short instructions
@@ -312,6 +317,55 @@ relevant with managed gards (P2b), not before.
 **LLM worker**: the same process, capabilities `[:llm, :tools]`, as the
 templates do today. Per-request LLM keys (the parity gap) matter here for
 the cloud mode and stay independent.
+
+### What herdr got right, and where it lands (added 2026-09-09)
+
+Three things make herdr popular, and the harness should have all three.
+Each lands in a different place:
+
+- **Persistent sessions, across machines.** A session is a Norns
+  conversation; its state is the run log, not a process on the laptop.
+  Attaching from another machine is the client (H3): open the same
+  conversation from anywhere and see the same history and status. The
+  *working tree* is on one gard, so a session followed from a second
+  machine reads and edits the first machine's checkout. Moving the work
+  itself to a new machine is fresh-gard resume (git-per-step SHAs, P2b),
+  not H3.
+- **Spaces, tabs, agents with status.** `nornsctl chat` grows from
+  one-run-one-terminal to the session list above. "Spaces" are gards: a
+  gard is a checkout on a machine, and that is what a developer thinks
+  of as a place. Status is envelope data, so it works on encrypted
+  sessions too.
+- **A CLI that configures itself, from within itself.** `sleipnir` gains
+  subcommands the agent can run through `bash`: `sleipnir allow
+  list|add|remove`, `sleipnir config` (model, max steps, agent name),
+  `sleipnir doctor`, and `sleipnir docs`, an AI-facing reference the
+  system prompt points at. One rule: changes to the allow list always
+  ask, whatever the allow list says, so the agent cannot grant itself
+  permissions with a single "always". H1 follow-up, about a day.
+
+### What H1 landed (2026-09-09)
+
+`sleipnir` 0.1.0, in its own repo. Six tools rooted at the repository the
+worker starts in; `edit_file` matches exactly, then line-wise ignoring
+trailing whitespace and a uniform indent shift, and fails with line
+numbers when ambiguous. `bash` kills the process group on timeout and
+strips the worker's own credentials from the environment. The allow list
+is `.sleipnir/allow` (`tool pattern`, shell commands split into simple
+commands that must each match; backticks always ask). The approval loop
+is enforced in the worker: a mutating call outside the list returns a
+request with a token, the model asks with `ask_human`, and the retry
+carries the token. Because the same process serves the run's LLM task,
+the worker reads the user's answer from the messages before the retry
+arrives, so a retry with no real answer is refused, and "always" appends
+rules. The smoke run on a scratch repo exercised every branch: a
+question without the token was refused and re-asked, "always" wrote
+rules, the edit landed, the tests ran.
+
+Found on the way: the model reaches for `bash cat` before `read_file`
+until told otherwise (prompt fixed), and the SDK's 200-char elision of
+old tool results is aggressive for a coding session, which is the case
+for H2.
 
 ## Chains
 
@@ -354,9 +408,9 @@ Either way, the chains plan should not grow a core-side string renderer.
 | Phase | Deliverable | Where | Size |
 |---|---|---|---|
 | P0 | Opaque-content audit: the eight fixes above, `content_fields/1` in the validator, and a conformance test that replays a run whose content is random bytes | norns | 3 days |
-| H1 | `norns-harness` worker: six tools, allow list, `AGENTS.md` on start | new repo | 3 days |
+| H1 | `sleipnir` worker: six tools, allow list, `AGENTS.md` on start. Shipped 2026-09-09; self-config CLI follows | new repo | 3 days |
 | H2 | Compaction: `context_policy`, `context_compacted` event, LLM-task summarisation | norns + SDK | 4 days |
-| H3 | `nornsctl chat`: streaming, permissions inline, `/fork`, `/resume` | nornsctl | 4 days |
+| H3 | `nornsctl chat`: session list with status across gards, tabs, streaming, permissions inline, `/fork`, `/resume` | nornsctl | 1 week |
 | H4 | Dogfood on norns for a week, fix the edit tool, write the README demo | all | 1 week, overlapping |
 | E1 | SDK `ContentCipher`, key file, `nornsctl keys new`, built-in argument splitting | SDK + nornsctl | 3 days |
 | E2 | Validator accepts the block shape; `run_started` records the kid; mode shown on the run page | norns | 1 day |
@@ -383,7 +437,7 @@ Phase 2 is this doc.
 - Key escrow, recovery, or per-user keys within a tenant. One key per
   agent, shared out of band, until a team asks for more.
 - Encrypting the envelope. Tool names, steps, and usage are the product.
-- A TUI multiplexer. One run per `nornsctl chat`.
+- Multiplexing PTYs. Sessions in the client are Norns runs, never shells.
 - Filesystem snapshots. The developer's own gard has the working tree;
   managed gards get SHAs later.
 - Encrypting agent defs beyond the system prompt. Names, models, and tool
@@ -391,10 +445,10 @@ Phase 2 is this doc.
 
 ## Open questions
 
-- **Name.** "Cloud accelerated harness" describes the at-rest mode;
-  "cloud coordinated" describes the E2E one. The worker repo needs a name
-  in the project's Norse vein before H1; the product phrase can wait for
-  the README.
+- **Name.** Resolved for the worker: `sleipnir`, Odin's eight-legged
+  horse, free on PyPI. "Cloud accelerated harness" describes the at-rest
+  mode; "cloud coordinated" describes the E2E one; the product phrase can
+  wait for the README.
 - **Def system prompt as content** means the agents list cannot preview
   prompts on an encrypted agent. Placeholder text in the def plus a
   worker-local prompt file may be the better default for the harness
