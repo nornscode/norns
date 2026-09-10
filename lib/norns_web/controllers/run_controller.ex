@@ -72,6 +72,38 @@ defmodule NornsWeb.RunController do
     end
   end
 
+  @doc """
+  Fork a run from a step: a new run on the parent's history up to that step,
+  in a fresh conversation, optionally with a new user message and a
+  system_prompt or model override (which creates a variant agent).
+  """
+  def fork(conn, %{"id" => id} = params) do
+    tenant = conn.assigns.current_tenant
+
+    with {:ok, run} <- fetch_run(id, tenant.id) do
+      opts = [
+        step: Map.get(params, "step"),
+        message: Map.get(params, "message"),
+        system_prompt: Map.get(params, "system_prompt"),
+        model: Map.get(params, "model")
+      ]
+
+      case Norns.Runs.Fork.fork(run, opts) do
+        {:ok, %{run: forked, agent: agent}} ->
+          conn |> put_status(201) |> json(%{status: "accepted", run_id: forked.id, agent_id: agent.id, data: NornsWeb.JSON.run(forked)})
+
+        {:error, {:invalid, message}} ->
+          conn |> put_status(422) |> json(%{error: message})
+
+        {:error, %Ecto.Changeset{} = changeset} ->
+          conn |> put_status(422) |> json(%{error: inspect(changeset.errors)})
+
+        {:error, reason} ->
+          conn |> put_status(500) |> json(%{error: inspect(reason)})
+      end
+    end
+  end
+
   def events(conn, %{"id" => id}) do
     tenant = conn.assigns.current_tenant
 

@@ -121,7 +121,14 @@ defmodule NornsWeb.RunLive do
               <span class={["text-xs font-medium", event_type_color(event.event_type)]}><%= event.event_type %></span>
               <span class="text-xs text-gray-500"><%= event_summary(event) %></span>
             </div>
-            <span class="text-xs text-gray-400 dark:text-gray-700"><%= format_time(event.inserted_at) %></span>
+            <div class="flex items-center gap-3">
+              <%= if event.event_type == "llm_response" and is_integer(event.payload["step"]) do %>
+                <button phx-click="fork" phx-value-step={event.payload["step"]} title="Start a new run from the history after this step" class="text-xs text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-300 border border-purple-300 dark:border-purple-900 px-2 py-0.5 rounded">
+                  fork from step <%= event.payload["step"] %>
+                </button>
+              <% end %>
+              <span class="text-xs text-gray-400 dark:text-gray-700"><%= format_time(event.inserted_at) %></span>
+            </div>
           </div>
           <%= if detail = event_detail(event) do %>
             <%= if String.length(detail) > 200 do %>
@@ -180,6 +187,19 @@ defmodule NornsWeb.RunLive do
      socket
      |> assign(run: updated_run, events: events)
      |> put_flash(:info, "Run cancelled")}
+  end
+
+  def handle_event("fork", %{"step" => step}, socket) do
+    case Norns.Runs.Fork.fork(socket.assigns.run, step: step) do
+      {:ok, %{run: forked}} ->
+        {:noreply, socket |> put_flash(:info, "Forked at step #{step} into run ##{forked.id}") |> push_navigate(to: ~p"/runs/#{forked.id}")}
+
+      {:error, {:invalid, message}} ->
+        {:noreply, put_flash(socket, :error, message)}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Fork failed: #{inspect(reason)}")}
+    end
   end
 
   def handle_event("retry", _params, socket) do

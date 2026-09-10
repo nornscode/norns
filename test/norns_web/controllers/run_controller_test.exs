@@ -343,4 +343,24 @@ defmodule NornsWeb.RunControllerTest do
       assert json_response(conn, 401)
     end
   end
+
+  describe "POST /api/v1/runs/:id/fork" do
+    test "forks a run and rejects bad steps", %{conn: conn, tenant: tenant, agent: agent} do
+      {:ok, run} =
+        Norns.Runs.create_run(%{agent_id: agent.id, tenant_id: tenant.id, trigger_type: "message", input: %{"user_message" => "hi"}, status: "completed"})
+
+      {:ok, _} = Norns.Runs.append_event(run, %{event_type: "run_started", source: "system", payload: %{}})
+      {:ok, _} = Norns.Runs.append_event(run, %{event_type: "llm_response", source: "system", payload: %{"content" => "done", "finish_reason" => "stop", "usage" => %{}, "step" => 1}})
+
+      Norns.LLM.Fake.set_responses([%{content: [%{"type" => "text", "text" => "forked"}], stop_reason: "end_turn"}])
+
+      conn2 = post(conn, "/api/v1/runs/#{run.id}/fork", %{"step" => 1, "message" => "again"})
+      assert %{"status" => "accepted", "run_id" => fork_id, "agent_id" => agent_id, "data" => %{"trigger_type" => "fork"}} = json_response(conn2, 201)
+      assert agent_id == agent.id
+      assert Norns.Runs.get_run!(fork_id).input["fork"] == %{"run_id" => run.id, "step" => 1}
+
+      assert %{"error" => error} = json_response(post(conn, "/api/v1/runs/#{run.id}/fork", %{"step" => 5}), 422)
+      assert error =~ "beyond"
+    end
+  end
 end

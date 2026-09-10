@@ -1391,6 +1391,41 @@ defmodule Norns.Agents.Process do
     end
   end
 
+  @doc """
+  The history of a run as it stood after `max_step`: the messages, the
+  compaction summary, and whether that step left tool calls unanswered.
+  Replays the log the way resume does, stopping at the step, from the
+  history the run's first LLM request carried. Used by fork.
+  """
+  def history_at(run, max_step) do
+    all_events = Runs.list_events(run.id)
+
+    events =
+      Enum.filter(all_events, fn event ->
+        case event.payload["step"] do
+          step when is_integer(step) -> step <= max_step
+          _ -> true
+        end
+      end)
+
+    # What the run started from is what its first LLM request carried: a
+    # conversation's history moves on after the run, so it cannot be read
+    # back from the conversation row.
+    {initial_messages, initial_summary} =
+      case Enum.find(all_events, &(&1.event_type == "llm_request")) do
+        %{payload: %{"messages" => msgs} = payload} when is_list(msgs) ->
+          {normalize_messages(msgs), payload["summary"]}
+
+        _ ->
+          base = restore_conversation_for_run(%{conversation: nil, messages: [], summary: nil}, run)
+          {initial_messages_for_replay(base, run), base.summary}
+      end
+
+    {messages, _step, resume_action, summary} = replay_from_events(initial_messages, initial_summary, events)
+
+    %{messages: messages, summary: summary, pending_tools?: match?({:resume_tools, _}, resume_action)}
+  end
+
   defp restore_conversation_for_run(state, run) do
     conversation = run.conversation || state.conversation
     messages = if conversation, do: normalize_messages(conversation.messages), else: []
