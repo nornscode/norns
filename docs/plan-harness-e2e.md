@@ -339,9 +339,9 @@ Each lands in a different place:
   of as a place. Status is envelope data, so it works on encrypted
   sessions too.
 - **A CLI that configures itself, from within itself.** `sleipnir` gains
-  subcommands the agent can run through `bash`: `sleipnir allow
-  list|add|remove`, `sleipnir config` (model, max steps, agent name),
-  `sleipnir doctor`, and `sleipnir docs`, an AI-facing reference the
+  subcommands the agent can run through `bash`: `sleip allow
+  list|add|remove`, `sleip config` (model, max steps, agent name),
+  `sleip doctor`, and `sleip docs`, an AI-facing reference the
   system prompt points at. One rule: changes to the allow list always
   ask, whatever the allow list says, so the agent cannot grant itself
   permissions with a single "always". Shipped 2026-09-09, same day as H1.
@@ -377,7 +377,7 @@ Compaction in core, as `decision-log.md` § Compaction is an LLM task:
 in every later envelope, replay from either. Python SDK 0.6.0 and Elixir
 SDK 0.3.0 serve the task and skip their own elision when core manages the
 context; `sleipnir` runs with `context_strategy: none` and a policy of
-100k tokens keeping 40 messages, both settable through `sleipnir config`.
+100k tokens keeping 40 messages, both settable through `sleip config`.
 
 A live run on the scratch repo with the threshold forced to 3.5k tokens
 compacted nine times in fourteen steps and still finished the task with
@@ -411,8 +411,8 @@ repository's gard; when the run is parked on `ask_human`, the next line
 answers it. `/new`, `/fork N [message]`, `/resume`. Each repository gets
 a gard on first start, with the claim token kept in `~/.sleipnir`, which
 is what makes "spaces are gards" real: the list shows where a session
-lives, and its tool calls only ever reach that machine. `sleipnir serve`
-and `sleipnir chat` are the halves alone. Driven headlessly against the
+lives, and its tool calls only ever reach that machine. `sleip serve`
+and `sleip chat` are the halves alone. Driven headlessly against the
 dev server with the worker in-process, a new session went from the first
 typed line through live events, a question answered through the client,
 and completion.
