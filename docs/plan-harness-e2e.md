@@ -342,7 +342,7 @@ Each lands in a different place:
   `sleipnir doctor`, and `sleipnir docs`, an AI-facing reference the
   system prompt points at. One rule: changes to the allow list always
   ask, whatever the allow list says, so the agent cannot grant itself
-  permissions with a single "always". H1 follow-up, about a day.
+  permissions with a single "always". Shipped 2026-09-09, same day as H1.
 
 ### What H1 landed (2026-09-09)
 
@@ -408,7 +408,7 @@ Either way, the chains plan should not grow a core-side string renderer.
 | Phase | Deliverable | Where | Size |
 |---|---|---|---|
 | P0 | Opaque-content audit: the eight fixes above, `content_fields/1` in the validator, and a conformance test that replays a run whose content is random bytes | norns | 3 days |
-| H1 | `sleipnir` worker: six tools, allow list, `AGENTS.md` on start. Shipped 2026-09-09; self-config CLI follows | new repo | 3 days |
+| H1 | `sleipnir` worker: six tools, allow list, `AGENTS.md` on start, self-config CLI. Shipped 2026-09-09 | new repo | 3 days |
 | H2 | Compaction: `context_policy`, `context_compacted` event, LLM-task summarisation | norns + SDK | 4 days |
 | H3 | `nornsctl chat`: session list with status across gards, tabs, streaming, permissions inline, `/fork`, `/resume` | nornsctl | 1 week |
 | H4 | Dogfood on norns for a week, fix the edit tool, write the README demo | all | 1 week, overlapping |

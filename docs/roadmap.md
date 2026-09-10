@@ -225,8 +225,9 @@ weeks of delay to tenant self-serve, which nobody external is waiting on.
   `final_output`, kind rendering, elision).
 - **H1 — shipped 2026-09-09:** the `sleipnir` worker: six tools, allow
   list with the `ask_human` approval loop enforced worker-side,
-  `AGENTS.md` on start. A self-configuring CLI (`sleipnir
-  allow|config|docs`, so the agent can set up its own harness) follows.
+  `AGENTS.md` on start, and a self-configuring CLI (`sleipnir
+  allow|config|doctor|docs`) the agent runs through `bash`. Repo:
+  github.com/nornscode/sleipnir.
 - **H2–H3:** compaction in core (`context_policy`, `context_compacted`,
   summarisation as an LLM task), and `nornsctl chat` as a session client:
   every conversation across every gard with live status, tabs, streaming,
