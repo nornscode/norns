@@ -368,6 +368,23 @@ until told otherwise (prompt fixed), and the SDK's 200-char elision of
 old tool results is aggressive for a coding session, which is the case
 for H2.
 
+### What H2 landed (2026-09-09)
+
+Compaction in core, as `decision-log.md` § Compaction is an LLM task:
+`context_policy` on the def, `purpose: "compact"` on the LLM task,
+`context_compacted` plus a checkpoint, the summary on the conversation and
+in every later envelope, replay from either. Python SDK 0.6.0 and Elixir
+SDK 0.3.0 serve the task and skip their own elision when core manages the
+context; `sleipnir` runs with `context_strategy: none` and a policy of
+100k tokens keeping 40 messages, both settable through `sleipnir config`.
+
+A live run on the scratch repo with the threshold forced to 3.5k tokens
+compacted nine times in fourteen steps and still finished the task with
+the right diff: the summaries carried the task, the constraints from
+`AGENTS.md`, the diagnosis, and the edits made. Each compaction cost
+about 2.5k input and 1k output tokens, so the default threshold matters;
+compacting every step is a cost problem, not a correctness one.
+
 ## Chains
 
 `plan-chains.md` renders `{{output}}` in core from `run.output`. Under the
