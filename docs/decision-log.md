@@ -34,6 +34,20 @@ column had waited for. Rejected: compacting in the SDK (every worker would
 re-implement it, and the log would not show it); a core-side summariser
 (reads content, and needs a provider key in core).
 
+### Fork is a checkpoint in a new run (decided 2026-09-09)
+
+`POST /runs/:id/fork` (`plan-coding-agent-runs.md` Phase F) is built on
+what replay already does: rebuild the history up to a step, then write it
+as the first checkpoint of a new run and resume from it. No new state
+machine path, and any step is forkable whatever the checkpoint policy. The
+history a run started from is taken from its first `llm_request`, not the
+conversation row, because the row moves on after the run. Forks are
+task-mode runs in a fresh conversation on the parent's gard; overrides
+clone the def into a variant agent because the process re-reads its def
+every step. Rejected: overrides on the run row (the process would ignore
+them), and appending a fork to the parent's conversation (it would corrupt
+the parent's history).
+
 ### Tools are infrastructure, agents are configuration
 - Workers are the tenant's long-lived capability layer (the Slack worker, the DB worker), maintained like services.
 - Agents are cheap, disposable data: prompt + model + tool selection + triggers, created and tested entirely through the API.

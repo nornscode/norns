@@ -232,10 +232,12 @@ weeks of delay to tenant self-serve, which nobody external is waiting on.
   `context_compacted`, summarisation as an LLM task the worker serves;
   `decision-log.md` § Compaction is an LLM task). Needs Python SDK 0.6 /
   Elixir SDK 0.3 on the worker.
+- **F — shipped 2026-09-09:** `POST /runs/:id/fork`, `nornsctl runs fork`,
+  and "fork from step" on the run page (`decision-log.md` § Fork is a
+  checkpoint in a new run).
 - **H3:** `nornsctl chat` as a session client:
   every conversation across every gard with live status, tabs, streaming,
-  permissions inline. Fork (`plan-coding-agent-runs.md` Phase F) lands
-  here because `/fork` in the client needs it. About two weeks.
+  permissions inline, `/fork` and `/resume`. About a week.
 - **H4:** a week of dogfooding on norns; the README demo on a real repo.
 - **E1–E4 (after P2a):** end-to-end encryption — SDK content cipher and
   key file, validator accepts the opaque block, browser-side decrypt in

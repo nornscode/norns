@@ -1,7 +1,8 @@
 # Plan: Coding-Agent Runs
 
 **Status:** Proposed (2026-09-09), superseded in part by `plan-harness-e2e.md`
-the same day: Phase F (fork) is part of roadmap step 7, Phase 0 is
+the same day: Phase F (fork) is part of roadmap step 7 (**shipped
+2026-09-09**, `decision-log.md` § Fork is a checkpoint in a new run), Phase 0 is
 dropped, Phase 2 is the harness plan, and Phase 1 (mirroring) is deferred
 until someone asks for a fleet view of agents Norns does not run.
 **Depends on:** gards Phase 1 (shipped), `nornsctl new` templates (shipped),

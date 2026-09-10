@@ -287,6 +287,25 @@ look like recovery while quietly paying for the work a second time.
 | `policy` | policy violation, cancelled | terminal |
 | `internal` | unexpected error | terminal |
 
+### Fork
+
+`POST /api/v1/runs/:id/fork` with `{step, message?, system_prompt?, model?}`
+starts a new run from the parent's history as it stood after `step`
+(`Norns.Runs.Fork`). The history is replayed from the log the way resume
+replays it, starting from what the run's first `llm_request` carried (a
+conversation's row has moved on since), through the last checkpoint at or
+before the step and the events after it, so any step is forkable whatever
+the checkpoint policy. A step that ended with unanswered tool calls loses
+that assistant turn. The messages and the compaction summary become the
+fork's first `checkpoint_saved`, and the process resumes from it like any
+other run. A fork is a task-mode run (`trigger_type: "fork"`,
+`input.fork = {run_id, step}`) in a fresh conversation, on the parent's
+gard. `system_prompt` or `model` overrides create a variant agent (the def
+with the overrides applied, named `<agent>-fork-<n>`) and fork onto it,
+since the process re-reads its def every step and the override has nowhere
+else to live. The run page has a "fork from step" button on every LLM
+response; `nornsctl runs fork <id> --step N` does the same.
+
 ### Compaction
 
 A `context_policy` on the def (`{"compact_at": tokens, "keep": messages}`,
@@ -345,6 +364,7 @@ GET    /api/v1/agents/:id/conversations      — list conversations
 GET    /api/v1/runs/:id                      — run details + failure inspector
 GET    /api/v1/runs/:id/events               — event log
 GET    /api/v1/runs/:id/summary              — fixed-size trace summary
+POST   /api/v1/runs/:id/fork                 — new run from the history after `step`; optional message, system_prompt, model
 GET    /api/v1/tools                         — tools callable in this tenant
 ```
 
