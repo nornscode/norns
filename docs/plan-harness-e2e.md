@@ -385,6 +385,16 @@ the right diff: the summaries carried the task, the constraints from
 about 2.5k input and 1k output tokens, so the default threshold matters;
 compacting every step is a cost problem, not a correctness one.
 
+### What F landed (2026-09-09)
+
+Fork, as `decision-log.md` § Fork is a checkpoint in a new run:
+`POST /runs/:id/fork`, `nornsctl runs fork <id> --step N [--message
+--system-prompt --model]`, and a "fork from step" button on every LLM
+response in the run page. Live: forking the compaction smoke run at step 8
+with a changed instruction produced a run that started from that step's
+five messages plus the carried summary, asked one permission question,
+and landed the new test instead of the old one.
+
 ## Chains
 
 `plan-chains.md` renders `{{output}}` in core from `run.output`. Under the
