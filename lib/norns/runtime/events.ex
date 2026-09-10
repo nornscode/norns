@@ -29,6 +29,7 @@ defmodule Norns.Runtime.Events do
   def subagent_launched(attrs), do: SubagentLaunched.new(attrs)
 
   def retry(attrs), do: build("retry", attrs)
+  def context_compacted(attrs), do: build("context_compacted", attrs)
 
   def build(event_type, payload, opts \\ []) do
     EventValidator.validate(%Event{

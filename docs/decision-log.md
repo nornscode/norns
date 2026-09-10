@@ -16,6 +16,24 @@ Last updated: 2026-09-09
 - Why: the coding harness puts source code in the event log, and "we cannot read your log" is only credible if core never needed to. Writing the rule down before compaction and chains land is what keeps them from growing content reads; the audit that made it true was eight small fixes (`plan-harness-e2e.md`).
 - Consequences: workers compose the system prompt (`summary` and `date` ride in the task envelope), report `final_output`, elide old tool results, and render every result core resolves itself from a `kind` plus envelope `data` — `Norns.LLM.Format.render_message/1` is the reference. What stays plain and core-written: diagnostic error text on `run_failed`/`retry` and the registry's `worker disconnected`, none of which carries tenant content. `runs.output` is still a string column; a block lands there JSON-encoded until encryption ships (E2).
 
+### Compaction is an LLM task (decided 2026-09-09)
+
+Long-running agents outgrow the context window; the sliding window drops
+history and the SDKs' 200-character elision of old tool results was a
+stopgap that hurt coding sessions most. Compaction folds the older history
+into a summary, and it is built as an ordinary LLM task (`purpose:
+"compact"`) so core never reads the messages or the summary: the worker
+writes the prose, core stores the block, and the same path works on
+encrypted content. The trigger is `context_policy` on the def, on the
+input-token count the last response reported (envelope). The event is
+`context_compacted` (dropped, kept, summary, usage) followed by a checkpoint
+whatever the policy, so replay from either restores the summary. The
+summary is also stored on the conversation and rides in every later
+`llm_task` envelope, which is the mechanism the conversation `summary`
+column had waited for. Rejected: compacting in the SDK (every worker would
+re-implement it, and the log would not show it); a core-side summariser
+(reads content, and needs a provider key in core).
+
 ### Tools are infrastructure, agents are configuration
 - Workers are the tenant's long-lived capability layer (the Slack worker, the DB worker), maintained like services.
 - Agents are cheap, disposable data: prompt + model + tool selection + triggers, created and tested entirely through the API.

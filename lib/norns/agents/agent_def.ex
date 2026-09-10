@@ -10,6 +10,7 @@ defmodule Norns.Agents.AgentDef do
     :system_prompt,
     context_strategy: :sliding_window,
     context_window: 20,
+    context_policy: nil,
     tools: [],
     checkpoint_policy: :on_tool_call,
     max_steps: 50,
@@ -19,6 +20,8 @@ defmodule Norns.Agents.AgentDef do
   ]
 
   @type context_strategy :: :sliding_window | :none
+  @typedoc "Compact the history into a summary once an LLM response reports `compact_at` input tokens, keeping the last `keep` messages."
+  @type context_policy :: nil | %{compact_at: pos_integer(), keep: pos_integer()}
   @type checkpoint_policy :: :every_step | :on_tool_call | :manual
   @type failure_policy :: :stop | :retry_last_step
 
@@ -27,6 +30,7 @@ defmodule Norns.Agents.AgentDef do
           system_prompt: String.t(),
           context_strategy: context_strategy(),
           context_window: pos_integer(),
+          context_policy: context_policy(),
           tools: [Norns.Tools.Tool.t()],
           checkpoint_policy: checkpoint_policy(),
           max_steps: pos_integer(),
@@ -56,6 +60,7 @@ defmodule Norns.Agents.AgentDef do
            parse_enum(attrs, "checkpoint_policy", %{"every_step" => :every_step, "on_tool_call" => :on_tool_call, "manual" => :manual}),
          {:ok, on_failure} <- parse_enum(attrs, "on_failure", %{"stop" => :stop, "retry_last_step" => :retry_last_step}),
          {:ok, context_window} <- parse_positive_integer(attrs, "context_window"),
+         {:ok, context_policy} <- parse_context_policy(attrs),
          {:ok, max_steps} <- parse_positive_integer(attrs, "max_steps"),
          {:ok, tools} <- parse_tools(attrs) do
       {:ok,
@@ -64,6 +69,7 @@ defmodule Norns.Agents.AgentDef do
          system_prompt: system_prompt,
          context_strategy: context_strategy,
          context_window: context_window,
+         context_policy: context_policy,
          tools: tools,
          checkpoint_policy: checkpoint_policy,
          max_steps: max_steps,
@@ -85,6 +91,7 @@ defmodule Norns.Agents.AgentDef do
       system_prompt: agent.system_prompt,
       context_strategy: parse_context_strategy(config),
       context_window: parse_context_window(config),
+      context_policy: lenient_context_policy(config),
       tools: module_tools ++ extra_tools,
       max_steps: agent.max_steps || 50,
       checkpoint_policy: parse_checkpoint_policy(config),
@@ -108,6 +115,43 @@ defmodule Norns.Agents.AgentDef do
   end
 
   defp parse_context_window(_), do: 20
+
+  @default_keep 20
+
+  # Strict form, for definitions submitted through `new/1`.
+  defp parse_context_policy(%{"context_policy" => nil}), do: {:ok, nil}
+
+  defp parse_context_policy(%{"context_policy" => policy}) when is_map(policy) do
+    with {:ok, compact_at} <- policy_integer(policy, "compact_at", nil),
+         {:ok, keep} <- policy_integer(policy, "keep", @default_keep) do
+      {:ok, %{compact_at: compact_at, keep: keep}}
+    end
+  end
+
+  defp parse_context_policy(%{"context_policy" => _other}),
+    do: {:error, %{code: "invalid_field", message: "context_policy must be a map", field: "context_policy"}}
+
+  defp parse_context_policy(_attrs), do: {:ok, nil}
+
+  defp policy_integer(policy, key, default) do
+    case Map.get(policy, key, default) do
+      value when is_integer(value) and value > 0 -> {:ok, value}
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {parsed, ""} when parsed > 0 -> {:ok, parsed}
+          _ -> {:error, %{code: "invalid_field", message: "context_policy.#{key} must be a positive integer", field: "context_policy"}}
+        end
+      _ -> {:error, %{code: "invalid_field", message: "context_policy.#{key} must be a positive integer", field: "context_policy"}}
+    end
+  end
+
+  # Lenient form for stored config: an unusable policy means no compaction.
+  defp lenient_context_policy(config) do
+    case parse_context_policy(config) do
+      {:ok, policy} -> policy
+      {:error, _} -> nil
+    end
+  end
 
   defp parse_checkpoint_policy(%{"checkpoint_policy" => "every_step"}), do: :every_step
   defp parse_checkpoint_policy(%{"checkpoint_policy" => "manual"}), do: :manual

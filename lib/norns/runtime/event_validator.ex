@@ -12,6 +12,8 @@ defmodule Norns.Runtime.EventValidator do
   # only as lists.
   @content_fields %{
     "llm_request" => ["system_prompt", "summary"],
+    "context_compacted" => ["summary"],
+    "checkpoint_saved" => ["summary"],
     "llm_response" => ["content"],
     "tool_call" => ["arguments"],
     "tool_result" => ["content"],
@@ -93,7 +95,8 @@ defmodule Norns.Runtime.EventValidator do
       "tool_call" -> [schema_version_validator(), required_string("tool_call_id"), required_string("name"), required_map("arguments"), required_integer("step"), optional_string("idempotency_key"), optional_boolean("side_effect")]
       "tool_duplicate" -> [schema_version_validator(), required_string("tool_call_id"), required_string("name"), required_string("idempotency_key"), required_integer("step"), required_integer("original_event_sequence"), required_string("resolution")]
       "tool_result" -> [schema_version_validator(), required_string("tool_call_id"), required_string("name"), required_content("content"), required_boolean("is_error"), required_integer("step"), optional_string("idempotency_key"), optional_string("kind"), optional_map("data")]
-      "checkpoint_saved" -> [schema_version_validator(), required_list("messages"), required_integer("step")]
+      "checkpoint_saved" -> [schema_version_validator(), required_list("messages"), required_integer("step"), content("summary")]
+      "context_compacted" -> [schema_version_validator(), required_integer("step"), required_integer("dropped"), required_integer("kept"), required_content("summary"), optional_map("usage")]
       "run_failed" -> [schema_version_validator(), required_content("error"), required_string("error_class"), required_string("error_code"), required_string("retry_decision")]
       "run_completed" -> [schema_version_validator(), required_content("output")]
       "subagent_launched" -> [schema_version_validator(), required_string("tool_call_id"), required_string("child_agent_name"), required_string("child_run_id"), required_integer("step"), content("context")]

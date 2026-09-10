@@ -78,9 +78,10 @@ defmodule Norns.TestWorker do
     # The worker owns the provider key. The orchestrator never sends one.
     api_key = "test-worker-key"
     model = task.model
-    system_prompt = Format.compose_system_prompt(task)
-    messages = task.messages
-    tools = task[:tools] || []
+    compact? = task[:purpose] == "compact"
+    system_prompt = if compact?, do: Format.compose_compaction_prompt(task), else: Format.compose_system_prompt(task)
+    messages = if compact?, do: Format.compaction_messages(task), else: task.messages
+    tools = if compact?, do: [], else: task[:tools] || []
 
     anthropic_messages = Format.to_anthropic_messages(messages)
     anthropic_tools = if tools != [], do: Format.to_anthropic_tools(tools), else: []

@@ -3,7 +3,8 @@
 **Status:** Proposed (2026-09-09); sequenced as roadmap step 7 with P0 under
 "Alongside" (roadmap v6.3, same day). **P0 shipped 2026-09-09** — see
 § What P0 landed. **H1 shipped 2026-09-09** as `sleipnir` — see § What H1
-landed.
+landed. **H2 shipped 2026-09-09** — `decision-log.md` § Compaction is an LLM
+task.
 **Depends on:** gards Phase 1 (shipped), `drain` / SDK 0.4.0 (shipped),
 `GET /api/v1/workers` (shipped). The encrypted mode wants P2a's secrets
 context for cloud-run workers but does not block on it.
@@ -409,7 +410,7 @@ Either way, the chains plan should not grow a core-side string renderer.
 |---|---|---|---|
 | P0 | Opaque-content audit: the eight fixes above, `content_fields/1` in the validator, and a conformance test that replays a run whose content is random bytes | norns | 3 days |
 | H1 | `sleipnir` worker: six tools, allow list, `AGENTS.md` on start, self-config CLI. Shipped 2026-09-09 | new repo | 3 days |
-| H2 | Compaction: `context_policy`, `context_compacted` event, LLM-task summarisation | norns + SDK | 4 days |
+| H2 | Compaction: `context_policy`, `context_compacted` event, LLM-task summarisation. Core shipped 2026-09-09; SDKs 0.6/0.3 carry the worker side | norns + SDK | 4 days |
 | H3 | `nornsctl chat`: session list with status across gards, tabs, streaming, permissions inline, `/fork`, `/resume` | nornsctl | 1 week |
 | H4 | Dogfood on norns for a week, fix the edit tool, write the README demo | all | 1 week, overlapping |
 | E1 | SDK `ContentCipher`, key file, `nornsctl keys new`, built-in argument splitting | SDK + nornsctl | 3 days |

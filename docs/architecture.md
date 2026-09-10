@@ -79,7 +79,7 @@ Task dispatch uses a provider-neutral format. The worker translates to/from what
 
 | Direction | Event | Payload |
 |-----------|-------|---------|
-| Server → Worker | `llm_task` | model, system_prompt, summary, date, messages, tools |
+| Server → Worker | `llm_task` | model, system_prompt, summary, date, messages, tools, context_policy; `purpose: "compact"` for a summarisation call |
 | Worker → Server | `tool_result` | task_id, status, content/tool_calls, finish_reason, usage, final_output |
 | Server → Worker | `tool_task` | task_id, tool_name, input |
 | Worker → Server | `tool_result` | task_id, status, result/error |
@@ -117,7 +117,7 @@ All state is captured as versioned, validated events (`schema_version: 1`). Even
 - **Lifecycle:** `run_started`, `run_completed`, `run_failed`
 - **LLM:** `llm_request`, `llm_response`
 - **Tools:** `tool_call`, `tool_result`, `tool_duplicate`
-- **Checkpointing:** `checkpoint_saved`
+- **Checkpointing:** `checkpoint_saved`, `context_compacted`
 - **Human-in-the-loop:** `waiting_for_user`, `user_response`
 - **Sub-agents:** `subagent_launched`, `subagent_launch_allowed`, `subagent_launch_denied`, `subagent_list_allowed`, `subagent_list_denied`
 - **Retry:** `retry`
@@ -287,13 +287,34 @@ look like recovery while quietly paying for the work a second time.
 | `policy` | policy violation, cancelled | terminal |
 | `internal` | unexpected error | terminal |
 
+### Compaction
+
+A `context_policy` on the def (`{"compact_at": tokens, "keep": messages}`,
+in `model_config`) folds the older history into a running summary once an
+LLM response reports `compact_at` input tokens. Core takes the messages
+before the last `keep` (backed up to a tool-call pair boundary), sends them
+to the LLM worker as an `llm_task` with `purpose: "compact"` and the
+current summary, and the worker writes the prose: it returns the new
+summary as content. Core appends `context_compacted`, writes a checkpoint
+whatever the checkpoint policy, replaces its message base with the kept
+tail, and continues. The summary rides in every later `llm_task` envelope
+as `summary`, is stored on the conversation, and is restored on replay from
+the checkpoint or the event. Core never reads it, so the same path works
+on encrypted content. The compaction call's tokens count toward the run.
+Workers skip their own tool-result elision when `context_policy` is in the
+envelope. A worker that does not know `purpose` answers the folded history
+like a normal turn, so compaction needs Python SDK ≥ 0.6 or Elixir SDK ≥ 0.3.
+Use `context_strategy: "none"` with it; a sliding window would trim the
+kept tail again.
+
 ### Idempotency
 
 Tools marked `side_effect?: true` get deterministic idempotency keys. On replay, the executor checks for an existing result with the same key and skips re-execution.
 
 ### Checkpoint / Restore
 
-- `checkpoint_saved` snapshots messages and step
+- `checkpoint_saved` snapshots messages, step, and the compaction summary if there is one
+- `context_compacted` records a compaction: how many leading messages were folded, how many kept, and the summary as content. Replay drops the prefix and carries the summary
 - Replay restores from the latest checkpoint, then replays subsequent events
 - Pending tool calls with no result trigger re-dispatch on resume
 - Proven by the replay conformance test suite

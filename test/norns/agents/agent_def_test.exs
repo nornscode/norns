@@ -22,6 +22,21 @@ defmodule Norns.Agents.AgentDefTest do
       assert agent_def.tools == []
     end
 
+    test "parses context_policy with a default keep" do
+      assert {:ok, agent_def} =
+               AgentDef.new(%{"model" => "m", "system_prompt" => "p", "context_policy" => %{"compact_at" => 100_000}})
+
+      assert agent_def.context_policy == %{compact_at: 100_000, keep: 20}
+
+      assert {:ok, %{context_policy: nil}} = AgentDef.new(%{"model" => "m", "system_prompt" => "p"})
+
+      assert {:error, %{code: "invalid_field", field: "context_policy"}} =
+               AgentDef.new(%{"model" => "m", "system_prompt" => "p", "context_policy" => %{"keep" => 5}})
+
+      assert {:error, %{code: "invalid_field", field: "context_policy"}} =
+               AgentDef.new(%{"model" => "m", "system_prompt" => "p", "context_policy" => "big"})
+    end
+
     test "returns stable error details for missing required fields" do
       assert {:error, %{code: "missing_required_field", field: "model", message: "model is required"}} =
                AgentDef.new(%{"system_prompt" => "You are helpful."})

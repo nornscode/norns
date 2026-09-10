@@ -104,7 +104,13 @@ defmodule Norns.Agents.Process do
       resume_action: nil,
       test_pid: Keyword.get(opts, :test_pid),
       input_tokens: 0,
-      output_tokens: 0
+      output_tokens: 0,
+      # Compaction (context_policy): the running summary of folded history,
+      # the input-token count of the last LLM response, and the compaction
+      # task in flight, if any.
+      summary: nil,
+      last_input_tokens: nil,
+      pending_compaction: nil
     }
 
     state = load_conversation_state(state)
@@ -225,69 +231,15 @@ defmodule Norns.Agents.Process do
     state = refresh_agent_def(state)
     max_steps = state.agent_def.max_steps
 
-    if state.step >= max_steps do
-      {:noreply, complete_with_error(state, "Max steps (#{max_steps}) exceeded")}
-    else
-      state = %{state | step: state.step + 1}
+    cond do
+      state.step >= max_steps ->
+        {:noreply, complete_with_error(state, "Max steps (#{max_steps}) exceeded")}
 
-      # Resolve tools at dispatch time: built-ins + agent_def tools + worker-registered
-      # tools, the latter two filtered by the agent's tool policy. Built-ins are
-      # orchestrator semantics — launch_agent/list_agents have their own policy.
-      policy = state.agent_def.tool_policy
-      builtin_tools = Builtins.all()
-      agent_tools = ToolPolicy.filter(policy, state.agent_def.tools)
+      compaction = compaction_needed(state) ->
+        dispatch_compaction(state, compaction)
 
-      worker_tools =
-        ToolPolicy.filter(
-          policy,
-          WorkerRegistry.available_tools(state.tenant_id, gard: state.gard_id)
-        )
-      all_tools = (builtin_tools ++ agent_tools ++ worker_tools) |> Enum.uniq_by(& &1.name)
-      tools = Enum.map(all_tools, &Tool.to_api_format/1)
-
-      messages_for_llm = apply_context_strategy(state)
-
-      # The def's prompt goes out verbatim. The conversation summary and the
-      # date ride in the envelope; the worker composes the prompt the model
-      # sees (Format.compose_system_prompt/1) — core writes no prose.
-      system_prompt = state.agent_def.system_prompt
-      summary = conversation_summary(state)
-
-      append(state.run, Events.llm_request(%{
-        "step" => state.step,
-        "message_count" => length(messages_for_llm),
-        "messages" => messages_for_llm,
-        "system_prompt" => system_prompt,
-        "summary" => summary,
-        "model" => state.agent_def.model,
-        # Names only. Enough to tell later whether the model called something it
-        # was never offered, or was offered tools and ignored them — neither of
-        # which is recoverable from the log without this. Full schemas would
-        # bloat every row for no analytical gain.
-        "tools" => Enum.map(all_tools, & &1.name)
-      }))
-
-      # Dispatch LLM call to worker — non-blocking, neutral format
-      llm_task = %{
-        model: state.agent_def.model,
-        system_prompt: system_prompt,
-        summary: summary,
-        date: Date.to_iso8601(Date.utc_today()),
-        messages: messages_for_llm,
-        tools: tools,
-        agent_id: state.agent_id,
-        run_id: state.run.id,
-        step: state.step
-      }
-
-      {:ok, task_id} =
-        WorkerRegistry.dispatch_llm_task(state.tenant_id, llm_task,
-          from_pid: self(),
-          gard: state.gard_id
-        )
-
-      timer = Process.send_after(self(), {:task_timeout, task_id}, @task_timeout_ms)
-      {:noreply, %{state | status: :awaiting_llm, pending_llm_task: task_id, task_timer: timer}}
+      true ->
+        dispatch_llm(state)
     end
   end
 
@@ -785,6 +737,30 @@ defmodule Norns.Agents.Process do
   end
 
   @impl true
+  def handle_info(
+        {:task_result, task_id, result},
+        %{status: :awaiting_llm, pending_llm_task: task_id, pending_compaction: %{} = compaction} = state
+      ) do
+    cancel_timer(state.task_timer)
+    state = %{state | status: :running, pending_llm_task: nil, task_timer: nil, pending_compaction: nil}
+
+    case result do
+      {:ok, %{"content" => summary} = resp} when (is_binary(summary) and summary != "") or is_map(summary) ->
+        usage = %{
+          "input_tokens" => get_in(resp, ["usage", "input_tokens"]) || 0,
+          "output_tokens" => get_in(resp, ["usage", "output_tokens"]) || 0
+        }
+
+        state = add_usage(state, usage["input_tokens"], usage["output_tokens"])
+        {:noreply, apply_compaction(state, compaction, summary, usage), {:continue, :llm_loop}}
+
+      other ->
+        # No summary: carry on uncompacted and try again after the next response.
+        Logger.warning("Compaction returned no summary (#{inspect(other, limit: 5)}); continuing uncompacted")
+        {:noreply, %{state | last_input_tokens: nil}, {:continue, :llm_loop}}
+    end
+  end
+
   def handle_info({:task_result, task_id, result}, %{status: :awaiting_llm, pending_llm_task: task_id} = state) do
     cancel_timer(state.task_timer)
     state = %{state | status: :running, pending_llm_task: nil, task_timer: nil}
@@ -802,17 +778,9 @@ defmodule Norns.Agents.Process do
           }
         }
 
-        state = %{state |
-          retry_count: 0,
-          input_tokens: state.input_tokens + response.usage.input_tokens,
-          output_tokens: state.output_tokens + response.usage.output_tokens
-        }
-
-        {:ok, run} = Runs.update_run(state.run, %{
-          input_tokens: state.input_tokens,
-          output_tokens: state.output_tokens
-        })
-        state = %{state | run: run}
+        state =
+          %{state | retry_count: 0, last_input_tokens: response.usage.input_tokens}
+          |> add_usage(response.usage.input_tokens, response.usage.output_tokens)
 
         handle_llm_response(state, response)
 
@@ -901,6 +869,12 @@ defmodule Norns.Agents.Process do
     handle_pause_or_continue(state, [], [], all_results, log_calls?)
   end
 
+  def handle_info({:task_timeout, task_id}, %{pending_llm_task: task_id, pending_compaction: %{}} = state) do
+    Logger.warning("Compaction task #{task_id} timed out after #{@task_timeout_ms}ms; continuing uncompacted")
+    state = %{state | status: :running, pending_llm_task: nil, task_timer: nil, pending_compaction: nil, last_input_tokens: nil}
+    {:noreply, state, {:continue, :llm_loop}}
+  end
+
   def handle_info({:task_timeout, task_id}, %{pending_llm_task: task_id} = state) do
     Logger.warning("LLM task #{task_id} timed out after #{@task_timeout_ms}ms")
     handle_llm_error(state, {:timeout, "LLM task timed out — worker may have disconnected"})
@@ -963,6 +937,149 @@ defmodule Norns.Agents.Process do
   end
 
   # -- Internal --
+
+  defp dispatch_llm(state) do
+    state = %{state | step: state.step + 1}
+
+    # Resolve tools at dispatch time: built-ins + agent_def tools + worker-registered
+    # tools, the latter two filtered by the agent's tool policy. Built-ins are
+    # orchestrator semantics — launch_agent/list_agents have their own policy.
+    policy = state.agent_def.tool_policy
+    builtin_tools = Builtins.all()
+    agent_tools = ToolPolicy.filter(policy, state.agent_def.tools)
+
+    worker_tools =
+      ToolPolicy.filter(
+        policy,
+        WorkerRegistry.available_tools(state.tenant_id, gard: state.gard_id)
+      )
+    all_tools = (builtin_tools ++ agent_tools ++ worker_tools) |> Enum.uniq_by(& &1.name)
+    tools = Enum.map(all_tools, &Tool.to_api_format/1)
+
+    messages_for_llm = apply_context_strategy(state)
+
+    # The def's prompt goes out verbatim. The conversation summary and the
+    # date ride in the envelope; the worker composes the prompt the model
+    # sees (Format.compose_system_prompt/1) — core writes no prose.
+    system_prompt = state.agent_def.system_prompt
+    summary = conversation_summary(state)
+
+    append(state.run, Events.llm_request(%{
+      "step" => state.step,
+      "message_count" => length(messages_for_llm),
+      "messages" => messages_for_llm,
+      "system_prompt" => system_prompt,
+      "summary" => summary,
+      "model" => state.agent_def.model,
+      # Names only. Enough to tell later whether the model called something it
+      # was never offered, or was offered tools and ignored them — neither of
+      # which is recoverable from the log without this. Full schemas would
+      # bloat every row for no analytical gain.
+      "tools" => Enum.map(all_tools, & &1.name)
+    }))
+
+    # Dispatch LLM call to worker — non-blocking, neutral format
+    llm_task = %{
+      model: state.agent_def.model,
+      system_prompt: system_prompt,
+      summary: summary,
+      date: Date.to_iso8601(Date.utc_today()),
+      messages: messages_for_llm,
+      tools: tools,
+      # Workers skip their own tool-result elision when core manages the
+      # context; the policy is envelope, not content.
+      context_policy: envelope_context_policy(state.agent_def.context_policy),
+      agent_id: state.agent_id,
+      run_id: state.run.id,
+      step: state.step
+    }
+
+    {:ok, task_id} =
+      WorkerRegistry.dispatch_llm_task(state.tenant_id, llm_task,
+        from_pid: self(),
+        gard: state.gard_id
+      )
+
+    timer = Process.send_after(self(), {:task_timeout, task_id}, @task_timeout_ms)
+    {:noreply, %{state | status: :awaiting_llm, pending_llm_task: task_id, task_timer: timer}}
+  end
+
+  # -- Compaction --
+  #
+  # A `context_policy` on the def folds the older history into a summary once
+  # an LLM response reports `compact_at` input tokens. The summarisation is an
+  # LLM task like any other (`purpose: "compact"`): the worker writes the
+  # prose and the summary comes back as content, which core stores in
+  # `context_compacted`, in the next checkpoint, and on the conversation,
+  # without reading it.
+
+  defp compaction_needed(%{agent_def: %{context_policy: %{compact_at: at, keep: keep}}, last_input_tokens: tokens} = state)
+       when is_integer(tokens) and tokens >= at do
+    drop = backtrack_to_pair_boundary(state.messages, max(length(state.messages) - keep, 0))
+    if drop > 0, do: %{drop: drop}, else: nil
+  end
+
+  defp compaction_needed(_state), do: nil
+
+  defp dispatch_compaction(state, %{drop: drop} = compaction) do
+    task = %{
+      purpose: "compact",
+      model: state.agent_def.model,
+      system_prompt: state.agent_def.system_prompt,
+      summary: state.summary,
+      date: Date.to_iso8601(Date.utc_today()),
+      messages: Enum.take(state.messages, drop),
+      tools: [],
+      agent_id: state.agent_id,
+      run_id: state.run.id,
+      step: state.step
+    }
+
+    {:ok, task_id} =
+      WorkerRegistry.dispatch_llm_task(state.tenant_id, task, from_pid: self(), gard: state.gard_id)
+
+    timer = Process.send_after(self(), {:task_timeout, task_id}, @task_timeout_ms)
+
+    {:noreply,
+     %{state | status: :awaiting_llm, pending_llm_task: task_id, task_timer: timer, pending_compaction: compaction}}
+  end
+
+  defp apply_compaction(state, %{drop: drop}, summary, usage) do
+    kept = Enum.drop(state.messages, drop)
+
+    append(state.run, Events.context_compacted(%{
+      "step" => state.step,
+      "dropped" => drop,
+      "kept" => length(kept),
+      "summary" => summary,
+      "usage" => usage
+    }))
+
+    state = %{state | messages: kept, summary: summary, last_input_tokens: nil}
+
+    # A checkpoint right away, whatever the policy: the message base changed.
+    append(state.run, Events.checkpoint_saved(%{
+      "messages" => kept,
+      "step" => state.step,
+      "summary" => summary
+    }))
+
+    broadcast(state, :context_compacted, %{step: state.step, dropped: drop, kept: length(kept)})
+    persist_conversation_messages(state)
+  end
+
+  defp envelope_context_policy(%{compact_at: at, keep: keep}), do: %{compact_at: at, keep: keep}
+  defp envelope_context_policy(_), do: nil
+
+  defp add_usage(state, input_tokens, output_tokens) do
+    state = %{state |
+      input_tokens: state.input_tokens + input_tokens,
+      output_tokens: state.output_tokens + output_tokens
+    }
+
+    {:ok, run} = Runs.update_run(state.run, %{input_tokens: state.input_tokens, output_tokens: state.output_tokens})
+    %{state | run: run}
+  end
 
   defp handle_llm_response(state, response) do
     # Build event payload in neutral format
@@ -1108,17 +1225,17 @@ defmodule Norns.Agents.Process do
 
       append(
         state.run,
-        Events.checkpoint_saved(%{
-          "messages" => state.messages,
-          "step" => state.step
-        })
+        Events.checkpoint_saved(
+          %{"messages" => state.messages, "step" => state.step}
+          |> maybe_put("summary", state.summary)
+        )
       )
     end
 
     state
   end
 
-  defp conversation_summary(%{conversation: %{summary: summary}}) when summary not in [nil, ""], do: summary
+  defp conversation_summary(%{summary: summary}) when summary not in [nil, ""], do: summary
   defp conversation_summary(_state), do: nil
 
   defp load_conversation_state(state) do
@@ -1132,7 +1249,7 @@ defmodule Norns.Agents.Process do
           state.conversation_key
         )
 
-      %{state | conversation: conversation, messages: normalize_messages(conversation.messages)}
+      %{state | conversation: conversation, messages: normalize_messages(conversation.messages), summary: conversation.summary}
     end
   end
 
@@ -1173,7 +1290,8 @@ defmodule Norns.Agents.Process do
        when not is_nil(conversation) do
     {:ok, conversation} =
       Conversations.update_conversation(conversation, %{
-        messages: state.messages
+        messages: state.messages,
+        summary: Content.to_column(state.summary)
       })
 
     %{state | conversation: conversation}
@@ -1254,13 +1372,14 @@ defmodule Norns.Agents.Process do
     else
       base_state = restore_conversation_for_run(base_state, run)
       initial_messages = initial_messages_for_replay(base_state, run)
-      {messages, step, resume_action} = replay_from_events(initial_messages, events)
+      {messages, step, resume_action, summary} = replay_from_events(initial_messages, base_state[:summary], events)
       {input_tokens, output_tokens} = sum_token_usage(events)
 
       {:ok,
        base_state
        |> Map.put(:run, run)
        |> Map.put(:messages, messages)
+       |> Map.put(:summary, summary)
        |> Map.put(:step, step)
        |> Map.put(:status, :running)
        |> Map.put(:resume_action, resume_action)
@@ -1275,7 +1394,8 @@ defmodule Norns.Agents.Process do
   defp restore_conversation_for_run(state, run) do
     conversation = run.conversation || state.conversation
     messages = if conversation, do: normalize_messages(conversation.messages), else: []
-    %{state | conversation: conversation, messages: messages}
+    summary = if conversation, do: conversation.summary, else: nil
+    state |> Map.put(:conversation, conversation) |> Map.put(:messages, messages) |> Map.put(:summary, summary)
   end
 
   defp initial_messages_for_replay(state, run) do
@@ -1294,26 +1414,26 @@ defmodule Norns.Agents.Process do
     end
   end
 
-  defp replay_from_events(initial_messages, events) do
+  defp replay_from_events(initial_messages, initial_summary, events) do
     checkpoint =
       events
       |> Enum.reverse()
       |> Enum.find(fn event -> event.event_type in ["checkpoint_saved", "checkpoint"] end)
 
     case checkpoint do
-      %{payload: %{"messages" => messages, "step" => step}} ->
+      %{payload: %{"messages" => messages, "step" => step} = payload} ->
         post_checkpoint = Enum.drop_while(events, fn event -> event.sequence <= checkpoint.sequence end)
-        replay_events_onto(normalize_messages(messages), step, [], post_checkpoint)
+        replay_events_onto(normalize_messages(messages), step, [], payload["summary"] || initial_summary, post_checkpoint)
 
       nil ->
-        replay_events_onto(initial_messages, 0, [], events)
+        replay_events_onto(initial_messages, 0, [], initial_summary, events)
     end
   end
 
-  defp replay_events_onto(messages, step, pending_tool_calls, events) do
-    {msgs, current_step, pending_calls} =
-      Enum.reduce(events, {messages, step, pending_tool_calls}, fn event,
-                                                                    {msgs, current_step, pending_calls} ->
+  defp replay_events_onto(messages, step, pending_tool_calls, summary, events) do
+    {msgs, current_step, pending_calls, summary} =
+      Enum.reduce(events, {messages, step, pending_tool_calls, summary}, fn event,
+                                                                             {msgs, current_step, pending_calls, summary} ->
         case event.event_type do
           "llm_response" ->
             content = event.payload["content"] || ""
@@ -1326,7 +1446,7 @@ defmodule Norns.Agents.Process do
                 %{role: "assistant", content: content}
               end
 
-            {msgs ++ [assistant_msg], event.payload["step"] || current_step, tool_calls}
+            {msgs ++ [assistant_msg], event.payload["step"] || current_step, tool_calls, summary}
 
           "tool_result" ->
             tool_msg =
@@ -1347,37 +1467,41 @@ defmodule Norns.Agents.Process do
               end
 
             {msgs ++ [tool_msg], current_step,
-             remove_pending_tool_call(pending_calls, event.payload["tool_call_id"])}
+             remove_pending_tool_call(pending_calls, event.payload["tool_call_id"]), summary}
 
           "tool_duplicate" ->
-            {msgs, current_step, remove_pending_tool_call(pending_calls, event.payload["tool_call_id"])}
+            {msgs, current_step, remove_pending_tool_call(pending_calls, event.payload["tool_call_id"]), summary}
 
           "subagent_launched" ->
-            {msgs, current_step, track_subagent_launch(pending_calls, event.payload)}
+            {msgs, current_step, track_subagent_launch(pending_calls, event.payload), summary}
+
+          # The folded prefix is gone; the summary stands in for it.
+          "context_compacted" ->
+            {Enum.drop(msgs, event.payload["dropped"] || 0), current_step, pending_calls, event.payload["summary"]}
 
           # Both pauses are re-derived from the still-pending tool call that
           # caused them, so the event itself replays as a no-op.
           type when type in ["waiting_for_timer", "waiting_for_user"] ->
-            {msgs, current_step, pending_calls}
+            {msgs, current_step, pending_calls, summary}
 
           type when type in ["checkpoint_saved", "checkpoint"] ->
-            {normalize_messages(event.payload["messages"]), event.payload["step"], []}
+            {normalize_messages(event.payload["messages"]), event.payload["step"], [], event.payload["summary"] || summary}
 
           _ ->
-            {msgs, current_step, pending_calls}
+            {msgs, current_step, pending_calls, summary}
         end
       end)
 
     resume_action =
       if pending_calls != [], do: {:resume_tools, pending_calls}, else: :llm_loop
 
-    {msgs, current_step, resume_action}
+    {msgs, current_step, resume_action, summary}
   end
 
   defp sum_token_usage(events) do
     Enum.reduce(events, {0, 0}, fn event, {in_acc, out_acc} ->
       case event do
-        %{event_type: "llm_response", payload: %{"usage" => usage}} ->
+        %{event_type: type, payload: %{"usage" => usage}} when type in ["llm_response", "context_compacted"] and is_map(usage) ->
           {in_acc + (usage["input_tokens"] || 0), out_acc + (usage["output_tokens"] || 0)}
         _ ->
           {in_acc, out_acc}

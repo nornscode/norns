@@ -228,8 +228,11 @@ weeks of delay to tenant self-serve, which nobody external is waiting on.
   `AGENTS.md` on start, and a self-configuring CLI (`sleipnir
   allow|config|doctor|docs`) the agent runs through `bash`. Repo:
   github.com/nornscode/sleipnir.
-- **H2–H3:** compaction in core (`context_policy`, `context_compacted`,
-  summarisation as an LLM task), and `nornsctl chat` as a session client:
+- **H2 — shipped 2026-09-09:** compaction in core (`context_policy`,
+  `context_compacted`, summarisation as an LLM task the worker serves;
+  `decision-log.md` § Compaction is an LLM task). Needs Python SDK 0.6 /
+  Elixir SDK 0.3 on the worker.
+- **H3:** `nornsctl chat` as a session client:
   every conversation across every gard with live status, tabs, streaming,
   permissions inline. Fork (`plan-coding-agent-runs.md` Phase F) lands
   here because `/fork` in the client needs it. About two weeks.

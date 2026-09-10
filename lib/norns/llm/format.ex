@@ -31,6 +31,39 @@ defmodule Norns.LLM.Format do
 
   # --- Worker-side rendering ---
 
+  @compaction_instruction """
+  Write a summary of the conversation so far for your own future reference. \
+  You will continue the same task with only this summary and the most recent \
+  messages, so keep every fact you would need: the task and its constraints, \
+  decisions made and why, files and identifiers touched, what was tried and \
+  failed, what remains to be done, and anything the user asked for that is not \
+  finished. Fold in the earlier summary if there is one. Write prose or terse \
+  notes, no preamble, no commentary about summarising.\
+  """
+
+  @doc """
+  The system prompt for a `purpose: "compact"` task: the def's prompt (so the
+  summary is written from the agent's point of view) plus the earlier summary.
+  """
+  @spec compose_compaction_prompt(map()) :: String.t()
+  def compose_compaction_prompt(task) do
+    prompt = task[:system_prompt] || task["system_prompt"] || ""
+    summary = task[:summary] || task["summary"]
+
+    if is_binary(summary) and summary != "" do
+      prompt <> "\n\nSummary of earlier conversation: " <> summary
+    else
+      prompt
+    end
+  end
+
+  @doc "The messages for a compaction call: the folded history, then the instruction."
+  @spec compaction_messages(map()) :: [map()]
+  def compaction_messages(task) do
+    messages = task[:messages] || task["messages"] || []
+    render_messages(messages) ++ [%{role: "user", content: @compaction_instruction}]
+  end
+
   @doc "Render a kinded message to a plain-content message. Messages without a kind pass through."
   def render_message(msg) do
     case msg[:kind] || msg["kind"] do

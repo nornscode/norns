@@ -222,6 +222,7 @@ defmodule NornsWeb.RunLive do
   defp event_type_color("tool_result"), do: "text-yellow-600 dark:text-yellow-300"
   defp event_type_color("tool_duplicate"), do: "text-orange-600 dark:text-orange-300"
   defp event_type_color("checkpoint_saved"), do: "text-gray-500"
+  defp event_type_color("context_compacted"), do: "text-purple-600 dark:text-purple-400"
   defp event_type_color("checkpoint"), do: "text-gray-500"
   defp event_type_color("retry"), do: "text-orange-600 dark:text-orange-400"
   defp event_type_color("run_completed"), do: "text-green-600 dark:text-green-400"
