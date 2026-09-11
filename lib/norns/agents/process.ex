@@ -1288,16 +1288,33 @@ defmodule Norns.Agents.Process do
 
   defp persist_conversation_messages(%{conversation: conversation} = state)
        when not is_nil(conversation) do
+    messages = stamp_run_id(state.messages, state.run && state.run.id)
+
     {:ok, conversation} =
       Conversations.update_conversation(conversation, %{
-        messages: state.messages,
+        messages: messages,
         summary: Content.to_column(state.summary)
       })
 
-    %{state | conversation: conversation}
+    # Kept in state too: a conversation-mode process stays alive between
+    # runs, and an unstamped list here would be restamped by the next run.
+    %{state | conversation: conversation, messages: messages}
   end
 
   defp persist_conversation_messages(state), do: state
+
+  # Which run each turn belongs to. Envelope, not content — we neither read
+  # nor write what the message says — and it is what lets a client that was
+  # not watching draw the same run boundaries as one that was. Turns carried
+  # over from earlier runs keep the id they were stamped with.
+  defp stamp_run_id(messages, nil), do: messages
+
+  defp stamp_run_id(messages, run_id) do
+    Enum.map(messages, fn
+      %{run_id: existing} = message when not is_nil(existing) -> message
+      message -> Map.put(message, :run_id, run_id)
+    end)
+  end
 
   defp apply_context_strategy(%{agent_def: %{context_strategy: :sliding_window}} = state) do
     window = max(state.agent_def.context_window, 1)
@@ -1343,6 +1360,7 @@ defmodule Norns.Agents.Process do
     |> maybe_put(:is_error, m["is_error"])
     |> maybe_put(:kind, m["kind"])
     |> maybe_put(:data, m["data"])
+    |> maybe_put(:run_id, m["run_id"])
   end
 
   defp maybe_put(map, _key, nil), do: map

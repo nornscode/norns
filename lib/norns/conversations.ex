@@ -33,6 +33,21 @@ defmodule Norns.Conversations do
     end
   end
 
+  @doc """
+  How each run of a conversation ended: id and status, oldest first.
+
+  The envelope of the history — no content — for clients rendering run
+  boundaries in a transcript they did not watch being made.
+  """
+  def run_outcomes(conversation_id) do
+    from(r in Norns.Runs.Run,
+      where: r.conversation_id == ^conversation_id,
+      order_by: [asc: r.inserted_at, asc: r.id],
+      select: %{id: r.id, status: r.status}
+    )
+    |> Repo.all()
+  end
+
   defp with_latest_runs([]), do: []
 
   defp with_latest_runs(conversations) do

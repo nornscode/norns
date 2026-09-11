@@ -506,6 +506,11 @@ defmodule Norns.Agents.ProcessTest do
       assert conversation.message_count == 4
       assert length(conversation.messages) == 4
 
+      # Each turn carries the run that produced it, so a client can draw the
+      # same run boundaries whether or not it watched them happen.
+      assert Enum.map(conversation.messages, & &1["run_id"]) ==
+               [first_run_id, first_run_id, second_run_id, second_run_id]
+
       first_run = Runs.get_run!(first_run_id)
       second_run = Runs.get_run!(second_run_id)
 

@@ -56,6 +56,25 @@ defmodule NornsWeb.SessionControllerTest do
     assert json_response(get(conn, "/api/v1/sessions/nope"), 404)
   end
 
+  test "shows how each run of the session ended", %{conn: conn, tenant: tenant, agent: agent} do
+    {:ok, c} = Conversations.find_or_create_conversation(agent.id, tenant.id, "boundaries")
+    {:ok, done} = Runs.create_run(%{agent_id: agent.id, tenant_id: tenant.id, conversation_id: c.id, trigger_type: "message", input: %{}, status: "completed"})
+    {:ok, broke} = Runs.create_run(%{agent_id: agent.id, tenant_id: tenant.id, conversation_id: c.id, trigger_type: "message", input: %{}, status: "failed"})
+
+    {:ok, _} = Conversations.update_conversation(c, %{messages: [
+      %{"role" => "user", "content" => "hi", "run_id" => done.id},
+      %{"role" => "assistant", "content" => "hello", "run_id" => done.id},
+      %{"role" => "user", "content" => "again", "run_id" => broke.id}
+    ]})
+
+    assert %{"data" => %{"runs" => runs, "messages" => messages}} =
+             json_response(get(conn, "/api/v1/sessions/#{c.id}"), 200)
+
+    # The envelope a client needs to draw run boundaries it did not watch.
+    assert runs == [%{"id" => done.id, "status" => "completed"}, %{"id" => broke.id, "status" => "failed"}]
+    assert Enum.map(messages, & &1["run_id"]) == [done.id, done.id, broke.id]
+  end
+
   test "reports the live state of a running process", %{conn: conn, tenant: tenant, agent: agent} do
     {:ok, _pid} = Norns.Agents.Registry.start_conversation(agent.id, tenant.id, "live")
     {:ok, _c} = Conversations.find_or_create_conversation(agent.id, tenant.id, "live")

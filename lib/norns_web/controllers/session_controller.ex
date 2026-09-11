@@ -53,7 +53,16 @@ defmodule NornsWeb.SessionController do
       updated_at: c.updated_at
     }
 
-    if with_messages?, do: Map.put(base, :messages, c.messages), else: base
+    if with_messages? do
+      # Messages carry the run they belong to; these are how each of those
+      # runs ended, so a client can draw the same boundaries whether it
+      # watched the session happen or opened it afterwards. Envelope only.
+      base
+      |> Map.put(:messages, c.messages)
+      |> Map.put(:runs, Norns.Conversations.run_outcomes(c.id))
+    else
+      base
+    end
   end
 
   defp live_status(tenant_id, conversation) do
