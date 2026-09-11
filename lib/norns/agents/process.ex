@@ -989,6 +989,8 @@ defmodule Norns.Agents.Process do
       # Workers skip their own tool-result elision when core manages the
       # context; the policy is envelope, not content.
       context_policy: envelope_context_policy(state.agent_def.context_policy),
+      # The cap on this response. nil leaves it to the worker.
+      max_tokens: state.agent_def.max_tokens,
       agent_id: state.agent_id,
       run_id: state.run.id,
       step: state.step
@@ -1123,7 +1125,15 @@ defmodule Norns.Agents.Process do
         {:noreply, state, {:continue, {:execute_tools, response.tool_calls}}}
 
       "length" ->
-        {:noreply, complete_with_error(state, "Max tokens reached")}
+        # The turn hit the output cap. What came back is real, only cut
+        # short, so the run completes rather than throwing it away. The
+        # truncation rides on the llm_response event as finish_reason,
+        # which is how a client knows to say so.
+        Logger.warning(
+          "run #{state.run.id} step #{state.step}: response truncated at the output limit"
+        )
+
+        {:noreply, complete_successfully(state, response)}
 
       other ->
         Logger.info("Unknown finish_reason #{inspect(other)}, treating as stop")

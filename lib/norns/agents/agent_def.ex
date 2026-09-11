@@ -11,6 +11,7 @@ defmodule Norns.Agents.AgentDef do
     context_strategy: :sliding_window,
     context_window: 20,
     context_policy: nil,
+    max_tokens: nil,
     tools: [],
     checkpoint_policy: :on_tool_call,
     max_steps: 50,
@@ -31,6 +32,7 @@ defmodule Norns.Agents.AgentDef do
           context_strategy: context_strategy(),
           context_window: pos_integer(),
           context_policy: context_policy(),
+          max_tokens: nil | pos_integer(),
           tools: [Norns.Tools.Tool.t()],
           checkpoint_policy: checkpoint_policy(),
           max_steps: pos_integer(),
@@ -62,6 +64,7 @@ defmodule Norns.Agents.AgentDef do
          {:ok, context_window} <- parse_positive_integer(attrs, "context_window"),
          {:ok, context_policy} <- parse_context_policy(attrs),
          {:ok, max_steps} <- parse_positive_integer(attrs, "max_steps"),
+         {:ok, max_tokens} <- parse_max_tokens(attrs),
          {:ok, tools} <- parse_tools(attrs) do
       {:ok,
        %__MODULE__{
@@ -70,6 +73,7 @@ defmodule Norns.Agents.AgentDef do
          context_strategy: context_strategy,
          context_window: context_window,
          context_policy: context_policy,
+         max_tokens: max_tokens,
          tools: tools,
          checkpoint_policy: checkpoint_policy,
          max_steps: max_steps,
@@ -92,6 +96,7 @@ defmodule Norns.Agents.AgentDef do
       context_strategy: parse_context_strategy(config),
       context_window: parse_context_window(config),
       context_policy: lenient_context_policy(config),
+      max_tokens: lenient_max_tokens(config),
       tools: module_tools ++ extra_tools,
       max_steps: agent.max_steps || 50,
       checkpoint_policy: parse_checkpoint_policy(config),
@@ -119,6 +124,26 @@ defmodule Norns.Agents.AgentDef do
   @default_keep 20
 
   # Strict form, for definitions submitted through `new/1`.
+  @doc false
+  # The cap on one response. nil leaves it to the worker, which knows its
+  # provider's limits; a turn that hits the cap is truncated, not failed.
+  def parse_max_tokens(%{"max_tokens" => nil}), do: {:ok, nil}
+
+  def parse_max_tokens(%{"max_tokens" => value}) when is_integer(value) and value > 0,
+    do: {:ok, value}
+
+  def parse_max_tokens(%{"max_tokens" => _other}),
+    do: {:error, %{code: "invalid_field", message: "max_tokens must be a positive integer", field: "max_tokens"}}
+
+  def parse_max_tokens(_attrs), do: {:ok, nil}
+
+  defp lenient_max_tokens(config) do
+    case parse_max_tokens(config) do
+      {:ok, value} -> value
+      {:error, _} -> nil
+    end
+  end
+
   defp parse_context_policy(%{"context_policy" => nil}), do: {:ok, nil}
 
   defp parse_context_policy(%{"context_policy" => policy}) when is_map(policy) do

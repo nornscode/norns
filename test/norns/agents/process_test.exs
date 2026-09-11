@@ -77,6 +77,25 @@ defmodule Norns.Agents.ProcessTest do
       assert "run_completed" in event_types
     end
 
+    test "a turn cut off at the output limit completes, and says so", %{tenant: tenant, agent: agent} do
+      Fake.set_responses([
+        %{content: [%{"type" => "text", "text" => "Here is the first half of the fi"}], stop_reason: "max_tokens"}
+      ])
+
+      {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
+      subscribe_and_send(pid, agent.id, "write the file")
+      wait_for(:completed)
+
+      run = Runs.get_run!(AgentProcess.get_state(pid).run_id)
+      # Failing would throw away a turn the user can see and use.
+      assert run.status == "completed"
+      assert run.output == "Here is the first half of the fi"
+
+      # How a client knows to warn that it was cut off.
+      response = Enum.find(Runs.list_events(run.id), &(&1.event_type == "llm_response"))
+      assert response.payload["finish_reason"] == "length"
+    end
+
     test "conversation persists messages across runs", %{tenant: tenant, agent: agent} do
       Fake.set_responses([
         %{content: [%{"type" => "text", "text" => "first"}], stop_reason: "end_turn"},

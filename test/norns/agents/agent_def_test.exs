@@ -128,4 +128,23 @@ defmodule Norns.Agents.AgentDefTest do
       assert agent_def.context_window == 12
     end
   end
+
+  describe "max_tokens" do
+    test "comes from model_config, and is left to the worker when absent" do
+      agent = %Norns.Agents.Agent{model: "claude-sonnet-5", system_prompt: "hi", max_steps: 10}
+
+      assert AgentDef.from_agent(%{agent | model_config: %{"max_tokens" => 32_000}}).max_tokens == 32_000
+      assert AgentDef.from_agent(%{agent | model_config: %{}}).max_tokens == nil
+      # A nonsense value is ignored rather than breaking the agent.
+      assert AgentDef.from_agent(%{agent | model_config: %{"max_tokens" => "lots"}}).max_tokens == nil
+    end
+
+    test "a definition rejects a nonsense value outright" do
+      base = %{"model" => "claude-sonnet-5", "system_prompt" => "hi"}
+      assert {:ok, %{max_tokens: 8192}} = AgentDef.new(Map.put(base, "max_tokens", 8192))
+      assert {:ok, %{max_tokens: nil}} = AgentDef.new(base)
+      assert {:error, %{field: "max_tokens"}} = AgentDef.new(Map.put(base, "max_tokens", 0))
+    end
+  end
+
 end
