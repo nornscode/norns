@@ -14,3 +14,6 @@
 !/priv/static/assets/app.css
 
 .DS_Store
+
+# sleip creates one of these in every repo it runs in
+.sleipnir/
