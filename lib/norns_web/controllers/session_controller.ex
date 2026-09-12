@@ -14,13 +14,47 @@ defmodule NornsWeb.SessionController do
   def index(conn, params) do
     tenant = conn.assigns.current_tenant
     limit = parse_limit(Map.get(params, "limit"))
+    archived = Map.get(params, "archived") in [true, "true"]
 
     sessions =
       tenant.id
-      |> Conversations.list_sessions(limit: limit)
+      |> Conversations.list_sessions(limit: limit, archived: archived)
       |> Enum.map(&session_json(&1, tenant.id, false))
 
     json(conn, %{data: sessions})
+  end
+
+  @doc """
+  Archive a session: out of the list, and it stays out across restarts. The
+  messages, runs, and events are untouched — `restore` brings it back, and
+  `show` reads it in the meantime.
+  """
+  def delete(conn, %{"id" => id} = params) do
+    tenant = conn.assigns.current_tenant
+    force = Map.get(params, "force") in [true, "true"]
+
+    case Conversations.archive(tenant.id, id, force: force) do
+      :ok ->
+        send_resp(conn, 204, "")
+
+      {:error, :active_run} ->
+        conn
+        |> put_status(409)
+        |> json(%{error: "session has an active run — pass force=true to archive anyway"})
+
+      {:error, :not_found} ->
+        conn |> put_status(404) |> json(%{error: "not found"})
+    end
+  end
+
+  @doc "Take an archived session back out. See `delete`."
+  def restore(conn, %{"id" => id}) do
+    tenant = conn.assigns.current_tenant
+
+    case Conversations.restore(tenant.id, id) do
+      :ok -> json(conn, %{data: session_json(Conversations.get_session(tenant.id, id), tenant.id, false)})
+      {:error, :not_found} -> conn |> put_status(404) |> json(%{error: "not found"})
+    end
   end
 
   def show(conn, %{"id" => id}) do
@@ -49,6 +83,7 @@ defmodule NornsWeb.SessionController do
       # it. Core forwards it whole rather than truncating what it must not
       # read.
       first_message: first_user_content(c.messages),
+      archived_at: c.archived_at,
       inserted_at: c.inserted_at,
       updated_at: c.updated_at
     }

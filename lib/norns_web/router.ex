@@ -71,6 +71,8 @@ defmodule NornsWeb.Router do
 
     get "/sessions", SessionController, :index
     get "/sessions/:id", SessionController, :show
+    delete "/sessions/:id", SessionController, :delete
+    post "/sessions/:id/restore", SessionController, :restore
     get "/runs", RunController, :index
     get "/runs/:id", RunController, :show
     get "/runs/:id/events", RunController, :events

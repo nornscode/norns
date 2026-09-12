@@ -91,6 +91,61 @@ defmodule NornsWeb.SessionControllerTest do
              json_response(get(conn, "/api/v1/sessions/#{c.id}"), 200)
   end
 
+  describe "archiving a session" do
+    test "takes it out of the list and brings it back, history intact", %{conn: conn, tenant: tenant, agent: agent} do
+      {:ok, c} = Conversations.find_or_create_conversation(agent.id, tenant.id, "done-with")
+      {:ok, c} = Conversations.update_conversation(c, %{messages: [%{"role" => "user", "content" => "ship it"}]})
+      {:ok, _} = Conversations.find_or_create_conversation(agent.id, tenant.id, "still-going")
+
+      assert response(delete(conn, "/api/v1/sessions/#{c.id}"), 204)
+
+      # Gone from the list a client draws on every start.
+      assert %{"data" => [remaining]} = json_response(get(conn, "/api/v1/sessions"), 200)
+      assert remaining["key"] == "still-going"
+
+      # But listed in the archive, and still fully readable by id.
+      assert %{"data" => [archived]} = json_response(get(conn, "/api/v1/sessions?archived=true"), 200)
+      assert archived["id"] == c.id
+      assert archived["archived_at"]
+      assert %{"data" => %{"messages" => [%{"content" => "ship it"}]}} = json_response(get(conn, "/api/v1/sessions/#{c.id}"), 200)
+
+      assert %{"data" => %{"archived_at" => nil}} = json_response(post(conn, "/api/v1/sessions/#{c.id}/restore"), 200)
+      assert %{"data" => sessions} = json_response(get(conn, "/api/v1/sessions"), 200)
+      assert length(sessions) == 2
+      assert %{"data" => []} = json_response(get(conn, "/api/v1/sessions?archived=true"), 200)
+    end
+
+    test "refuses a session with a run in flight, unless forced", %{conn: conn, tenant: tenant, agent: agent} do
+      {:ok, c} = Conversations.find_or_create_conversation(agent.id, tenant.id, "busy")
+      {:ok, _} = Runs.create_run(%{agent_id: agent.id, tenant_id: tenant.id, conversation_id: c.id, trigger_type: "message", input: %{}, status: "waiting"})
+
+      assert %{"error" => error} = json_response(delete(conn, "/api/v1/sessions/#{c.id}"), 409)
+      assert error =~ "active run"
+
+      assert response(delete(conn, "/api/v1/sessions/#{c.id}?force=true"), 204)
+    end
+
+    test "will not archive or restore another tenant's session", %{conn: conn} do
+      other = create_tenant()
+      agent = create_agent(other)
+      {:ok, c} = Conversations.find_or_create_conversation(agent.id, other.id, "theirs")
+
+      assert json_response(delete(conn, "/api/v1/sessions/#{c.id}"), 404)
+      assert json_response(post(conn, "/api/v1/sessions/#{c.id}/restore"), 404)
+      assert json_response(delete(conn, "/api/v1/sessions/nope"), 404)
+    end
+
+    test "an archived session does not keep a process running", %{conn: conn, tenant: tenant, agent: agent} do
+      {:ok, _pid} = Norns.Agents.Registry.start_conversation(agent.id, tenant.id, "parked")
+      {:ok, c} = Conversations.find_or_create_conversation(agent.id, tenant.id, "parked")
+      assert {:ok, pid} = Norns.Agents.Registry.lookup(tenant.id, agent.id, "parked")
+
+      assert response(delete(conn, "/api/v1/sessions/#{c.id}"), 204)
+      Process.sleep(50)
+      refute Process.alive?(pid)
+    end
+  end
+
   test "reports the live state of a running process", %{conn: conn, tenant: tenant, agent: agent} do
     {:ok, _pid} = Norns.Agents.Registry.start_conversation(agent.id, tenant.id, "live")
     {:ok, _c} = Conversations.find_or_create_conversation(agent.id, tenant.id, "live")

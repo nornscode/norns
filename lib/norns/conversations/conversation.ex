@@ -10,6 +10,8 @@ defmodule Norns.Conversations.Conversation do
     field :summary, :string
     field :message_count, :integer, default: 0
     field :token_estimate, :integer, default: 0
+    # Set when the session is put away: out of the list, history intact.
+    field :archived_at, :utc_datetime_usec
 
     belongs_to :agent, Norns.Agents.Agent
     belongs_to :tenant, Norns.Tenants.Tenant
@@ -27,7 +29,8 @@ defmodule Norns.Conversations.Conversation do
       :messages,
       :summary,
       :message_count,
-      :token_estimate
+      :token_estimate,
+      :archived_at
     ])
     |> validate_required([:agent_id, :tenant_id, :key])
     |> foreign_key_constraint(:agent_id)
