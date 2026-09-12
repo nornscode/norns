@@ -1,14 +1,17 @@
 # Plan: What Sleipnir Has That No Other Harness Can
 
-**Status:** Proposed (2026-09-11). Sequenced inside roadmap step 7 as the
-work after H4, before E1–E4.
+**Status:** Proposed (2026-09-11). Revised the same day after reading
+norns-cloud: the first version assumed the worker lives on the developer's
+laptop, which quietly made its best idea false. See § The substrate.
+Sequenced inside roadmap step 7 as the work after H4, before E1–E4.
 **Depends on:** gards Phase 1 (shipped), triggers (shipped), hooks
 (shipped), H1–H3 (shipped), `POST /runs/:id/reply` and
-`POST /runs/:id/fork` (shipped).
-**Relates to:** `plan-harness-e2e.md` (this is the "what it gives that no
-other harness has" list, promoted from a paragraph to a plan),
-`plan-chains.md` (D2 is the single-agent case of a trigger-started run),
-`gards.md` (D3 is a second use of worker affinity).
+`POST /runs/:id/fork` (shipped), norns-cloud's Fly driver (spike landed
+2026-09-11, `cfbebb1`).
+**Relates to:** `plan-harness-e2e.md` (this is its "what it gives that no
+other harness has" list, promoted from a paragraph to a plan), `gards.md`
+(D0 is Phase 2 provisioning, narrowed to one workload), `plan-chains.md`
+(D2 is the single-agent case of a trigger-started run), `roadmap.md` P2a/P2b.
 
 H4 is a week of dogfooding. A day of it produced fourteen commits, and
 every single bug was in the client: cross-instance coherence, onboarding,
@@ -33,12 +36,30 @@ developer does not?** Laptop closed, nobody at a keyboard, someone else
 looking. If yes, no other harness can follow us there without rebuilding
 their foundation. If no, we are racing Claude Code on their ground.
 
-That test sorts into four axes:
+## The substrate
 
-- **Time** — it runs when you are away (D2).
-- **Place** — the session is not tied to this machine (D1, D3).
-- **People** — the session is not tied to you (D1, D5).
-- **Structure** — the history is a graph, not a scroll (D4).
+The first draft of this plan put "the agent that works while you are
+asleep" second and treated its only blocker as a missing `gard_id` column.
+That was wrong, and wrong in a way worth recording, because the schema gap
+was the visible half of the problem.
+
+The other half: **a laptop is not awake at 3am.** A cron-started run needs
+a worker that exists when the developer does not, and gard-strict dispatch
+means a run bound to a sleeping laptop's gard does not fall back to
+somewhere else — it sits pending, correctly and uselessly. Every claim in
+this plan is conditional on where the gard runs:
+
+| | laptop gard | cloud gard |
+|---|---|---|
+| survives the client closing | yes (since `ae71a81`) | yes |
+| survives the laptop closing | **no** | yes |
+| answers a 3am webhook | **no** | yes |
+| needs a session moved between machines | yes (D3) | mostly moot |
+
+So the substrate comes first. D0 is not a differentiating feature; it is
+what makes D1 and D2 true statements rather than hedged ones, and it is
+what lets the demo say "close your laptop" instead of "close the client
+but leave the daemon running."
 
 ## What we are deliberately not building
 
@@ -53,9 +74,84 @@ This is a real cost and should be stated plainly: sleipnir will be a worse
 editor than Claude Code for the foreseeable future. The bet is that a
 worse editor that works while you sleep, on a machine you are not at, in a
 thread someone else can answer, wins the users who need that and loses the
-ones who do not. If that bet is wrong we will know from D1 and D2 alone.
+ones who do not. If that bet is wrong we will know from D0–D2 alone.
 
 ---
+
+## D0 — A gard that is awake when you are not
+
+**The claim:** a space does not have to be a checkout on your laptop.
+
+This is much closer than the roadmap implies. norns-cloud already has the
+whole handshake:
+
+- A stateless driver contract (`up/down/restart/status`) and a **working
+  Fly Machines driver** — one Fly app per tenant on its own private
+  network, one machine per deployment, updated in place on redeploy. It
+  has tests and two follow-up fixes, so it has been run, not just written.
+- `Deployment` already `belongs_to :gard`.
+- `Deployments.worker_env/3` already injects `NORNS_GARD` and
+  `NORNS_GARD_CLAIM_TOKEN` beside `NORNS_URL` and a per-deployment API
+  key. That is the entire claim protocol: a worker booted with those
+  variables claims the gard on connect.
+- `DeploymentsLive` at `/deployments`, and start/stop/restart/refresh.
+
+Four gaps, three of them small:
+
+1. **Nothing creates the gard.** `worker_env` reads `deployment.gard_id`
+   when it is set; no path sets it. One function.
+2. **Secrets.** `start_deployment`'s `opts[:env]` is a parameter with a
+   comment saying the secrets context does not exist. The worker needs an
+   LLM key. Passed at start for D0; the real context is P2a.
+3. **No reconciler**, so a machine that dies stays dead. P2a. Skipped
+   here, and the client should say "this gard has no worker" rather than
+   pretend.
+4. **The checkout.** A cloud gard has no code in it.
+
+### The checkout, and why P2b is not on this path
+
+`gards.md` defers cloud workspaces to **P2b — managed gards (workspace,
+export, tunnel)**, and volund's local answer does not generalise: `volund
+deploy --workspace ~/projects/my-app` copies a directory into a container
+on the same machine. There is no such directory when the machine is in
+Frankfurt, and the driver contract deliberately has no `copy_out` and no
+`build`.
+
+**For coding gards specifically, git already solved this.** The worker
+clones the repository on start from a remote and a credential. No
+workspace transfer, no snapshot, no tunnel — the one workload whose
+working tree has a canonical remote is precisely the workload we are
+building for.
+
+That is worth recording as a decision in its own right: *the hardest item
+in P2b is not on the critical path for coding gards.* P2b's workspace
+primitives stay necessary for workloads whose state has no remote; they
+are not necessary here.
+
+The one piece of genuine design work is **the git credential** — a GitHub
+App, a per-gard deploy key, or a PAT. This is the security boundary of the
+entire feature (a cloud machine that can read, and eventually push to,
+your source), so it should be decided deliberately rather than discovered.
+A per-gard deploy key is the smallest thing that is not obviously wrong;
+a GitHub App is where this ends up if it becomes a product.
+
+### Scope: two different things are called the MVP
+
+- **P2a as a business** — self-serve, secrets context, billing,
+  reconciler. Weeks, and nobody external is waiting on it.
+- **A cloud gard for us, on our repos** — single tenant, secrets passed at
+  start, no billing, no self-serve, a sleipnir worker image we publish.
+
+D0 is the second. It tests the thesis — does an always-on gard make
+triggers and notifications good? — without building a product, and
+everything it does build is on P2a's path anyway.
+
+**Acceptance:** `/space cloud <git-url>` in sleipnir creates a gard and a
+deployment, the machine boots, clones, and claims the gard; a session in
+that space does real work with the laptop closed; the space appears in
+every sleipnir instance like any other.
+
+**Cost:** ~4 days, plus the credential decision.
 
 ## D1 — Answer from anywhere
 
@@ -69,17 +165,19 @@ not the TUI that started it.
 
 Everything else parks a blinking cursor in one terminal and waits for the
 person who opened it. This is the difference made concrete, and it is the
-cheapest thing on this list.
+cheapest thing on this list. It is worth noting that D1 is the only item
+here that is genuinely good *without* D0 — a laptop-gard run that parks
+while you are in a meeting is still a run you want to answer from your
+phone.
 
 Shape: an outbound notifier on the `waiting_for_user` event (Slack DM
-first — the connector template is already wanted for other reasons —
-then web push, then email), each carrying the run URL and a reply
-affordance. The dashboard's run page becomes a reply surface for anyone
-who can see it.
+first — the connector image is already wanted for other reasons — then web
+push, then email), each carrying the run URL and a reply affordance. The
+dashboard's run page becomes a reply surface for anyone who can see it.
 
-**Acceptance:** a run parks on a permission prompt on machine A with no
-client attached; the answer is given from a phone; the run completes on
-machine A. No terminal was open on either end at the moment of asking.
+**Acceptance:** a run parks on a permission prompt with no client
+attached; the answer is given from a phone; the run completes. No terminal
+was open on either end at the moment of asking.
 
 **Cost:** ~3 days for Slack + run-page reply. Push and email after.
 
@@ -92,8 +190,7 @@ present — from a schedule, or from something that happened.
 "Every morning, run the flaky test fifty times and open an issue if it
 goes red." No terminal-bound harness can do this at all.
 
-**This is blocked, and the blocker is small.** Triggers and hooks cannot
-aim a run at a checkout:
+Two blockers. D0 is the substrate one. The other is a schema gap:
 
 - `Norns.Triggers.Trigger` has `name`, `cron`, `message`,
   `conversation_key`, `enabled`, `last_fired_at` — and no `gard_id`.
@@ -112,32 +209,31 @@ Shape: `gard_id` on `triggers` and `hooks`, validated on write exactly as
 `fire/1` and the hook ingest path. Then `/trigger` in sleipnir to aim one
 at the space you are in, and the trigger list on the space.
 
-**Acceptance:** a trigger bound to a gard fires with no client running; the
-run lands on that gard's worker and only that worker; with the worker
-down, the run stays pending and says so rather than dispatching elsewhere.
-A webhook from a CI failure does the same.
+**Acceptance:** a trigger bound to a cloud gard fires with no client
+running anywhere and the laptop shut; the run lands on that gard's worker
+and only that worker. With the worker down, the run stays pending and says
+so rather than dispatching elsewhere. A webhook from a CI failure does the
+same.
 
-**Cost:** ~2 days core, ~2 days sleipnir.
+**Cost:** ~2 days core, ~2 days sleipnir, on top of D0.
 
 ## D3 — Move a session between machines
 
-**The claim:** start it on the laptop, continue it at the desk, same
-session, full transcript.
+**Downgraded by D0.** If the canonical checkout is a cloud gard, there is
+much less to move: the session is already not on a machine you own. What
+survives is the narrower case of moving a session *off* a laptop gard onto
+a cloud one — "I started this on the train, finish it where it can run
+overnight" — which is a good feature and a much smaller one.
 
-The transcript was never on either machine, so this is a rebinding of the
-next run's `gard_id` and nothing more. `/move <space>` in sleipnir, a
-picker of spaces whose worker is `ready`.
+The caveat that made the general version expensive still applies to the
+narrow one: the *conversation* moves, the *working tree* does not.
+Uncommitted work on the laptop does not follow, and the client has to say
+so rather than hand you an agent with a clean checkout and a transcript
+describing changes that are not there.
 
-The honest caveat: the *conversation* moves, the *working tree* does not.
-Moving a session whose work is uncommitted on the laptop gives you an
-agent at your desk with a clean checkout and a transcript describing
-changes that are not there. So D3 needs the client to say what it is about
-to do, and probably to refuse a move while the origin gard's checkout is
-dirty until we have something better to offer.
-
-**Acceptance:** a session started in gard A, with A's worker stopped, is
-moved to gard B and its next run is served by B — with the client warning
-when A's tree is dirty.
+**Acceptance:** a session in a laptop gard is moved to a cloud gard; its
+next run is served there; the client refuses, loudly, while the origin
+checkout is dirty.
 
 **Cost:** ~2 days, most of it the warning.
 
@@ -167,7 +263,9 @@ client.
 **Spend that survives the window.** Runs already carry `input_tokens` and
 `output_tokens`. Every other harness shows a counter that dies when you
 close the terminal; we can show real cost per session, per space, per
-week, across every machine. ~1 day, mostly a LiveView.
+week, across every machine. ~1 day, mostly a LiveView. Worth more once D0
+exists, because a gard that is always awake is a gard that can always
+spend.
 
 **Retry from the failure, not from the start.** The error taxonomy and
 failure inspector exist and `POST /runs/:id/retry` exists. Surfacing
@@ -178,13 +276,17 @@ the last mile of work already done. ~1 day.
 
 ## Sequencing
 
-**D1 and D2 together, first.** They are one feature from two sides: the
-agent must be able to reach you when you are not there, and to start when
-you are not there. Together they are the whole "durable" claim made
-usable, and they are what the README demo is actually demonstrating —
-beats 3 and 5 of the demo script. About a week and a half.
+**D0 first**, because D2 is not true without it and the demo's headline
+beat is not true without it. About four days, and every hour of it is on
+P2a's path regardless.
 
-Then **D5** (two days, immediate daily value), then **D3**, then **D4**.
+**Then D1 and D2 together.** They are one feature from two sides: the
+agent must be able to reach you when you are not there, and to start when
+you are not there. Together they are the whole durable claim made usable,
+and they are the demo's beats 3 and 5. About a week.
+
+Then **D5** (two days, immediate daily value), then **D3** in its narrowed
+form, then **D4**.
 
 Before any of it: the demo script run manually end to end. Every break in
 it is a dogfooding finding, and it cannot be faked with a fixture the way
@@ -193,9 +295,16 @@ unverified by hand today.
 
 ## What would falsify this plan
 
-If D1 and D2 ship and we still reach for Claude Code for real work, the
-differentiation thesis is wrong and the answer is not more of D3–D5 — it
+If D0–D2 ship and we still reach for Claude Code for real work, the
+differentiation thesis is wrong, and the answer is not more of D3–D5 — it
 is that the inner loop was the story after all, and sleipnir should become
 a worker behind someone else's client rather than a client of its own.
 That is a legitimate outcome and worth naming now, while it is cheap to
 accept.
+
+The sharper, earlier test is D0 itself. If a cloud gard turns out to be
+something we provision once and never use — because the latency is
+annoying, or because the checkout is always slightly wrong, or because we
+simply prefer the machine under our hands — then "works while you are
+asleep" is a demo feature and not a product, and D2 should be cut rather
+than built on a substrate nobody wants.

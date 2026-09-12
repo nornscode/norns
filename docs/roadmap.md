@@ -1,7 +1,7 @@
 # Norns Roadmap
 
 **Status:** v6
-**Last updated:** 2026-09-11 (v6.4: D1–D5 differentiation sequenced after H4, ahead of tenant self-serve — `plan-differentiation.md`)
+**Last updated:** 2026-09-11 (v6.5: D0–D5 differentiation sequenced after H4, ahead of tenant self-serve; D0 cloud gards as the substrate D2 needs — `plan-differentiation.md`)
 
 Sequencing for the next phase of work. For what's already built and why, see
 `decision-log.md`. For the product direction this sequence serves, see
@@ -199,7 +199,11 @@ Calling core contexts in-process means no tenant API key, so key scoping
 is off the P2a critical path. Sequence: **P2a** managed connectors
 (records, secrets, reconciler, Fly driver, prebuilt images, dashboard
 page; customers bring an image, no build service), **P2b** managed gards
-(workspace, export, tunnel), **P2c** billing and snapshots. Prerequisites:
+(workspace, export, tunnel), **P2c** billing and snapshots. Note P2b's
+workspace transfer is **not** on the coding-agent path: a coding gard's
+working tree has a canonical remote, so the worker clones it on start
+(`plan-differentiation.md` § D0). P2b's primitives stay necessary for
+workloads whose state has no remote. Prerequisites:
 SDK graceful shutdown — **shipped 2026-09-09** (core `drain` event; the
 Python SDK drains on SIGTERM/SIGINT, released as 0.4.0) — and tenant
 self-serve, which remains.
@@ -241,12 +245,17 @@ weeks of delay to tenant self-serve, which nobody external is waiting on.
   live status from `GET /api/v1/sessions`, tabs, live events, permissions
   inline, `/fork` and `/resume`. Spaces are gards: one per repository.
 - **H4:** a week of dogfooding on norns; the README demo on a real repo.
-- **D1–D5 (after H4):** the features no terminal-bound harness can copy —
-  answering a parked run from anywhere, runs started by a cron or a webhook
-  against a checkout, moving a session between machines, forks as a tree,
-  spend and retry-from-failure. `plan-differentiation.md`. D2 is blocked on
-  a small gap: triggers and hooks carry no `gard_id`. About two weeks, with
-  D1+D2 the first week and a half.
+- **D0–D5 (after H4):** the features no terminal-bound harness can copy —
+  a gard that is awake when you are not, answering a parked run from
+  anywhere, runs started by a cron or a webhook against a checkout, forks
+  as a tree, spend and retry-from-failure. `plan-differentiation.md`.
+  **D0 first:** a laptop is not awake at 3am, so a cloud gard is what makes
+  D2 a true statement rather than a hedged one. It is small — norns-cloud's
+  Fly driver, `Deployment.gard_id`, and the `NORNS_GARD_CLAIM_TOKEN`
+  injection are already there; what is missing is a path that creates the
+  gard, and a checkout, which for coding gards is `git clone` in the worker
+  rather than P2b's workspace transfer. D2 also needs `gard_id` on triggers
+  and hooks. About two and a half weeks, D0–D2 the first week and a half.
 - **E1–E4 (after P2a):** end-to-end encryption — SDK content cipher and
   key file, validator accepts the opaque block, browser-side decrypt in
   the dashboard, Elixir SDK. Waits for P2a so both modes can be shown
@@ -254,11 +263,14 @@ weeks of delay to tenant self-serve, which nobody external is waiting on.
   "encrypted at rest with your key" when the LLM worker runs in the
   cloud. About two weeks.
 
-**Order from here (v6.4):** P0 audit → H1–H4 → D1–D5 → tenant self-serve →
-P2a → E1–E4 → Slack connector image → chains phase 1. D1–D5 moved ahead of
-tenant self-serve (2026-09-11) for the same reason the harness itself did:
-it is what someone can run on their own repo before the cloud exists, and
-D1's notifier is the Slack connector's first real consumer.
+**Order from here (v6.5):** P0 audit → H1–H4 → D0–D5 → tenant self-serve →
+P2a → E1–E4 → Slack connector image → chains phase 1. D0–D5 moved ahead of
+tenant self-serve (2026-09-11): D1's notifier is the Slack connector's
+first real consumer, and D0 is P2a's own path walked for one tenant — the
+gard-creation seam, the worker image, and the git credential are all work
+P2a needs anyway, exercised on our repos first. Note this is a *change* to
+the harness's original "before the cloud exists" argument: D0 admits the
+best version of the harness needs somewhere to run that is not a laptop.
 
 ### 8. Chains (`plan-chains.md`)
 
@@ -410,7 +422,7 @@ promise in-process behaviour that the multi-tenant product cannot deliver.
 - `gards.md` — worker affinity design (v9; Phase 1 shipped, provisioner phases + the no-gard-connectors correction)
 - `plan-chains.md` — ordered agent defs as tenant data (proposed)
 - `plan-coding-agent-runs.md` — coding agents as Norns runs: mirror, fork, time travel, prompt experiments (proposed 2026-09-09; fork folded into step 7, Phase 0 dropped, Phase 2 superseded by `plan-harness-e2e.md`, mirroring deferred)
-- `plan-differentiation.md` — what sleipnir has that no other harness can, and what not to build (proposed 2026-09-11; D1–D5 after H4)
+- `plan-differentiation.md` — what sleipnir has that no other harness can, and what not to build (proposed 2026-09-11; D0–D5 after H4, cloud gards as the substrate)
 - `plan-harness-e2e.md` — the Norns-native coding harness and the opaque-content principle that lets the log be end-to-end encrypted (proposed 2026-09-09; step 7 and the audit alongside)
 - `plan-subagent-allowlists.md` — agent authorization (Phase 1 shipped)
 - `plan-durable-mcp.md` — durable step protocol (parked)
