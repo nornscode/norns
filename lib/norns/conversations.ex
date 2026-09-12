@@ -50,6 +50,27 @@ defmodule Norns.Conversations do
   """
   def archive(tenant_id, id, opts \\ []), do: set_archived(tenant_id, id, DateTime.utc_now(), opts)
 
+  @doc """
+  Name a session, or clear the name it was given.
+
+  A client titles a session from its first turn, which is a guess and
+  sometimes a poor one. The name lives here so it is the same name in every
+  window on every machine. Blank clears it and the guess comes back.
+  """
+  def rename(tenant_id, id, title) do
+    title = if is_binary(title), do: String.trim(title), else: nil
+    title = if title in [nil, ""], do: nil, else: String.slice(title, 0, 200)
+
+    query = from c in Conversation, where: c.id == ^id and c.tenant_id == ^tenant_id
+
+    case Repo.update_all(query, set: [title: title, updated_at: DateTime.utc_now()]) do
+      {1, _} -> :ok
+      {0, _} -> {:error, :not_found}
+    end
+  rescue
+    Ecto.Query.CastError -> {:error, :not_found}
+  end
+
   @doc "Take a session back out of the archive. See `archive/3`."
   def restore(tenant_id, id), do: set_archived(tenant_id, id, nil, force: true)
 

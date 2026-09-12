@@ -47,6 +47,16 @@ defmodule NornsWeb.SessionController do
     end
   end
 
+  @doc "Name a session. An empty title clears it."
+  def update(conn, %{"id" => id} = params) do
+    tenant = conn.assigns.current_tenant
+
+    case Conversations.rename(tenant.id, id, Map.get(params, "title")) do
+      :ok -> json(conn, %{data: session_json(Conversations.get_session(tenant.id, id), tenant.id, false)})
+      {:error, :not_found} -> conn |> put_status(404) |> json(%{error: "not found"})
+    end
+  end
+
   @doc "Take an archived session back out. See `delete`."
   def restore(conn, %{"id" => id}) do
     tenant = conn.assigns.current_tenant
@@ -77,6 +87,7 @@ defmodule NornsWeb.SessionController do
       gard_id: run && run.gard_id,
       message_count: c.message_count,
       summary: c.summary,
+      title: c.title,
       status: live_status(tenant_id, c),
       run: run && NornsWeb.JSON.run(run),
       # The first user turn, as content: the client renders a title from

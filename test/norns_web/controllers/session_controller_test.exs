@@ -91,6 +91,31 @@ defmodule NornsWeb.SessionControllerTest do
              json_response(get(conn, "/api/v1/sessions/#{c.id}"), 200)
   end
 
+  test "a session can be given a name, and have it taken away", %{conn: conn, tenant: tenant, agent: agent} do
+    {:ok, c} = Conversations.find_or_create_conversation(agent.id, tenant.id, "vague")
+    {:ok, _} = Conversations.update_conversation(c, %{messages: [%{"role" => "user", "content" => "test"}]})
+
+    # The guess from the first turn is all a client has to start with.
+    assert %{"data" => %{"title" => nil, "first_message" => "test"}} =
+             json_response(get(conn, "/api/v1/sessions/#{c.id}"), 200)
+
+    assert %{"data" => %{"title" => "Swift migration"}} =
+             json_response(patch(conn, "/api/v1/sessions/#{c.id}", %{"title" => "  Swift migration  "}), 200)
+
+    # The name is on the session itself, so every client sees the same one.
+    assert %{"data" => [%{"title" => "Swift migration"}]} = json_response(get(conn, "/api/v1/sessions"), 200)
+
+    # Blank clears it and the guess comes back.
+    assert %{"data" => %{"title" => nil}} =
+             json_response(patch(conn, "/api/v1/sessions/#{c.id}", %{"title" => "   "}), 200)
+
+    other = create_tenant()
+    other_agent = create_agent(other)
+    {:ok, theirs} = Conversations.find_or_create_conversation(other_agent.id, other.id, "theirs")
+    assert json_response(patch(conn, "/api/v1/sessions/#{theirs.id}", %{"title" => "mine now"}), 404)
+    assert json_response(patch(conn, "/api/v1/sessions/nope", %{"title" => "x"}), 404)
+  end
+
   describe "archiving a session" do
     test "takes it out of the list and brings it back, history intact", %{conn: conn, tenant: tenant, agent: agent} do
       {:ok, c} = Conversations.find_or_create_conversation(agent.id, tenant.id, "done-with")

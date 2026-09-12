@@ -8,6 +8,9 @@ defmodule Norns.Conversations.Conversation do
     field :key, :string
     field :messages, JsonList, default: []
     field :summary, :string
+    # The name a user gave this session, if they gave it one. Distinct from
+    # `summary`, which compaction writes.
+    field :title, :string
     field :message_count, :integer, default: 0
     field :token_estimate, :integer, default: 0
     # Set when the session is put away: out of the list, history intact.
@@ -28,6 +31,7 @@ defmodule Norns.Conversations.Conversation do
       :key,
       :messages,
       :summary,
+      :title,
       :message_count,
       :token_estimate,
       :archived_at
