@@ -3,6 +3,9 @@
 **Status:** Proposed (2026-09-11). Revised the same day after reading
 norns-cloud: the first version assumed the worker lives on the developer's
 laptop, which quietly made its best idea false. See § The substrate.
+D0's git credential decided 2026-09-12 (fine-grained PAT now, GitHub App
+when this is a product) — see § The git credential, which is also where
+the one real security tension in D0 is written down.
 Sequenced inside roadmap step 7 as the work after H4, before E1–E4.
 **Depends on:** gards Phase 1 (shipped), triggers (shipped), hooks
 (shipped), H1–H3 (shipped), `POST /runs/:id/reply` and
@@ -128,12 +131,51 @@ in P2b is not on the critical path for coding gards.* P2b's workspace
 primitives stay necessary for workloads whose state has no remote; they
 are not necessary here.
 
-The one piece of genuine design work is **the git credential** — a GitHub
-App, a per-gard deploy key, or a PAT. This is the security boundary of the
-entire feature (a cloud machine that can read, and eventually push to,
-your source), so it should be decided deliberately rather than discovered.
-A per-gard deploy key is the smallest thing that is not obviously wrong;
-a GitHub App is where this ends up if it becomes a product.
+### The git credential (decided 2026-09-12)
+
+**A fine-grained PAT for D0; a GitHub App when this becomes a product.**
+
+A PAT is right for D0 because D0 is single-tenant and ours: no install
+flow, no callback URL, no app registration, and revocation is one click.
+A GitHub App is where it has to end up — per-tenant installs, per-repo
+grants, short-lived tokens, and an audit trail that says which
+installation did what — but building it now would be building the product
+before testing the thesis.
+
+The PAT must be **fine-grained and scoped to the specific repositories of
+that gard**, not a classic token, and not org-wide. Contents: read-write
+only if the agent is meant to push; read-only otherwise.
+
+**The part that is not obvious.** Sleipnir's agent has a `bash` tool, so
+whatever the worker's environment holds, the model can read and put into
+the event log — where it is durable and, until E1–E4, plaintext in
+Postgres. `sleipnir/tools/shell.py` already strips a `HIDDEN_ENV` set
+(`NORNS_API_KEY`, `NORNS_GARD_CLAIM_TOKEN`, the LLM keys) from the shell
+it hands the model, so the mechanism exists — but a git credential cannot
+simply join that set, because then `git push` from the agent's own shell
+stops working. That is the tension:
+
+- Token visible to the agent's shell → `git push` works, and the model can
+  `echo` the token into a run event.
+- Token stripped → the log stays clean, and the agent cannot push.
+
+Three ways out, in increasing cost:
+
+1. **Scope the blast radius and accept it.** A PAT that can only touch the
+   repos this gard is for grants the agent nothing it was not already
+   meant to have. The residual risk is the token landing in a durable log,
+   which argues for rotating per gard and treating gard teardown as
+   revocation. This is D0's answer.
+2. **Credential helper over a socket** to a sidecar that holds the token:
+   the agent can use git and can never read the secret. The right answer,
+   and the one a GitHub App wants anyway since its tokens expire hourly.
+3. **Clone at boot, strip, no push.** The agent works locally and pushing
+   happens out of band. Safest, and too weak to be worth the gard.
+
+So: (1) now, with the token scoped per gard and revoked on teardown, and
+(2) as part of the GitHub App work rather than before it. Either way the
+credential belongs in the secrets context, never on the `Deployment`
+record, and never in a run event.
 
 ### Scope: two different things are called the MVP
 
@@ -149,9 +191,10 @@ everything it does build is on P2a's path anyway.
 **Acceptance:** `/space cloud <git-url>` in sleipnir creates a gard and a
 deployment, the machine boots, clones, and claims the gard; a session in
 that space does real work with the laptop closed; the space appears in
-every sleipnir instance like any other.
+every sleipnir instance like any other. Destroying the gard revokes its
+PAT, and no run event anywhere contains the token.
 
-**Cost:** ~4 days, plus the credential decision.
+**Cost:** ~4 days.
 
 ## D1 — Answer from anywhere
 
