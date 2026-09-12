@@ -52,6 +52,47 @@ defmodule NornsWeb.AgentControllerTest do
     end
   end
 
+  describe "DELETE /api/v1/agents/:id" do
+    test "archives an agent, leaving its runs and freeing its name", %{conn: conn, tenant: tenant} do
+      agent = create_agent(tenant, %{name: "smoke-test"})
+      {:ok, run} = Norns.Runs.create_run(%{agent_id: agent.id, tenant_id: tenant.id, trigger_type: "message", input: %{}, status: "completed"})
+
+      assert response(delete(conn, "/api/v1/agents/#{agent.id}"), 204)
+
+      # Gone from the list, but the log it produced is untouched.
+      assert %{"data" => []} = json_response(get(conn, "/api/v1/agents"), 200)
+      assert %{"data" => %{"id" => id}} = json_response(get(conn, "/api/v1/runs/#{run.id}"), 200)
+      assert id == run.id
+
+      # And the name is free again — the point of archiving a stale agent.
+      assert %{"data" => %{"name" => "smoke-test"}} =
+               json_response(post(conn, "/api/v1/agents", %{"name" => "smoke-test", "system_prompt" => "again", "status" => "idle"}), 201)
+    end
+
+    test "refuses while a run is in flight, unless forced", %{conn: conn, tenant: tenant} do
+      agent = create_agent(tenant)
+      {:ok, _} = Norns.Runs.create_run(%{agent_id: agent.id, tenant_id: tenant.id, trigger_type: "message", input: %{}, status: "running"})
+
+      assert %{"error" => error} = json_response(delete(conn, "/api/v1/agents/#{agent.id}"), 409)
+      assert error =~ "active run"
+
+      assert response(delete(conn, "/api/v1/agents/#{agent.id}?force=true"), 204)
+    end
+
+    test "is idempotent enough to 404 the second time", %{conn: conn, tenant: tenant} do
+      agent = create_agent(tenant)
+      assert response(delete(conn, "/api/v1/agents/#{agent.id}"), 204)
+      assert json_response(delete(conn, "/api/v1/agents/#{agent.id}"), 404)
+    end
+
+    test "will not archive another tenant's agent", %{conn: conn} do
+      other = create_tenant()
+      agent = create_agent(other)
+      assert json_response(delete(conn, "/api/v1/agents/#{agent.id}"), 404)
+      refute Norns.Agents.get_agent!(agent.id).archived_at
+    end
+  end
+
 
   describe "GET /api/v1/agents/:id/status" do
     test "returns running status", %{conn: conn, tenant: tenant} do

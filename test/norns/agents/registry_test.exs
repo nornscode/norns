@@ -68,6 +68,27 @@ defmodule Norns.Agents.RegistryTest do
     end
   end
 
+  describe "stop_all/2" do
+    test "stops every conversation of one agent and leaves the others", %{tenant: tenant, agent: agent} do
+      {:ok, one} = Registry.start_agent(agent.id, tenant.id, conversation_key: "one")
+      {:ok, two} = Registry.start_agent(agent.id, tenant.id, conversation_key: "two")
+
+      bystander = create_agent(tenant)
+      {:ok, other} = Registry.start_agent(bystander.id, tenant.id)
+
+      assert Registry.stop_all(tenant.id, agent.id) == 2
+      Process.sleep(50)
+
+      refute Process.alive?(one)
+      refute Process.alive?(two)
+      assert Process.alive?(other)
+    end
+
+    test "an agent with nothing running stops nothing", %{tenant: tenant, agent: agent} do
+      assert Registry.stop_all(tenant.id, agent.id) == 0
+    end
+  end
+
   describe "alive?/2" do
     test "returns true for running agent", %{tenant: tenant, agent: agent} do
       {:ok, _pid} = Registry.start_agent(agent.id, tenant.id)

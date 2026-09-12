@@ -75,6 +75,22 @@ defmodule NornsWeb.SessionControllerTest do
     assert Enum.map(messages, & &1["run_id"]) == [done.id, done.id, broke.id]
   end
 
+  test "an archived agent's sessions leave the list but keep their history", %{conn: conn, tenant: tenant, agent: agent} do
+    {:ok, c} = Conversations.find_or_create_conversation(agent.id, tenant.id, "leftover")
+    {:ok, _} = Conversations.update_conversation(c, %{messages: [%{"role" => "user", "content" => "hi"}]})
+
+    assert %{"data" => [_]} = json_response(get(conn, "/api/v1/sessions"), 200)
+
+    assert response(delete(conn, "/api/v1/agents/#{agent.id}"), 204)
+
+    # Cleared from the sidebar — that is what archiving an agent is for.
+    assert %{"data" => []} = json_response(get(conn, "/api/v1/sessions"), 200)
+
+    # But still readable by id: the transcript was not the thing retired.
+    assert %{"data" => %{"messages" => [%{"content" => "hi"}]}} =
+             json_response(get(conn, "/api/v1/sessions/#{c.id}"), 200)
+  end
+
   test "reports the live state of a running process", %{conn: conn, tenant: tenant, agent: agent} do
     {:ok, _pid} = Norns.Agents.Registry.start_conversation(agent.id, tenant.id, "live")
     {:ok, _c} = Conversations.find_or_create_conversation(agent.id, tenant.id, "live")

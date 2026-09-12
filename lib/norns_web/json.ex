@@ -13,6 +13,7 @@ defmodule NornsWeb.JSON do
       context_window: Map.get(agent.model_config || %{}, "context_window", 20),
       context_policy: Map.get(agent.model_config || %{}, "context_policy"),
       max_steps: agent.max_steps,
+      archived_at: agent.archived_at,
       inserted_at: agent.inserted_at,
       updated_at: agent.updated_at
     }

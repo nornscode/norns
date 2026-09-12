@@ -11,6 +11,8 @@ defmodule Norns.Agents.Agent do
     field :model_config, :map, default: %{}
     field :tools_config, :map, default: %{}
     field :max_steps, :integer, default: 50
+    # Set when the agent is retired. The row stays: its runs are the log.
+    field :archived_at, :utc_datetime_usec
 
     belongs_to :tenant, Norns.Tenants.Tenant
     has_many :runs, Norns.Runs.Run
@@ -20,7 +22,7 @@ defmodule Norns.Agents.Agent do
 
   def changeset(agent, attrs) do
     agent
-    |> cast(attrs, [:name, :purpose, :status, :system_prompt, :model, :model_config, :tools_config, :max_steps, :tenant_id])
+    |> cast(attrs, [:name, :purpose, :status, :system_prompt, :model, :model_config, :tools_config, :max_steps, :tenant_id, :archived_at])
     |> validate_required([:name, :status, :system_prompt, :tenant_id])
     |> validate_inclusion(:status, ["inactive", "idle", "running"])
     |> unique_constraint([:tenant_id, :name])

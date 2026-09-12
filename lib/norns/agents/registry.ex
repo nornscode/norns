@@ -86,6 +86,21 @@ defmodule Norns.Agents.Registry do
     end
   end
 
+  @doc """
+  Stop every running process of an agent, whatever conversation it is on.
+  Returns how many were stopped. Used when archiving: the definition is
+  going away, so none of its conversations should keep running.
+  """
+  def stop_all(tenant_id, agent_id) do
+    Norns.AgentRegistry
+    |> Registry.select([
+      {{{:"$1", :"$2", :"$3"}, :"$4", :_}, [{:==, :"$1", tenant_id}, {:==, :"$2", agent_id}], [:"$4"]}
+    ])
+    |> Enum.count(fn pid ->
+      DynamicSupervisor.terminate_child(Norns.AgentSupervisor, pid) == :ok
+    end)
+  end
+
   @doc "Look up a running agent process."
   def lookup(tenant_id, agent_id, conversation_key \\ "default") do
     case Registry.lookup(Norns.AgentRegistry, {tenant_id, agent_id, conversation_key}) do

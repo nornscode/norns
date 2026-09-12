@@ -47,6 +47,30 @@ defmodule NornsWeb.AgentController do
     end
   end
 
+  @doc """
+  Archive an agent. The runs stay — this retires the definition, it does not
+  erase the history.
+  """
+  def delete(conn, %{"id" => id} = params) do
+    tenant = conn.assigns.current_tenant
+    force = Map.get(params, "force") in [true, "true"]
+
+    with {:ok, agent} <- fetch_agent(id, tenant.id) do
+      case Agents.archive(tenant.id, agent.id, force: force) do
+        :ok ->
+          send_resp(conn, 204, "")
+
+        {:error, :active_run} ->
+          conn
+          |> put_status(409)
+          |> json(%{error: "agent has an active run — pass force=true to archive anyway"})
+
+        {:error, _} ->
+          conn |> put_status(404) |> json(%{error: "not found"})
+      end
+    end
+  end
+
   def status(conn, %{"agent_id" => agent_id}) do
     tenant = conn.assigns.current_tenant
 

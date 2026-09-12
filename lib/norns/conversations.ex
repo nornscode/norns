@@ -10,13 +10,17 @@ defmodule Norns.Conversations do
   Every conversation of a tenant, newest first, each with its agent and its
   latest run. This is the session list a client shows: one row per
   conversation across every agent and gard.
+
+  Conversations of archived agents are left out — retiring an agent is how
+  you clear its sessions from the sidebar. They remain reachable by id.
   """
   def list_sessions(tenant_id, opts \\ []) do
     limit = Keyword.get(opts, :limit, 100)
 
     conversations =
       Conversation
-      |> where([c], c.tenant_id == ^tenant_id)
+      |> join(:inner, [c], a in Norns.Agents.Agent, on: a.id == c.agent_id)
+      |> where([c, a], c.tenant_id == ^tenant_id and is_nil(a.archived_at))
       |> order_by([c], desc: c.updated_at)
       |> limit(^limit)
       |> preload(:agent)

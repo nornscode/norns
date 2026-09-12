@@ -45,7 +45,7 @@ defmodule NornsWeb.Router do
   scope "/api/v1", NornsWeb do
     pipe_through :api
 
-    resources "/agents", AgentController, only: [:create, :index, :show, :update] do
+    resources "/agents", AgentController, only: [:create, :index, :show, :update, :delete] do
       post "/messages", AgentController, :send_message
       get "/status", AgentController, :status
       get "/runs", AgentController, :runs
