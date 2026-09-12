@@ -37,8 +37,14 @@ defmodule Norns.Agents.Process do
       `"schedule"` (cron trigger).
     * `:gard_id` — bind this run to a gard: all tool dispatch goes only to
       workers in that gard. Per-run, not per-process.
+
+  `content` is whatever the caller's client and worker agree it is — a
+  string, an opaque block, or a list of blocks when a turn carries a
+  picture as well as words. The orchestrator routes on the envelope and
+  never reads it (`decision-log.md` § Content is opaque), so it does not
+  get to have an opinion about its shape either.
   """
-  def send_message(pid, content, opts \\ []) when is_binary(content) or is_map(content) do
+  def send_message(pid, content, opts \\ []) when not is_nil(content) do
     lineage =
       opts
       |> Keyword.take([:context, :parent_run_id, :depth, :trigger_type, :gard_id])
