@@ -1,7 +1,7 @@
 # Norns Roadmap
 
 **Status:** v6
-**Last updated:** 2026-09-09 (v6.3: the harness sequenced as step 7, ahead of tenant self-serve; opaque-content audit alongside; chains templating moves to the worker)
+**Last updated:** 2026-09-11 (v6.4: D1–D5 differentiation sequenced after H4, ahead of tenant self-serve — `plan-differentiation.md`)
 
 Sequencing for the next phase of work. For what's already built and why, see
 `decision-log.md`. For the product direction this sequence serves, see
@@ -241,6 +241,12 @@ weeks of delay to tenant self-serve, which nobody external is waiting on.
   live status from `GET /api/v1/sessions`, tabs, live events, permissions
   inline, `/fork` and `/resume`. Spaces are gards: one per repository.
 - **H4:** a week of dogfooding on norns; the README demo on a real repo.
+- **D1–D5 (after H4):** the features no terminal-bound harness can copy —
+  answering a parked run from anywhere, runs started by a cron or a webhook
+  against a checkout, moving a session between machines, forks as a tree,
+  spend and retry-from-failure. `plan-differentiation.md`. D2 is blocked on
+  a small gap: triggers and hooks carry no `gard_id`. About two weeks, with
+  D1+D2 the first week and a half.
 - **E1–E4 (after P2a):** end-to-end encryption — SDK content cipher and
   key file, validator accepts the opaque block, browser-side decrypt in
   the dashboard, Elixir SDK. Waits for P2a so both modes can be shown
@@ -248,8 +254,11 @@ weeks of delay to tenant self-serve, which nobody external is waiting on.
   "encrypted at rest with your key" when the LLM worker runs in the
   cloud. About two weeks.
 
-**Order from here (v6.3):** P0 audit → H1–H4 → tenant self-serve → P2a →
-E1–E4 → Slack connector image → chains phase 1.
+**Order from here (v6.4):** P0 audit → H1–H4 → D1–D5 → tenant self-serve →
+P2a → E1–E4 → Slack connector image → chains phase 1. D1–D5 moved ahead of
+tenant self-serve (2026-09-11) for the same reason the harness itself did:
+it is what someone can run on their own repo before the cloud exists, and
+D1's notifier is the Slack connector's first real consumer.
 
 ### 8. Chains (`plan-chains.md`)
 
@@ -401,6 +410,7 @@ promise in-process behaviour that the multi-tenant product cannot deliver.
 - `gards.md` — worker affinity design (v9; Phase 1 shipped, provisioner phases + the no-gard-connectors correction)
 - `plan-chains.md` — ordered agent defs as tenant data (proposed)
 - `plan-coding-agent-runs.md` — coding agents as Norns runs: mirror, fork, time travel, prompt experiments (proposed 2026-09-09; fork folded into step 7, Phase 0 dropped, Phase 2 superseded by `plan-harness-e2e.md`, mirroring deferred)
+- `plan-differentiation.md` — what sleipnir has that no other harness can, and what not to build (proposed 2026-09-11; D1–D5 after H4)
 - `plan-harness-e2e.md` — the Norns-native coding harness and the opaque-content principle that lets the log be end-to-end encrypted (proposed 2026-09-09; step 7 and the audit alongside)
 - `plan-subagent-allowlists.md` — agent authorization (Phase 1 shipped)
 - `plan-durable-mcp.md` — durable step protocol (parked)
