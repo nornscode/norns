@@ -1,6 +1,6 @@
 # Decision Log
 
-Last updated: 2026-09-09
+Last updated: 2026-09-13
 
 ## Product Decisions
 
@@ -14,7 +14,7 @@ Last updated: 2026-09-09
 ### Content is opaque (decided 2026-09-09)
 - The data-plane half of purity. The orchestrator routes on the **envelope** (roles, kinds, tool names, tool-call ids, steps, usage, stop reasons, error classes, agent and gard ids) and never reads, transforms, or generates **content** (message text, tool arguments, tool results, system prompts, questions and answers, run output). A content position holds a string, a structured map, or an opaque block a worker encrypted with a key core does not hold — and core treats all three the same: store, forward, never look inside. `Norns.Runtime.Content`; the conformance suite is `test/norns/runtime/opaque_content_test.exs`.
 - Why: the coding harness puts source code in the event log, and "we cannot read your log" is only credible if core never needed to. Writing the rule down before compaction and chains land is what keeps them from growing content reads; the audit that made it true was eight small fixes (`plan-harness-e2e.md`).
-- Consequences: workers compose the system prompt (`summary` and `date` ride in the task envelope), report `final_output`, elide old tool results, and render every result core resolves itself from a `kind` plus envelope `data` — `Norns.LLM.Format.render_message/1` is the reference. What stays plain and core-written: diagnostic error text on `run_failed`/`retry` and the registry's `worker disconnected`, none of which carries tenant content. `runs.output` is still a string column; a block lands there JSON-encoded until encryption ships (E2).
+- Consequences: workers compose the system prompt (`summary` and `date` ride in the task envelope), report `final_output`, elide old tool results, and render every result core resolves itself from a `kind` plus envelope `data` — `Norns.TestWorker.Format.render_message/1` is the reference. What stays plain and core-written: diagnostic error text on `run_failed`/`retry` and the registry's `worker disconnected`, none of which carries tenant content. `runs.output` is still a string column; a block lands there JSON-encoded until encryption ships (E2).
 
 ### Compaction is an LLM task (decided 2026-09-09)
 
@@ -138,11 +138,44 @@ alone (a fourth language to draw text).
 - Agent is never blocked — always responds to status queries, stop, messages.
 - TaskQueue holds tasks when no worker is connected, flushes on reconnect.
 
+### No worker code in the orchestrator (decided 2026-09-13)
+
+Purity was a rule about runtime behaviour; it was never true of the tree.
+`lib/` held a whole worker in miniature: an LLM dispatcher and its fake, the
+neutral ↔ Anthropic translator, a tool executor with remote dispatch, a
+registry of locally-executable tools, and a `handler` function on the tool
+struct. None of it ran in production — `Norns.LLM` had no caller outside its
+own tests, `Tools.Executor` was reached only from `test/support`, and
+`Tools.Registry.register/1` was never called by anything, so the catalog
+concatenated an always-empty list. The one place `handler` was load-bearing
+was `WorkerRegistry.available_tools/2`, which had to fabricate
+`fn _ -> {:error, "remote tool — use dispatch"} end` to satisfy the struct's
+`@enforce_keys`.
+
+It was there because core was written before any worker existed and had to
+prove itself against something. That something is a test worker, so it now
+lives with the test worker: `Norns.TestWorker.{LLM,Format,Tools,Tool}` under
+`test/support/`, compiled only in `:test`. Deleted outright: `Norns.LLM`,
+`Norns.LLM.Behaviour`, `Norns.Tools.Behaviour`, `Norns.Tools.Registry`, and
+`test/norns/llm_test.exs`, which asserted that a fake returns what you
+scripted it to return.
+
+`Norns.Tools.Tool` now carries name, description, schema, source and
+`side_effect?` — what a model needs to choose a tool and a client needs to
+show one — and no handler, because the orchestrator has nothing to execute.
+Two places that used to insist on the struct now match on shape
+(`Tool.to_api_format/1`, `Idempotency.side_effecting?/2`), so a worker may
+hand core its own richer tool representation.
+
+Consequence to keep: a reference implementation in `lib/` reads as product.
+The SDKs are where a real worker's translation and execution live; the test
+worker is the reference core tests against, and it is test support.
+
 ### Provider-neutral LLM format
 - Tool calls: separate `tool_calls` array with `arguments`, not Anthropic content blocks.
 - Tool results: `role: "tool"` messages with `tool_call_id`, not content blocks in user messages.
 - `finish_reason`: `stop` / `tool_call` / `length` — not Anthropic-specific values.
-- `Norns.LLM.Format` translates neutral ↔ Anthropic at the worker boundary.
+- `Norns.TestWorker.Format` translates neutral ↔ Anthropic at the worker boundary.
 
 ### Conversations
 - Task mode (default): each message starts fresh.

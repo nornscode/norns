@@ -1,24 +1,24 @@
-defmodule Norns.Tools.Executor do
-  @moduledoc "Matches tool_use blocks to registered tools and executes them."
+defmodule Norns.TestWorker.Tools do
+  @moduledoc """
+  Matches tool_use blocks to the worker's tools and runs them.
+
+  Executing a tool is a worker's job, so this is a worker's code. The
+  orchestrator dispatches a tool task and records what comes back; it has
+  no executor of its own, and deleting the one that used to live in `lib/`
+  is what this module is.
+
+  It keeps the idempotency behaviour a real worker is expected to have:
+  when core hands out a key for a side-effecting call and a result is
+  already on the run, reuse it rather than doing the thing twice.
+  """
 
   alias Norns.Runs
+  alias Norns.TestWorker.Tool
   alias Norns.Tools.Idempotency
-  alias Norns.Tools.Tool
-  alias Norns.Workers.WorkerRegistry
 
-  @doc """
-  Execute a tool call. Finds the matching tool by name and calls its handler.
-  Supports both local and remote (worker-provided) tools.
-  """
+  @doc "Execute a tool call: find the tool by name and call its handler."
   def execute(%{"name" => name, "input" => input} = block, tools, opts \\ []) when is_list(tools) do
     case Enum.find(tools, &(&1.name == name)) do
-      %Tool{source: {:remote, tenant_id}} = tool ->
-        with_tool_context(block, tools, opts, fn context ->
-          maybe_reuse_result(tool, input, context, fn ->
-            execute_remote(tenant_id, name, input, context)
-          end)
-        end)
-
       %Tool{} = tool ->
         with_tool_context(block, tools, opts, fn context ->
           maybe_reuse_result(tool, input, context, fn ->
@@ -78,22 +78,6 @@ defmodule Norns.Tools.Executor do
         result
       end
     end)
-  end
-
-  defp execute_remote(tenant_id, tool_name, input, context) do
-    task_input =
-      case context.idempotency_key do
-        key when is_binary(key) -> Map.put(input, "_norns_idempotency_key", key)
-        _ -> input
-      end
-
-    case WorkerRegistry.dispatch_task(tenant_id, tool_name, task_input, from_pid: self()) do
-      {:ok, task_id} ->
-        WorkerRegistry.await_result(task_id)
-
-      {:error, :no_worker} ->
-        {:error, "No worker available for tool: #{tool_name}"}
-    end
   end
 
   defp with_tool_context(block, tools, opts, fun) do

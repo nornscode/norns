@@ -97,7 +97,7 @@ said needs to read text; tool results older than the last two turns are
 elided by the LLM worker, not by core; and every result core resolves
 itself carries a `kind` plus envelope `data` (`timer_completed`,
 `tool_denied`, `subagent_completed`, `list_agents`, …) that the worker
-renders to prose. `Norns.LLM.Format.render_message/1` is the reference
+renders to prose. `Norns.TestWorker.Format.render_message/1` is the reference
 rendering. Any content position — message text, tool arguments, tool
 results, questions, output — may hold a string, a map, or an opaque block
 `{"$enc": "v1", ...}` that only a worker holding a key can read.

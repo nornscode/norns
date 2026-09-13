@@ -3,7 +3,7 @@ defmodule Norns.Runtime.TenantIsolationTest do
   use Norns.DataCase, async: false
 
   alias Norns.Agents.Process, as: AgentProcess
-  alias Norns.LLM.Fake
+  alias Norns.TestWorker.LLM
   alias Norns.Workers.WorkerRegistry
 
   describe "secret path validation" do
@@ -22,7 +22,7 @@ defmodule Norns.Runtime.TenantIsolationTest do
       tenant = create_tenant(%{api_keys: %{"norns" => "nrn_test123", "anthropic" => "sk-should-be-ignored"}})
       agent = create_agent(tenant)
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "done"}], stop_reason: "end_turn"}
       ])
 
@@ -37,7 +37,7 @@ defmodule Norns.Runtime.TenantIsolationTest do
       end
 
       # The test worker calls the fake with its own key, never the tenant's
-      [call] = Fake.calls()
+      [call] = LLM.calls()
       assert call.api_key == "test-worker-key"
       refute call.api_key == "sk-should-be-ignored"
     end

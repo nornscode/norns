@@ -1,7 +1,7 @@
-defmodule Norns.Tools.ExecutorTest do
+defmodule Norns.TestWorker.ToolsTest do
   use Norns.DataCase, async: false
 
-  alias Norns.Tools.{Executor, Tool}
+  alias Norns.TestWorker.{Tool, Tools}
 
   describe "execute/2" do
     test "calls the matching tool handler" do
@@ -13,12 +13,12 @@ defmodule Norns.Tools.ExecutorTest do
       }
 
       assert {:ok, "Hello, World!"} =
-               Executor.execute(%{"name" => "greet", "input" => %{"name" => "World"}}, [tool])
+               Tools.execute(%{"name" => "greet", "input" => %{"name" => "World"}}, [tool])
     end
 
     test "returns error for unknown tool" do
       assert {:error, "Unknown tool: nope"} =
-               Executor.execute(%{"name" => "nope", "input" => %{}}, [])
+               Tools.execute(%{"name" => "nope", "input" => %{}}, [])
     end
 
     test "catches handler exceptions" do
@@ -30,7 +30,7 @@ defmodule Norns.Tools.ExecutorTest do
       }
 
       assert {:error, "Tool execution error: kaboom"} =
-               Executor.execute(%{"name" => "boom", "input" => %{}}, [tool])
+               Tools.execute(%{"name" => "boom", "input" => %{}}, [tool])
     end
 
     test "adds idempotency context for side-effecting tools" do
@@ -52,7 +52,7 @@ defmodule Norns.Tools.ExecutorTest do
       expected_key = "run:#{run.id}:step:2:tool:call_1:name:side_effect"
 
       assert {:ok, ^expected_key, %{"idempotency_key" => ^expected_key}} =
-               Executor.execute(%{"id" => "call_1", "name" => "side_effect", "input" => %{}}, [tool], run: run, step: 2)
+               Tools.execute(%{"id" => "call_1", "name" => "side_effect", "input" => %{}}, [tool], run: run, step: 2)
     end
   end
 
@@ -70,7 +70,7 @@ defmodule Norns.Tools.ExecutorTest do
         %{"id" => "call_2", "type" => "tool_use", "name" => "echo", "input" => %{"msg" => "world"}}
       ]
 
-      results = Executor.execute_all(blocks, [tool])
+      results = Tools.execute_all(blocks, [tool])
       assert length(results) == 2
 
       assert Enum.all?(results, fn r ->
@@ -81,7 +81,7 @@ defmodule Norns.Tools.ExecutorTest do
     test "marks errors with is_error flag" do
       blocks = [%{"id" => "call_1", "type" => "tool_use", "name" => "missing", "input" => %{}}]
 
-      [result] = Executor.execute_all(blocks, [])
+      [result] = Tools.execute_all(blocks, [])
       assert result["is_error"] == true
       assert result["content"] =~ "Unknown tool"
     end
@@ -112,7 +112,7 @@ defmodule Norns.Tools.ExecutorTest do
       }
 
       [result] =
-        Executor.execute_all(
+        Tools.execute_all(
           [%{"id" => "call_1", "type" => "tool_use", "name" => "side_effect", "input" => %{}}],
           [tool],
           run: run,

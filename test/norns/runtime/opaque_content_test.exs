@@ -12,10 +12,10 @@ defmodule Norns.Runtime.OpaqueContentTest do
   use Norns.DataCase, async: false
 
   alias Norns.Agents.Process, as: AgentProcess
-  alias Norns.LLM.Fake
+  alias Norns.TestWorker.LLM
   alias Norns.Runs
   alias Norns.Runtime.{Content, EventValidator}
-  alias Norns.Tools.Tool
+  alias Norns.TestWorker.Tool
 
   # What a worker with a key sends in a content position. Random ciphertext:
   # nothing in core may make sense of it.
@@ -158,7 +158,7 @@ defmodule Norns.Runtime.OpaqueContentTest do
 
       {:ok, _worker} = Norns.TestWorker.start_link(tools: [vault], name: nil, worker_id: "opaque-worker")
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "tool_use", "id" => "c1", "name" => "vault", "input" => args}], stop_reason: "tool_use"},
         %{content: [%{"type" => "text", "text" => "done"}], stop_reason: "end_turn"}
       ])
@@ -179,7 +179,7 @@ defmodule Norns.Runtime.OpaqueContentTest do
       assert %{payload: %{"content" => ^result}} = Enum.find(events, &(&1.event_type == "tool_result"))
 
       # The worker saw exactly what was sent — no rendering, no truncation.
-      [first, second] = Fake.calls()
+      [first, second] = LLM.calls()
       assert [%{"role" => "user", "content" => ^user}] = first.messages
       assert Enum.any?(second.messages, fn m ->
                is_list(m["content"]) and Enum.any?(m["content"], &(&1["type"] == "tool_result" and &1["content"] == result))
@@ -190,10 +190,10 @@ defmodule Norns.Runtime.OpaqueContentTest do
       child = create_agent(tenant, %{name: "vault-child", purpose: "returns ciphertext"})
       secret = block()
 
-      Fake.set_responses([
+      LLM.set_responses([
         # parent launches the child
         %{content: [%{"type" => "tool_use", "id" => "l1", "name" => "launch_agent", "input" => %{"agent_name" => child.name, "message" => block()}}], stop_reason: "tool_use"},
-        # child answers with ciphertext (the Fake speaks Anthropic; a real worker would set final_output)
+        # child answers with ciphertext (the scripted provider speaks Anthropic; a real worker would set final_output)
         %{content: [%{"type" => "text", "text" => Jason.encode!(secret)}], stop_reason: "end_turn"},
         # parent finishes
         %{content: [%{"type" => "text", "text" => "relayed"}], stop_reason: "end_turn"}
@@ -218,7 +218,7 @@ defmodule Norns.Runtime.OpaqueContentTest do
       # Core stores what the worker reports as final_output — an older worker
       # reports none and the last turn's content stands in.
       output = block()
-      Fake.set_responses([%{content: [%{"type" => "text", "text" => Jason.encode!(output)}], stop_reason: "end_turn"}])
+      LLM.set_responses([%{content: [%{"type" => "text", "text" => Jason.encode!(output)}], stop_reason: "end_turn"}])
 
       {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
       Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{agent.id}")

@@ -19,7 +19,6 @@ defmodule Norns.Tools.Builtins do
         },
         "required" => ["seconds"]
       },
-      handler: :builtin,
       source: :builtin
     }
   end
@@ -35,7 +34,6 @@ defmodule Norns.Tools.Builtins do
         },
         "required" => ["question"]
       },
-      handler: :builtin,
       source: :builtin
     }
   end
@@ -67,7 +65,6 @@ defmodule Norns.Tools.Builtins do
         },
         "required" => ["agent_name", "message"]
       },
-      handler: :builtin,
       source: :builtin
     }
   end
@@ -81,7 +78,6 @@ defmodule Norns.Tools.Builtins do
         "properties" => %{},
         "required" => []
       },
-      handler: :builtin,
       source: :builtin
     }
   end

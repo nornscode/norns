@@ -61,7 +61,7 @@ defmodule Norns.Agents.ToolPolicyTest do
   end
 
   describe "filter/2" do
-    defp tool(name), do: %Tool{name: name, description: "", input_schema: %{}, handler: fn _ -> {:ok, ""} end}
+    defp tool(name), do: %Tool{name: name, description: "", input_schema: %{}}
 
     test "open mode passes the list through untouched" do
       tools = [tool("a"), tool("b")]

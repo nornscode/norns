@@ -3,7 +3,7 @@ defmodule Norns.Runtime.EventTimelineTest do
   use Norns.DataCase, async: false
 
   alias Norns.Agents.Process, as: AgentProcess
-  alias Norns.LLM.Fake
+  alias Norns.TestWorker.LLM
   alias Norns.Runs
 
   describe "event timeline consistency" do
@@ -11,7 +11,7 @@ defmodule Norns.Runtime.EventTimelineTest do
       tenant = create_tenant()
       agent = create_agent(tenant)
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "Hello!"}], stop_reason: "end_turn"}
       ])
 
@@ -45,7 +45,7 @@ defmodule Norns.Runtime.EventTimelineTest do
       tenant = create_tenant()
       agent = create_agent(tenant)
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{
           content: [%{"type" => "tool_use", "id" => "c1", "name" => "web_search", "input" => %{"query" => "test"}}],
           stop_reason: "tool_use"
@@ -88,7 +88,7 @@ defmodule Norns.Runtime.EventTimelineTest do
       agent = create_agent(tenant, %{model_config: %{"on_failure" => "stop"}})
 
       # No queued responses forces an error from the fake
-      Fake.set_responses([])
+      LLM.set_responses([])
 
       Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{agent.id}")
       {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)

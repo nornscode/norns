@@ -2,9 +2,9 @@ defmodule Norns.Runtime.ReplayConformanceTest do
   use Norns.DataCase, async: false
 
   alias Norns.Agents.Process, as: AgentProcess
-  alias Norns.LLM.Fake
+  alias Norns.TestWorker.LLM
   alias Norns.Runs
-  alias Norns.Tools.Tool
+  alias Norns.TestWorker.Tool
 
   setup do
     tenant = create_tenant()
@@ -142,7 +142,7 @@ defmodule Norns.Runtime.ReplayConformanceTest do
     })
     # Crash happened here — tool result persisted but no checkpoint/LLM call
 
-    Fake.set_responses([
+    LLM.set_responses([
       %{content: [%{"type" => "text", "text" => "finished"}], stop_reason: "end_turn"}
     ])
 
@@ -178,7 +178,7 @@ defmodule Norns.Runtime.ReplayConformanceTest do
   test "reconstructs equivalent state when crashing before checkpoint write", %{tenant: tenant, agent: agent, tool: tool} do
     Process.flag(:trap_exit, true)
 
-    Fake.set_responses([
+    LLM.set_responses([
       %{
         content: [%{"type" => "tool_use", "id" => "call_1", "name" => "side_effect", "input" => %{"value" => "cp"}}],
         stop_reason: "tool_use"

@@ -2,7 +2,7 @@ defmodule NornsWeb.HookControllerTest do
   use NornsWeb.ConnCase, async: false
 
   alias Norns.{Hooks, Runs}
-  alias Norns.LLM.Fake
+  alias Norns.TestWorker.LLM
 
   setup %{conn: conn} do
     tenant = create_tenant()
@@ -83,7 +83,7 @@ defmodule NornsWeb.HookControllerTest do
     test "a delivery starts a webhook-triggered run; payload is the message", %{conn: conn, agent: agent} do
       %{"token" => token} = create_hook(conn, agent)
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "handled"}], stop_reason: "end_turn"}
       ])
 
@@ -110,7 +110,7 @@ defmodule NornsWeb.HookControllerTest do
           "conversation_key_path" => "From"
         })
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "one"}], stop_reason: "end_turn"},
         %{content: [%{"type" => "text", "text" => "two"}], stop_reason: "end_turn"}
       ])
@@ -132,7 +132,7 @@ defmodule NornsWeb.HookControllerTest do
       await_completion(agent.id)
 
       # Same sender → same conversation → the second call sees history.
-      [first, second] = Fake.calls()
+      [first, second] = LLM.calls()
       assert length(first.messages) == 1
       assert length(second.messages) == 3
       assert %{"content" => "first text"} = hd(first.messages)
@@ -171,7 +171,7 @@ defmodule NornsWeb.HookControllerTest do
 
       assert json_response(forged, 401)["error"] == "invalid_signature"
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "ok"}], stop_reason: "end_turn"}
       ])
 

@@ -3,7 +3,7 @@ defmodule Norns.Agents.ProcessTest do
 
   alias Norns.{Agents, Conversations, Runs}
   alias Norns.Agents.Process, as: AgentProcess
-  alias Norns.LLM.Fake
+  alias Norns.TestWorker.LLM
 
   setup do
     tenant = create_tenant()
@@ -48,7 +48,7 @@ defmodule Norns.Agents.ProcessTest do
 
   describe "simple end_turn flow" do
     test "processes a message and completes", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([
+      LLM.set_responses([
         %{
           content: [%{"type" => "text", "text" => "Hello! I can help with that."}],
           stop_reason: "end_turn"
@@ -78,7 +78,7 @@ defmodule Norns.Agents.ProcessTest do
     end
 
     test "a turn cut off at the output limit completes, and says so", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "Here is the first half of the fi"}], stop_reason: "max_tokens"}
       ])
 
@@ -97,7 +97,7 @@ defmodule Norns.Agents.ProcessTest do
     end
 
     test "conversation persists messages across runs", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "first"}], stop_reason: "end_turn"},
         %{content: [%{"type" => "text", "text" => "second"}], stop_reason: "end_turn"}
       ])
@@ -110,7 +110,7 @@ defmodule Norns.Agents.ProcessTest do
       AgentProcess.send_message(pid, "second message")
       wait_for(:completed)
 
-      [first_call, second_call] = Fake.calls()
+      [first_call, second_call] = LLM.calls()
       assert first_call.messages == [%{"role" => "user", "content" => "first message"}]
       # Second run includes conversation history
       assert length(second_call.messages) == 3
@@ -120,7 +120,7 @@ defmodule Norns.Agents.ProcessTest do
 
   describe "tool use flow" do
     test "executes tool calls and continues LLM loop", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([
+      LLM.set_responses([
         %{
           content: [
             %{
@@ -175,7 +175,7 @@ defmodule Norns.Agents.ProcessTest do
     end
 
     test "parks in :waiting and broadcasts the question", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([ask_human_response("Book the 7pm show?")])
+      LLM.set_responses([ask_human_response("Book the 7pm show?")])
 
       {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
       subscribe_and_send(pid, agent.id, "Buy me tickets")
@@ -198,7 +198,7 @@ defmodule Norns.Agents.ProcessTest do
     end
 
     test "a reply resumes the run and feeds the answer back to the LLM", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([
+      LLM.set_responses([
         ask_human_response("Book the 7pm show?"),
         %{content: [%{"type" => "text", "text" => "Booked."}], stop_reason: "end_turn"}
       ])
@@ -232,7 +232,7 @@ defmodule Norns.Agents.ProcessTest do
     end
 
     test "a normal message to a parked agent is treated as the answer", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([
+      LLM.set_responses([
         ask_human_response("Book the 7pm show?"),
         %{content: [%{"type" => "text", "text" => "Booked."}], stop_reason: "end_turn"}
       ])
@@ -257,7 +257,7 @@ defmodule Norns.Agents.ProcessTest do
     end
 
     test "replying to an agent that is not waiting is rejected", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "Done."}], stop_reason: "end_turn"}
       ])
 
@@ -269,7 +269,7 @@ defmodule Norns.Agents.ProcessTest do
     end
 
     test "other tool results are held and delivered alongside the answer", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([
+      LLM.set_responses([
         %{
           content: [
             %{"type" => "tool_use", "id" => "call_search", "name" => "web_search", "input" => %{"query" => "shows"}},
@@ -306,7 +306,7 @@ defmodule Norns.Agents.ProcessTest do
       tenant: tenant,
       agent: agent
     } do
-      Fake.set_responses([
+      LLM.set_responses([
         %{
           content: [
             %{
@@ -336,7 +336,7 @@ defmodule Norns.Agents.ProcessTest do
 
       wait_for(:completed)
 
-      calls = Fake.calls()
+      calls = LLM.calls()
       assert Enum.map(calls, & &1.model) == [agent.model, "claude-updated-model"]
     end
   end
@@ -345,7 +345,7 @@ defmodule Norns.Agents.ProcessTest do
     test "keeps tool_use/tool_result pairs atomic when trimming", %{tenant: tenant} do
       agent = create_agent(tenant, %{model_config: %{"context_window" => 1}})
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{
           content: [
             %{"type" => "tool_use", "id" => "call_1", "name" => "web_search", "input" => %{"query" => "a"}}
@@ -401,7 +401,7 @@ defmodule Norns.Agents.ProcessTest do
 
   describe "empty final output fallback" do
     test "falls back to the last non-empty assistant content", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([
+      LLM.set_responses([
         %{
           content: [
             %{"type" => "text", "text" => "Here's what I found: Elixir is great."},
@@ -444,7 +444,7 @@ defmodule Norns.Agents.ProcessTest do
           }
         end
 
-      Fake.set_responses(responses)
+      LLM.set_responses(responses)
 
       {:ok, pid} =
         AgentProcess.start_link(
@@ -474,7 +474,7 @@ defmodule Norns.Agents.ProcessTest do
     test "broadcasts events during execution", %{tenant: tenant, agent: agent} do
       Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{agent.id}")
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{
           content: [%{"type" => "text", "text" => "Done!"}],
           stop_reason: "end_turn"
@@ -501,7 +501,7 @@ defmodule Norns.Agents.ProcessTest do
           model_config: %{"mode" => "conversation", "context_window" => 20}
         })
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "First reply"}], stop_reason: "end_turn"},
         %{content: [%{"type" => "text", "text" => "Second reply"}], stop_reason: "end_turn"}
       ])
@@ -536,7 +536,7 @@ defmodule Norns.Agents.ProcessTest do
       assert first_run.conversation_id == conversation.id
       assert second_run.conversation_id == conversation.id
 
-      [first_call, second_call] = Fake.calls()
+      [first_call, second_call] = LLM.calls()
       assert length(first_call.messages) == 1
       assert length(second_call.messages) == 3
       assert Enum.at(second_call.messages, 0)["content"] == "first message"
@@ -557,7 +557,7 @@ defmodule Norns.Agents.ProcessTest do
 
       # Turn 1: a tool-using exchange. Messages stay in-memory (atom-keyed)
       # and are persisted to the conversation on completion.
-      Fake.set_responses([
+      LLM.set_responses([
         %{
           content: [
             %{"type" => "tool_use", "id" => "call_1", "name" => "web_search", "input" => %{"query" => "elixir"}}
@@ -582,7 +582,7 @@ defmodule Norns.Agents.ProcessTest do
       :ok = GenServer.stop(pid1)
       wait_until_deregistered(tenant.id, agent.id, conversation_key)
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "Second reply"}], stop_reason: "end_turn"}
       ])
 

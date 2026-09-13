@@ -1,14 +1,21 @@
 defmodule Norns.TestWorker do
   @moduledoc """
-  Test worker that registers with WorkerRegistry and handles LLM + tool tasks
-  using the Fake LLM. Started in test setup, not in the application supervisor.
+  A worker, for tests: registers with the WorkerRegistry and serves the `llm`
+  and `tools` tasks the orchestrator dispatches. Started in test setup, never
+  in the application supervisor.
+
+  Everything a worker does — talking to a provider, translating the neutral
+  format, executing a tool — lives under `Norns.TestWorker.*` in test support,
+  because none of it belongs in `lib/`. The orchestrator has no LLM client and
+  no tool executor; that is the whole point of it.
   """
 
   use GenServer
 
-  alias Norns.LLM
-  alias Norns.LLM.Format
-  alias Norns.Tools.Executor
+  alias Norns.TestWorker.Format
+  alias Norns.TestWorker.LLM
+  alias Norns.TestWorker.Tool
+  alias Norns.TestWorker.Tools
   alias Norns.Workers.WorkerRegistry
 
   def start_link(opts \\ []) do
@@ -26,15 +33,7 @@ defmodule Norns.TestWorker do
     capabilities = Keyword.get(opts, :capabilities, [:llm, :tools])
     gard = Keyword.get(opts, :gard)
 
-    tool_defs =
-      Enum.map(tools, fn tool ->
-        %{
-          "name" => tool.name,
-          "description" => tool.description,
-          "input_schema" => tool.input_schema,
-          "side_effect" => Map.get(tool, :side_effect?, false)
-        }
-      end)
+    tool_defs = Enum.map(tools, &Tool.to_def/1)
 
     WorkerRegistry.register_worker(
       tenant,
@@ -119,7 +118,7 @@ defmodule Norns.TestWorker do
       "id" => task[:task_id] || task["task_id"]
     }
 
-    case Executor.execute(block, tools) do
+    case Tools.execute(block, tools) do
       {:ok, result} -> {:ok, result}
       {:ok, result, _meta} -> {:ok, result}
       {:error, reason} -> {:error, reason}

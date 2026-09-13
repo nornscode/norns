@@ -177,7 +177,6 @@ defmodule Norns.GardsTest do
         name: "write_file",
         description: "",
         input_schema: %{},
-        handler: fn _ -> {:ok, ""} end,
         side_effect?: true
       }
 

@@ -10,7 +10,7 @@ defmodule Norns.Agents.ProcessCompactionTest do
 
   alias Norns.Agents.Process, as: AgentProcess
   alias Norns.{Conversations, Runs}
-  alias Norns.LLM.Fake
+  alias Norns.TestWorker.LLM
   alias Norns.Runtime.EventValidator
 
   @policy %{"compact_at" => 50, "keep" => 2}
@@ -52,7 +52,7 @@ defmodule Norns.Agents.ProcessCompactionTest do
 
   describe "compaction" do
     test "folds the older history into a summary and continues on it", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([
+      LLM.set_responses([
         tool_use("a", %{input_tokens: 100, output_tokens: 5}),
         text("SUMMARY: searched a"),
         text("Done.")
@@ -80,7 +80,7 @@ defmodule Norns.Agents.ProcessCompactionTest do
       # The worker wrote the prose: the compaction call carried the def's prompt
       # and the folded history plus an instruction; the following call carried
       # the summary in the composed prompt.
-      [_step1, compaction_call, step2] = Fake.calls()
+      [_step1, compaction_call, step2] = LLM.calls()
       assert compaction_call.system_prompt == agent.system_prompt
       assert compaction_call.opts == []
       assert %{"role" => "user"} = List.last(compaction_call.messages)
@@ -96,7 +96,7 @@ defmodule Norns.Agents.ProcessCompactionTest do
       assert length(conversation.messages) == 3
 
       # The next run in the conversation starts from the summary.
-      Fake.set_responses([text("Still here.")])
+      LLM.set_responses([text("Still here.")])
       run2 = run_to_completion(pid, agent, "And now?")
       [request] = events(run2, "llm_request")
       assert request.payload["summary"] == "SUMMARY: searched a"
@@ -104,16 +104,16 @@ defmodule Norns.Agents.ProcessCompactionTest do
     end
 
     test "does nothing under the threshold", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([tool_use("a", %{input_tokens: 49, output_tokens: 5}), text("Done.")])
+      LLM.set_responses([tool_use("a", %{input_tokens: 49, output_tokens: 5}), text("Done.")])
       {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
       run_id = run_to_completion(pid, agent, "Search for a")
 
       assert events(run_id, "context_compacted") == []
-      assert length(Fake.calls()) == 2
+      assert length(LLM.calls()) == 2
     end
 
     test "continues uncompacted when the worker returns no summary", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([tool_use("a", %{input_tokens: 100, output_tokens: 5}), text(""), text("Done.")])
+      LLM.set_responses([tool_use("a", %{input_tokens: 100, output_tokens: 5}), text(""), text("Done.")])
       {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
       run_id = run_to_completion(pid, agent, "Search for a")
 

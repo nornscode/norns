@@ -2,13 +2,13 @@ defmodule Norns.Agents.RegistryTest do
   use Norns.DataCase, async: false
 
   alias Norns.Agents.Registry
-  alias Norns.LLM.Fake
+  alias Norns.TestWorker.LLM
 
   setup do
     tenant = create_tenant()
     agent = create_agent(tenant)
 
-    Fake.set_responses([
+    LLM.set_responses([
       %{content: [%{"type" => "text", "text" => "ok"}], stop_reason: "end_turn"}
     ])
 
@@ -46,7 +46,7 @@ defmodule Norns.Agents.RegistryTest do
 
   describe "send_message/4" do
     test "delivers message and starts the agent if needed", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "hi back"}], stop_reason: "end_turn"}
       ])
 

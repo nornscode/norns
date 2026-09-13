@@ -2,8 +2,8 @@ defmodule Norns.Tools.Catalog do
   @moduledoc """
   What tools an agent in a given tenant can actually call right now.
 
-  The tool list an agent is offered is composed from three places — built-ins,
-  locally registered tools, and tools advertised by connected workers — and
+  The tool list an agent is offered is composed from built-ins, the tools an
+  agent was handed directly, and the tools advertised by connected workers,
   deduplicated by name. That composition was previously repeated at each call
   site, which meant a page or an API could describe a tool surface that didn't
   match what agents were really given. It lives here instead.
@@ -15,15 +15,14 @@ defmodule Norns.Tools.Catalog do
   """
 
   alias Norns.Tools.Builtins
-  alias Norns.Tools.Registry, as: ToolRegistry
   alias Norns.Workers.WorkerRegistry
 
   @doc """
   Tools available to `tenant_id`, deduplicated by name.
 
-  Precedence matches agent dispatch: built-ins first, then local, then worker.
-  An earlier entry shadows a later one with the same name, so a worker cannot
-  displace a built-in.
+  Precedence matches agent dispatch: built-ins first, then the agent's own,
+  then worker. An earlier entry shadows a later one with the same name, so a
+  worker cannot displace a built-in.
 
   Pass `:extra` to include tools supplied directly to an agent, which is how
   an agent process resolves its own list.
@@ -32,7 +31,7 @@ defmodule Norns.Tools.Catalog do
   def for_tenant(tenant_id, opts \\ []) do
     extra = Keyword.get(opts, :extra, [])
 
-    (Builtins.all() ++ ToolRegistry.all_tools() ++ extra ++ WorkerRegistry.available_tools(tenant_id))
+    (Builtins.all() ++ extra ++ WorkerRegistry.available_tools(tenant_id))
     |> Enum.uniq_by(& &1.name)
   end
 

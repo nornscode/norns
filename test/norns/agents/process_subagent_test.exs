@@ -3,7 +3,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
 
   alias Norns.Runs
   alias Norns.Agents.Process, as: AgentProcess
-  alias Norns.LLM.Fake
+  alias Norns.TestWorker.LLM
 
   setup do
     tenant = create_tenant()
@@ -29,7 +29,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
     test "returns available agents excluding self", %{tenant: tenant, agent: agent} do
       _other_agent = create_agent(tenant, %{name: "helper-agent", purpose: "Helps with tasks"})
 
-      Fake.set_responses([
+      LLM.set_responses([
         # LLM calls list_agents
         %{
           content: [
@@ -75,7 +75,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
     test "launches child agent and returns its output", %{tenant: tenant, agent: agent} do
       _child_agent = create_agent(tenant, %{name: "child-agent", purpose: "Child worker"})
 
-      Fake.set_responses([
+      LLM.set_responses([
         # Parent: calls launch_agent
         %{
           content: [
@@ -88,7 +88,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
           ],
           stop_reason: "tool_use"
         },
-        # Child agent: responds (Fake is shared, child picks up next response)
+        # Child agent: responds (the script is shared, child picks up next response)
         %{
           content: [%{"type" => "text", "text" => "Child completed the task."}],
           stop_reason: "end_turn"
@@ -123,7 +123,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
          %{tenant: tenant, agent: agent} do
       _child_agent = create_agent(tenant, %{name: "traceable-child"})
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{
           content: [
             %{
@@ -163,7 +163,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
     test "a child run records its parent and depth", %{tenant: tenant, agent: agent} do
       _child_agent = create_agent(tenant, %{name: "lineage-child"})
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{
           content: [
             %{
@@ -200,7 +200,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
     end
 
     test "rejects self-launch", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([
+      LLM.set_responses([
         %{
           content: [
             %{
@@ -235,7 +235,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
     test "passes context to child agent via launch_agent tool", %{tenant: tenant, agent: agent} do
       _child_agent = create_agent(tenant, %{name: "context-child", purpose: "Receives context"})
 
-      Fake.set_responses([
+      LLM.set_responses([
         # Parent: calls launch_agent with context
         %{
           content: [
@@ -316,7 +316,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
     test "launch_agent works without context (backward compatible)", %{tenant: tenant, agent: agent} do
       _child_agent = create_agent(tenant, %{name: "no-ctx-child", purpose: "No context"})
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{
           content: [
             %{
@@ -354,7 +354,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
     end
 
     test "rejects not-found agent", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([
+      LLM.set_responses([
         %{
           content: [
             %{
@@ -430,7 +430,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
       target = create_agent(tenant, %{name: "target-open"})
       agent = policy_agent(tenant, %{"mode" => "open"})
 
-      Fake.set_responses([launch_response(target.name), done_response(), done_response()])
+      LLM.set_responses([launch_response(target.name), done_response(), done_response()])
 
       {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
       subscribe_and_send(pid, agent.id, "go")
@@ -445,7 +445,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
       target = create_agent(tenant, %{name: "target-too-deep"})
       agent = policy_agent(tenant, %{"mode" => "open", "max_depth" => 0})
 
-      Fake.set_responses([launch_response(target.name), done_response()])
+      LLM.set_responses([launch_response(target.name), done_response()])
 
       {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
       subscribe_and_send(pid, agent.id, "go")
@@ -468,7 +468,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
 
       before = Runs.list_runs(target.id) |> length()
 
-      Fake.set_responses([launch_response(target.name), done_response()])
+      LLM.set_responses([launch_response(target.name), done_response()])
 
       {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
       subscribe_and_send(pid, agent.id, "go")
@@ -481,7 +481,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
       target = create_agent(tenant, %{name: "target-in-depth"})
       agent = policy_agent(tenant, %{"mode" => "open", "max_depth" => 1})
 
-      Fake.set_responses([launch_response(target.name), done_response(), done_response()])
+      LLM.set_responses([launch_response(target.name), done_response(), done_response()])
 
       {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
       subscribe_and_send(pid, agent.id, "go")
@@ -496,7 +496,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
       target = create_agent(tenant, %{name: "target-listed"})
       agent = policy_agent(tenant, %{"mode" => "allowlist", "allowed_agents" => [target.name]})
 
-      Fake.set_responses([launch_response(target.name), done_response(), done_response()])
+      LLM.set_responses([launch_response(target.name), done_response(), done_response()])
 
       {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
       subscribe_and_send(pid, agent.id, "go")
@@ -509,7 +509,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
       target = create_agent(tenant, %{name: "target-unlisted"})
       agent = policy_agent(tenant, %{"mode" => "allowlist", "allowed_agents" => ["someone-else"]})
 
-      Fake.set_responses([launch_response(target.name), done_response()])
+      LLM.set_responses([launch_response(target.name), done_response()])
 
       {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
       subscribe_and_send(pid, agent.id, "go")
@@ -530,7 +530,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
       target = create_agent(tenant, %{name: "target-disabled"})
       agent = policy_agent(tenant, %{"mode" => "disabled"})
 
-      Fake.set_responses([launch_response(target.name), done_response()])
+      LLM.set_responses([launch_response(target.name), done_response()])
 
       {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
       subscribe_and_send(pid, agent.id, "go")
@@ -549,7 +549,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
       foreign = create_agent(other_tenant, %{name: "foreign-agent"})
       agent = policy_agent(tenant, %{"mode" => "open"})
 
-      Fake.set_responses([launch_response(foreign.name), done_response()])
+      LLM.set_responses([launch_response(foreign.name), done_response()])
 
       {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
       subscribe_and_send(pid, agent.id, "go")
@@ -564,7 +564,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
       _other = create_agent(tenant, %{name: "visible-agent"})
       agent = policy_agent(tenant, %{"allow_list_agents" => false})
 
-      Fake.set_responses([list_response(), done_response()])
+      LLM.set_responses([list_response(), done_response()])
 
       {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
       subscribe_and_send(pid, agent.id, "who is there")
@@ -584,7 +584,7 @@ defmodule Norns.Agents.ProcessSubagentTest do
       _other = create_agent(tenant, %{name: "listable-agent"})
       agent = policy_agent(tenant, %{"mode" => "open"})
 
-      Fake.set_responses([list_response(), done_response()])
+      LLM.set_responses([list_response(), done_response()])
 
       {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
       subscribe_and_send(pid, agent.id, "who is there")

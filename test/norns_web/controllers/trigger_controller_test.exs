@@ -1,7 +1,7 @@
 defmodule NornsWeb.TriggerControllerTest do
   use NornsWeb.ConnCase, async: false
 
-  alias Norns.LLM.Fake
+  alias Norns.TestWorker.LLM
 
   setup %{conn: conn} do
     tenant = create_tenant()
@@ -102,7 +102,7 @@ defmodule NornsWeb.TriggerControllerTest do
 
   describe "POST /api/v1/triggers/:id/fire" do
     test "starts a run immediately", %{conn: conn, agent: agent} do
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "done"}], stop_reason: "end_turn"}
       ])
 

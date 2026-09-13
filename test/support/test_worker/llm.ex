@@ -1,24 +1,24 @@
-defmodule Norns.LLM.Fake do
+defmodule Norns.TestWorker.LLM do
   @moduledoc """
-  Fake LLM for testing. Uses process dictionary or a registered scripted response list.
+  The scripted provider `Norns.TestWorker` calls instead of a real one.
 
-  ## Usage
+  This is a worker's provider call, so it lives with the worker. The
+  orchestrator has no LLM client and no provider adapter: it dispatches an
+  `llm` task and a connected worker decides what to do with it.
 
-  In tests, script responses before starting an agent:
+  Script responses before starting an agent:
 
-      Norns.LLM.Fake.set_responses([
+      Norns.TestWorker.LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "Hello!"}], stop_reason: "end_turn"},
       ])
 
-  Or for tool use flows:
+  Or for tool-use flows:
 
-      Norns.LLM.Fake.set_responses([
+      Norns.TestWorker.LLM.set_responses([
         %{content: [%{"type" => "tool_use", "id" => "call_1", "name" => "web_search", "input" => %{"query" => "elixir"}}], stop_reason: "tool_use"},
         %{content: [%{"type" => "text", "text" => "Here are the results."}], stop_reason: "end_turn"},
       ])
   """
-
-  @behaviour Norns.LLM.Behaviour
 
   @doc "Set the scripted responses for the current test. Responses are consumed in order."
   def set_responses(responses) when is_list(responses) do
@@ -57,15 +57,16 @@ defmodule Norns.LLM.Fake do
     end
   end
 
-  @impl true
+  
   def chat(api_key, model, system_prompt, messages, opts \\ []) do
     record_call(%{api_key: api_key, model: model, system_prompt: system_prompt, messages: messages, opts: opts})
-    response = next_response()
 
-    response =
-      Map.put_new(response, :usage, %{input_tokens: 10, output_tokens: 20})
-
-    {:ok, response}
+    # Script `{:error, reason}` to make the provider call fail: a worker has
+    # to handle that, so the test worker must be able to meet it.
+    case next_response() do
+      {:error, reason} -> {:error, reason}
+      response -> {:ok, Map.put_new(response, :usage, %{input_tokens: 10, output_tokens: 20})}
+    end
   end
 
   defp ensure_table do

@@ -9,7 +9,7 @@ defmodule Norns.Agents.ProcessSubagentRecoveryTest do
   use Norns.DataCase, async: false
 
   alias Norns.Agents.Process, as: AgentProcess
-  alias Norns.LLM.Fake
+  alias Norns.TestWorker.LLM
   alias Norns.Runs
   alias Norns.Runs.Run
 
@@ -139,7 +139,7 @@ defmodule Norns.Agents.ProcessSubagentRecoveryTest do
       done = child_run(tenant, child, nil, %{status: "completed", output: "42"})
       parent_run = crashed_parent_run(tenant, parent, done.id)
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "The child said 42."}], stop_reason: "end_turn"}
       ])
 
@@ -170,7 +170,7 @@ defmodule Norns.Agents.ProcessSubagentRecoveryTest do
 
       parent_run = crashed_parent_run(tenant, parent, dead.id)
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "The child failed."}], stop_reason: "end_turn"}
       ])
 
@@ -227,7 +227,7 @@ defmodule Norns.Agents.ProcessSubagentRecoveryTest do
       assert run_ids_for(child) == [pending.id]
 
       # Answering the child drives the parent the rest of the way.
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "The second one."}], stop_reason: "end_turn"},
         %{content: [%{"type" => "text", "text" => "Child chose the second one."}], stop_reason: "end_turn"}
       ])
@@ -254,7 +254,7 @@ defmodule Norns.Agents.ProcessSubagentRecoveryTest do
       done = child_run(tenant, child, nil, %{status: "completed", output: "once"})
       parent_run = crashed_parent_run(tenant, parent, done.id)
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "Done."}], stop_reason: "end_turn"}
       ])
 
@@ -273,7 +273,7 @@ defmodule Norns.Agents.ProcessSubagentRecoveryTest do
       done = child_run(tenant, child, nil, %{status: "completed", output: "still adopted"})
       parent_run = crashed_parent_run(tenant, parent, done.id, checkpoint: true)
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "Done."}], stop_reason: "end_turn"}
       ])
 
@@ -292,7 +292,7 @@ defmodule Norns.Agents.ProcessSubagentRecoveryTest do
 
       parent_run = crashed_parent_run(tenant, parent, 999_999)
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "I lost the child."}], stop_reason: "end_turn"}
       ])
 
@@ -315,7 +315,7 @@ defmodule Norns.Agents.ProcessSubagentRecoveryTest do
 
       # pending_subagents used to be keyed by child agent id, so the second
       # launch overwrote the first and one call never got a result.
-      Fake.set_responses([
+      LLM.set_responses([
         %{
           content: [
             %{

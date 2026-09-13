@@ -126,7 +126,7 @@ defmodule NornsWeb.RunControllerTest do
 
   describe "POST /api/v1/runs/:id/retry" do
     test "retries a failed run", %{conn: conn, tenant: tenant, agent: agent} do
-      Norns.LLM.Fake.set_responses([
+      Norns.TestWorker.LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "retried"}], stop_reason: "end_turn"}
       ])
 
@@ -176,7 +176,7 @@ defmodule NornsWeb.RunControllerTest do
 
   describe "POST /api/v1/runs/:id/reply" do
     test "delivers an answer to a parked run", %{conn: conn, tenant: tenant, agent: agent} do
-      Norns.LLM.Fake.set_responses([
+      Norns.TestWorker.LLM.set_responses([
         %{
           content: [
             %{
@@ -352,7 +352,7 @@ defmodule NornsWeb.RunControllerTest do
       {:ok, _} = Norns.Runs.append_event(run, %{event_type: "run_started", source: "system", payload: %{}})
       {:ok, _} = Norns.Runs.append_event(run, %{event_type: "llm_response", source: "system", payload: %{"content" => "done", "finish_reason" => "stop", "usage" => %{}, "step" => 1}})
 
-      Norns.LLM.Fake.set_responses([%{content: [%{"type" => "text", "text" => "forked"}], stop_reason: "end_turn"}])
+      Norns.TestWorker.LLM.set_responses([%{content: [%{"type" => "text", "text" => "forked"}], stop_reason: "end_turn"}])
 
       conn2 = post(conn, "/api/v1/runs/#{run.id}/fork", %{"step" => 1, "message" => "again"})
       assert %{"status" => "accepted", "run_id" => fork_id, "agent_id" => agent_id, "data" => %{"trigger_type" => "fork"}} = json_response(conn2, 201)

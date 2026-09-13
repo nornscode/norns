@@ -20,7 +20,7 @@ defmodule Norns.Runtime.Content do
   Where core used to write prose for the model to read (a timer result, a
   denied tool, a sub-agent's outcome), the message now carries a `kind` and
   envelope `data`, and the LLM worker renders the prose. See
-  `Norns.LLM.Format.render_message/1` for the reference rendering and
+  `Norns.TestWorker.Format.render_message/1` for the reference rendering and
   `docs/plan-harness-e2e.md` for the design.
   """
 

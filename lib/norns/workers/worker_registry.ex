@@ -180,7 +180,6 @@ defmodule Norns.Workers.WorkerRegistry do
 
   def handle_call({:available_tools, tenant_id, gard}, _from, state) do
     # Only return tools from tenant-specific workers, not the default worker.
-    # Default worker tools are in Tools.Registry (local).
     # Strict gard equality (nil == nil): without it, a gard-bound run would be
     # offered tools from other gards that dispatch would then fail to reach.
     tools =
@@ -192,7 +191,6 @@ defmodule Norns.Workers.WorkerRegistry do
           name: tool_name(tool_def),
           description: tool_def["description"] || "",
           input_schema: tool_def["input_schema"] || %{},
-          handler: fn _ -> {:error, "remote tool — use dispatch"} end,
           source: {:remote, tenant_id},
           side_effect?: tool_def["side_effect"] || false
         }

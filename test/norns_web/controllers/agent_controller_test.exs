@@ -1,7 +1,7 @@
 defmodule NornsWeb.AgentControllerTest do
   use NornsWeb.ConnCase, async: false
 
-  alias Norns.LLM.Fake
+  alias Norns.TestWorker.LLM
 
   setup %{conn: conn} do
     tenant = create_tenant()
@@ -114,7 +114,7 @@ defmodule NornsWeb.AgentControllerTest do
 
   describe "POST /api/v1/agents/:id/messages" do
     test "accepts a message and starts the agent if needed", %{conn: conn, tenant: tenant} do
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "ok"}], stop_reason: "end_turn"}
       ])
 
@@ -127,7 +127,7 @@ defmodule NornsWeb.AgentControllerTest do
     end
 
     test "passes an optional conversation_key through", %{conn: conn, tenant: tenant} do
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "ok"}], stop_reason: "end_turn"}
       ])
 

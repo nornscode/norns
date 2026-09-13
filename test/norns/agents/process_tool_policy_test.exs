@@ -3,8 +3,8 @@ defmodule Norns.Agents.ProcessToolPolicyTest do
 
   alias Norns.Runs
   alias Norns.Agents.Process, as: AgentProcess
-  alias Norns.LLM.Fake
-  alias Norns.Tools.Tool
+  alias Norns.TestWorker.LLM
+  alias Norns.TestWorker.Tool
 
   setup do
     tenant = create_tenant()
@@ -43,7 +43,7 @@ defmodule Norns.Agents.ProcessToolPolicyTest do
     test "allowlist filters offered tools; built-ins are exempt", %{tenant: tenant} do
       agent = allowlist_agent(tenant, ["allowed_tool"])
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "done"}], stop_reason: "end_turn"}
       ])
 
@@ -72,7 +72,7 @@ defmodule Norns.Agents.ProcessToolPolicyTest do
     test "the default (no policy configured) offers everything", %{tenant: tenant} do
       agent = create_agent(tenant)
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "done"}], stop_reason: "end_turn"}
       ])
 
@@ -98,7 +98,7 @@ defmodule Norns.Agents.ProcessToolPolicyTest do
     test "a call to a tool outside the allowlist is denied with an audit event", %{tenant: tenant} do
       agent = allowlist_agent(tenant, ["allowed_tool"])
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{
           content: [
             %{"type" => "tool_use", "id" => "call_1", "name" => "web_search", "input" => %{"query" => "x"}}
@@ -138,7 +138,7 @@ defmodule Norns.Agents.ProcessToolPolicyTest do
     test "built-ins still work under an empty allowlist", %{tenant: tenant} do
       agent = allowlist_agent(tenant, [])
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{
           content: [
             %{"type" => "tool_use", "id" => "call_ask", "name" => "ask_human", "input" => %{"question" => "Which channel?"}}
@@ -160,7 +160,7 @@ defmodule Norns.Agents.ProcessToolPolicyTest do
     test "an allowed tool call dispatches normally under an allowlist", %{tenant: tenant} do
       agent = allowlist_agent(tenant, ["web_search"])
 
-      Fake.set_responses([
+      LLM.set_responses([
         %{
           content: [
             %{"type" => "tool_use", "id" => "call_1", "name" => "web_search", "input" => %{"query" => "elixir"}}

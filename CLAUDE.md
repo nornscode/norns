@@ -34,9 +34,7 @@ lib/norns/
   hooks/            — Hook schema, Signature verification; Hooks context (webhook ingress)
   triggers/         — Trigger schema + context (cron schedules that start runs)
   workers/          — WorkerRegistry, TaskQueue, ResumeAgents, TriggerScheduler
-  llm.ex            — LLM dispatcher (used by workers via Fake in tests)
-  llm/              — Behaviour, Anthropic adapter, Format (neutral ↔ Anthropic), Fake
-  tools/            — Behaviour, Tool struct, Executor, Registry, Idempotency
+  tools/            — Tool struct (no handler), Builtins, Catalog, Idempotency
 
 lib/norns_web/
   endpoint.ex       — Phoenix endpoint (REST + WebSocket + LiveView)

@@ -2,9 +2,9 @@ defmodule Norns.Agents.ProcessRecoveryTest do
   use Norns.DataCase, async: false
 
   alias Norns.Agents.Process, as: AgentProcess
-  alias Norns.LLM.Fake
+  alias Norns.TestWorker.LLM
   alias Norns.Runs
-  alias Norns.Tools.Tool
+  alias Norns.TestWorker.Tool
 
   setup do
     tenant = create_tenant()
@@ -61,7 +61,7 @@ defmodule Norns.Agents.ProcessRecoveryTest do
       # "Crash" happened here — run is still status: "running"
 
       # Step 2: Set up fake response for resumed execution
-      Fake.set_responses([
+      LLM.set_responses([
         %{
           content: [%{"type" => "text", "text" => "Recovered: Elixir is great!"}],
           stop_reason: "end_turn"
@@ -181,7 +181,7 @@ defmodule Norns.Agents.ProcessRecoveryTest do
              |> Enum.count(&(&1.event_type == "llm_request")) == 0
 
       # And it can still be answered after recovery.
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "Booked."}], stop_reason: "end_turn"}
       ])
 

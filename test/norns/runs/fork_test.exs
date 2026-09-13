@@ -8,7 +8,7 @@ defmodule Norns.Runs.ForkTest do
 
   alias Norns.Agents.Process, as: AgentProcess
   alias Norns.{Agents, Conversations, Runs}
-  alias Norns.LLM.Fake
+  alias Norns.TestWorker.LLM
   alias Norns.Runs.Fork
 
   setup do
@@ -37,7 +37,7 @@ defmodule Norns.Runs.ForkTest do
 
   # A parent run with two tool steps and a final answer.
   defp parent_run(tenant, agent) do
-    Fake.set_responses([tool_use("a"), tool_use("b"), text("Parent done.")])
+    LLM.set_responses([tool_use("a"), tool_use("b"), text("Parent done.")])
     {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
     Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{agent.id}")
     {:ok, run_id} = AgentProcess.send_message(pid, "Search a then b")
@@ -47,7 +47,7 @@ defmodule Norns.Runs.ForkTest do
 
   test "forks from a step in a fresh conversation and runs to completion", %{tenant: tenant, agent: agent} do
     parent = parent_run(tenant, agent)
-    Fake.set_responses([text("Forked answer.")])
+    LLM.set_responses([text("Forked answer.")])
 
     assert {:ok, %{run: fork, agent: fork_agent}} = Fork.fork(parent, step: 1)
     Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{fork_agent.id}")
@@ -67,7 +67,7 @@ defmodule Norns.Runs.ForkTest do
              checkpoint.payload["messages"]
 
     # The fork's LLM call saw exactly that history.
-    [call] = Fake.calls()
+    [call] = LLM.calls()
     assert length(call.messages) == 3
 
     assert Runs.get_run!(fork.id).status == "completed"
@@ -80,7 +80,7 @@ defmodule Norns.Runs.ForkTest do
 
   test "appends a new message and honours overrides on a variant agent", %{tenant: tenant, agent: agent} do
     parent = parent_run(tenant, agent)
-    Fake.set_responses([text("Variant answer.")])
+    LLM.set_responses([text("Variant answer.")])
 
     assert {:ok, %{run: fork, agent: variant}} =
              Fork.fork(parent, step: 2, message: "Try it differently", system_prompt: "Be terse.", model: "claude-opus-5")
@@ -97,7 +97,7 @@ defmodule Norns.Runs.ForkTest do
     assert fork.input["user_message"] == "Try it differently"
     assert fork.input["fork"] == %{"run_id" => parent.id, "step" => 2, "system_prompt" => "Be terse.", "model" => "claude-opus-5"}
 
-    [call] = Fake.calls()
+    [call] = LLM.calls()
     assert call.model == "claude-opus-5"
     assert call.system_prompt =~ "Be terse."
     assert %{"role" => "user"} = List.last(call.messages)
@@ -107,13 +107,13 @@ defmodule Norns.Runs.ForkTest do
 
   test "step 0 forks from the original message alone", %{tenant: tenant, agent: agent} do
     parent = parent_run(tenant, agent)
-    Fake.set_responses([text("From scratch.")])
+    LLM.set_responses([text("From scratch.")])
 
     assert {:ok, %{run: fork, agent: _}} = Fork.fork(parent, step: "0")
     Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{agent.id}")
     await_completion(fork.id)
 
-    [call] = Fake.calls()
+    [call] = LLM.calls()
     assert [%{"role" => "user"}] = call.messages
   end
 
@@ -139,7 +139,7 @@ defmodule Norns.Runs.ForkTest do
     append.("llm_response", %{"content" => "", "tool_calls" => [%{"id" => "c2", "name" => "web_search", "arguments" => %{}}], "finish_reason" => "tool_call", "usage" => %{}, "step" => 2})
     append.("tool_call", %{"tool_call_id" => "c2", "name" => "web_search", "arguments" => %{}, "step" => 2})
 
-    Fake.set_responses([text("Recovered.")])
+    LLM.set_responses([text("Recovered.")])
     assert {:ok, %{run: fork, agent: _}} = Fork.fork(Runs.get_run!(run.id), step: 2)
     Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{agent.id}")
     await_completion(fork.id)
@@ -148,7 +148,7 @@ defmodule Norns.Runs.ForkTest do
     assert [%{"role" => "assistant"}, %{"role" => "tool", "content" => "r1"}] = checkpoint.payload["messages"]
     assert checkpoint.payload["summary"] == "S"
 
-    [call] = Fake.calls()
+    [call] = LLM.calls()
     assert call.system_prompt =~ "Summary of earlier conversation: S"
   end
 end

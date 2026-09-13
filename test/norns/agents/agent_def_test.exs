@@ -57,7 +57,7 @@ defmodule Norns.Agents.AgentDefTest do
     end
 
     test "accepts explicit tools lists" do
-      tool = %Tool{name: "echo", description: "Echo", input_schema: %{}, handler: fn _ -> {:ok, "ok"} end}
+      tool = %Tool{name: "echo", description: "Echo", input_schema: %{}}
 
       assert {:ok, agent_def} =
                AgentDef.new(%{
@@ -89,7 +89,7 @@ defmodule Norns.Agents.AgentDefTest do
       tenant = create_tenant()
       agent = create_agent(tenant)
 
-      tool = %Tool{name: "echo", description: "Echo", input_schema: %{}, handler: fn _ -> {:ok, "ok"} end}
+      tool = %Tool{name: "echo", description: "Echo", input_schema: %{}}
       agent_def = AgentDef.from_agent(agent, tools: [tool])
 
       assert length(agent_def.tools) == 1

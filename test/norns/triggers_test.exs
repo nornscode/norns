@@ -2,7 +2,7 @@ defmodule Norns.TriggersTest do
   use Norns.DataCase, async: false
 
   alias Norns.{Runs, Triggers}
-  alias Norns.LLM.Fake
+  alias Norns.TestWorker.LLM
 
   setup do
     tenant = create_tenant()
@@ -79,7 +79,7 @@ defmodule Norns.TriggersTest do
 
   describe "fire_due/1" do
     test "fires a due trigger and stamps the run as schedule-triggered", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "posted"}], stop_reason: "end_turn"}
       ])
 
@@ -97,7 +97,7 @@ defmodule Norns.TriggersTest do
     end
 
     test "a trigger fires at most once per minute", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "posted"}], stop_reason: "end_turn"}
       ])
 
@@ -112,7 +112,7 @@ defmodule Norns.TriggersTest do
     end
 
     test "fires again in a later minute", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "one"}], stop_reason: "end_turn"},
         %{content: [%{"type" => "text", "text" => "two"}], stop_reason: "end_turn"}
       ])
@@ -143,7 +143,7 @@ defmodule Norns.TriggersTest do
 
   describe "fire/1" do
     test "manual fire does not consume the scheduled minute", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "one"}], stop_reason: "end_turn"},
         %{content: [%{"type" => "text", "text" => "two"}], stop_reason: "end_turn"}
       ])
@@ -161,7 +161,7 @@ defmodule Norns.TriggersTest do
     end
 
     test "a persistent conversation_key keeps history across firings", %{tenant: tenant, agent: agent} do
-      Fake.set_responses([
+      LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "one"}], stop_reason: "end_turn"},
         %{content: [%{"type" => "text", "text" => "two"}], stop_reason: "end_turn"}
       ])
@@ -174,7 +174,7 @@ defmodule Norns.TriggersTest do
       {:ok, _} = Triggers.fire(trigger)
       await_run_completion(agent.id)
 
-      [_first, second] = Fake.calls()
+      [_first, second] = LLM.calls()
       # Second firing sees the first firing's history: user, assistant, user
       assert length(second.messages) == 3
     end

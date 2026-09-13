@@ -22,7 +22,6 @@ defmodule Norns.Application do
 
     case result do
       {:ok, _pid} ->
-        Norns.Tools.Registry.init()
         maybe_create_default_tenant()
         Norns.Workers.ResumeAgents.resume_orphans()
         result

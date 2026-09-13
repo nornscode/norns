@@ -4,9 +4,9 @@ defmodule Norns.Agents.ProcessGardTest do
   alias Norns.{Gards, Runs}
   alias Norns.Agents.Process, as: AgentProcess
   alias Norns.Agents.Registry, as: AgentRegistry
-  alias Norns.LLM.Fake
+  alias Norns.TestWorker.LLM
   alias Norns.Runtime.Events
-  alias Norns.Tools.Tool
+  alias Norns.TestWorker.Tool
 
   setup do
     tenant = create_tenant()
@@ -56,7 +56,7 @@ defmodule Norns.Agents.ProcessGardTest do
 
     start_worker(tenant, worker_id: "plain-worker", tools: [tool("plain_tool", "plain result")])
 
-    Fake.set_responses([
+    LLM.set_responses([
       %{
         content: [
           %{"type" => "tool_use", "id" => "call_1", "name" => "read_file", "input" => %{"path" => "x"}}
@@ -90,7 +90,7 @@ defmodule Norns.Agents.ProcessGardTest do
     start_worker(tenant, worker_id: "gard-worker", gard: gard.id, tools: [tool("read_file", "x")])
     start_worker(tenant, worker_id: "plain-worker", tools: [tool("plain_tool", "plain result")])
 
-    Fake.set_responses([
+    LLM.set_responses([
       %{content: [%{"type" => "text", "text" => "done"}], stop_reason: "end_turn"}
     ])
 
@@ -124,7 +124,7 @@ defmodule Norns.Agents.ProcessGardTest do
     {:ok, started} = Events.run_started()
     {:ok, _} = Runs.append_event(run, started)
 
-    Fake.set_responses([
+    LLM.set_responses([
       %{content: [%{"type" => "text", "text" => "resumed and done"}], stop_reason: "end_turn"}
     ])
 
@@ -152,7 +152,7 @@ defmodule Norns.Agents.ProcessGardTest do
     # worker for LLM — the no-gard default worker no longer serves them.
     start_worker(tenant, worker_id: "gard-worker", gard: gard.id, capabilities: [:llm, :tools])
 
-    Fake.set_responses([
+    LLM.set_responses([
       # Parent launches the child
       %{
         content: [

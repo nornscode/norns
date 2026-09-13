@@ -1,7 +1,12 @@
-defmodule Norns.LLM.Format do
+defmodule Norns.TestWorker.Format do
   @moduledoc """
-  Translates between the provider-neutral message format (used internally
-  and on the wire) and provider-specific API formats (Anthropic, OpenAI, etc).
+  Translates between the provider-neutral format on the wire and a
+  provider's own API format (here, Anthropic's).
+
+  Translation is a worker's job — it is the worker that knows which provider
+  it is about to call — so this lives with `Norns.TestWorker` rather than in
+  the orchestrator. The SDKs carry the equivalent for real workers; this is
+  the reference the conformance tests read.
 
   ## Neutral format
 
