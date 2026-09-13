@@ -31,11 +31,6 @@ defmodule Norns.Workers.TaskQueue do
     GenServer.call(__MODULE__, {:flush, tenant_id, tool_name, opts})
   end
 
-  @doc "Get queue depth for a tenant (for monitoring)."
-  def depth(tenant_id) do
-    GenServer.call(__MODULE__, {:depth, tenant_id})
-  end
-
   # -- Callbacks --
 
   @impl true
@@ -65,11 +60,6 @@ defmodule Norns.Workers.TaskQueue do
     {matching, remaining} = Enum.split_with(queue, matcher)
     state = put_in(state.queues[tenant_id], remaining)
     {:reply, matching, state}
-  end
-
-  def handle_call({:depth, tenant_id}, _from, state) do
-    count = state.queues |> Map.get(tenant_id, []) |> length()
-    {:reply, count, state}
   end
 
   @impl true

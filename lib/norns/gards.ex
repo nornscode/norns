@@ -140,11 +140,4 @@ defmodule Norns.Gards do
     |> GardPort.changeset(Map.put(attrs, "gard_id", gard_id))
     |> Repo.insert()
   end
-
-  def delete_port(gard_id, port_id) do
-    case Repo.get_by(GardPort, id: port_id, gard_id: gard_id) do
-      nil -> {:error, :not_found}
-      port -> Repo.delete(port)
-    end
-  end
 end

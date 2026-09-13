@@ -12,7 +12,7 @@ defmodule Norns.Agents.Process do
   alias Norns.Agents.{AgentDef, SubagentPolicy, ToolPolicy}
   alias Norns.Runtime.{Content, ErrorPolicy, Errors, Events}
   alias Norns.Workers.WorkerRegistry
-  alias Norns.Tools.{Builtins, Idempotency, Tool}
+  alias Norns.Tools.{Catalog, Idempotency, Tool}
   @task_timeout_ms 300_000  # 5 minutes
 
   # -- Public API --
@@ -947,19 +947,16 @@ defmodule Norns.Agents.Process do
   defp dispatch_llm(state) do
     state = %{state | step: state.step + 1}
 
-    # Resolve tools at dispatch time: built-ins + agent_def tools + worker-registered
-    # tools, the latter two filtered by the agent's tool policy. Built-ins are
-    # orchestrator semantics — launch_agent/list_agents have their own policy.
-    policy = state.agent_def.tool_policy
-    builtin_tools = Builtins.all()
-    agent_tools = ToolPolicy.filter(policy, state.agent_def.tools)
-
-    worker_tools =
-      ToolPolicy.filter(
-        policy,
-        WorkerRegistry.available_tools(state.tenant_id, gard: state.gard_id)
+    # Resolved at dispatch time, through the same catalog the API and the
+    # tools page read, so what an agent is offered and what we say it is
+    # offered cannot drift apart.
+    all_tools =
+      Catalog.for_tenant(state.tenant_id,
+        extra: state.agent_def.tools,
+        policy: state.agent_def.tool_policy,
+        gard: state.gard_id
       )
-    all_tools = (builtin_tools ++ agent_tools ++ worker_tools) |> Enum.uniq_by(& &1.name)
+
     tools = Enum.map(all_tools, &Tool.to_api_format/1)
 
     messages_for_llm = apply_context_strategy(state)

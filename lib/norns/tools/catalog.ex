@@ -14,24 +14,37 @@ defmodule Norns.Tools.Catalog do
   `:worker` as conditional.
   """
 
+  alias Norns.Agents.ToolPolicy
   alias Norns.Tools.Builtins
   alias Norns.Workers.WorkerRegistry
 
   @doc """
   Tools available to `tenant_id`, deduplicated by name.
 
-  Precedence matches agent dispatch: built-ins first, then the agent's own,
-  then worker. An earlier entry shadows a later one with the same name, so a
-  worker cannot displace a built-in.
+  Precedence: built-ins first, then the agent's own, then worker. An earlier
+  entry shadows a later one with the same name, so a worker cannot displace a
+  built-in.
 
-  Pass `:extra` to include tools supplied directly to an agent, which is how
-  an agent process resolves its own list.
+  Options, all of which narrow the list the way dispatch narrows it:
+
+    * `:extra` — tools handed straight to an agent (its def's own list)
+    * `:policy` — a `Norns.Agents.ToolPolicy`; filters `:extra` and worker
+      tools, never built-ins, which are orchestrator semantics
+    * `:gard` — worker tools from that gard only, by strict equality, since
+      the list offered to a model must only name tools dispatch can reach
+
+  With no options this is the tenant-wide view a tools page wants. With all
+  three it is exactly what one agent is offered on its next step — and that
+  is the point: an agent used to compose this itself, so the page could
+  describe a tool surface no agent actually had.
   """
   @spec for_tenant(term(), keyword()) :: [Norns.Tools.Tool.t()]
   def for_tenant(tenant_id, opts \\ []) do
-    extra = Keyword.get(opts, :extra, [])
+    policy = Keyword.get(opts, :policy, %ToolPolicy{})
+    extra = ToolPolicy.filter(policy, Keyword.get(opts, :extra, []))
+    worker = ToolPolicy.filter(policy, WorkerRegistry.available_tools(tenant_id, gard: Keyword.get(opts, :gard)))
 
-    (Builtins.all() ++ extra ++ WorkerRegistry.available_tools(tenant_id))
+    (Builtins.all() ++ extra ++ worker)
     |> Enum.uniq_by(& &1.name)
   end
 

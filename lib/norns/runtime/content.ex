@@ -24,10 +24,6 @@ defmodule Norns.Runtime.Content do
   `docs/plan-harness-e2e.md` for the design.
   """
 
-  @doc "An opaque block: content encrypted by a worker with a key core does not hold."
-  def opaque?(%{"$enc" => _}), do: true
-  def opaque?(_), do: false
-
   @doc "Whether a value may sit in a content position."
   def valid?(value) when is_binary(value) or is_map(value), do: true
   def valid?(_), do: false
