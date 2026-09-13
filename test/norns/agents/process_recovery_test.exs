@@ -2,6 +2,7 @@ defmodule Norns.Agents.ProcessRecoveryTest do
   use Norns.DataCase, async: false
 
   alias Norns.Agents.Process, as: AgentProcess
+  alias Norns.Agents.Replay
   alias Norns.TestWorker.LLM
   alias Norns.Runs
   alias Norns.TestWorker.Tool
@@ -251,7 +252,7 @@ defmodule Norns.Agents.ProcessRecoveryTest do
         conversation_key: "default",
       }
 
-      {:ok, rebuilt} = AgentProcess.rebuild_state(run.id, base_state)
+      {:ok, rebuilt} = Replay.rebuild_state(run.id, base_state)
 
       assert rebuilt.status == :running
       assert rebuilt.step == 1
@@ -310,7 +311,7 @@ defmodule Norns.Agents.ProcessRecoveryTest do
         conversation_key: "default",
       }
 
-      {:ok, rebuilt} = AgentProcess.rebuild_state(run.id, base_state)
+      {:ok, rebuilt} = Replay.rebuild_state(run.id, base_state)
 
       assert rebuilt.step == 5
       assert length(rebuilt.messages) == 2

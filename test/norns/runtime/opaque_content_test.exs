@@ -12,6 +12,7 @@ defmodule Norns.Runtime.OpaqueContentTest do
   use Norns.DataCase, async: false
 
   alias Norns.Agents.Process, as: AgentProcess
+  alias Norns.Agents.Replay
   alias Norns.TestWorker.LLM
   alias Norns.Runs
   alias Norns.Runtime.{Content, EventValidator}
@@ -94,7 +95,7 @@ defmodule Norns.Runtime.OpaqueContentTest do
       append!(run, "tool_call", %{"tool_call_id" => "c2", "name" => "vault", "arguments" => args2, "step" => 2})
       # crashed here — c2 never returned
 
-      {:ok, rebuilt} = AgentProcess.rebuild_state(run.id, base_state(tenant, agent))
+      {:ok, rebuilt} = Replay.rebuild_state(run.id, base_state(tenant, agent))
 
       assert rebuilt.step == 2
       assert [%{role: "user", content: ^user}, %{role: "assistant", content: ^say}, %{role: "tool", content: ^result}, %{role: "assistant"}] = rebuilt.messages
@@ -129,7 +130,7 @@ defmodule Norns.Runtime.OpaqueContentTest do
       append!(run, "tool_result", %{"tool_call_id" => "c1", "name" => "wait", "content" => "", "kind" => "timer_completed", "data" => %{}, "is_error" => false, "step" => 1})
       append!(run, "llm_response", %{"content" => later, "finish_reason" => "stop", "usage" => %{"input_tokens" => 1, "output_tokens" => 1}, "step" => 2})
 
-      {:ok, rebuilt} = AgentProcess.rebuild_state(run.id, base_state(tenant, agent))
+      {:ok, rebuilt} = Replay.rebuild_state(run.id, base_state(tenant, agent))
 
       assert [
                %{role: "user", kind: "inherited_context", content: ^inherited},

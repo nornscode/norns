@@ -20,8 +20,8 @@ defmodule Norns.Runs.Fork do
   """
 
   alias Norns.{Agents, Conversations, Runs}
-  alias Norns.Agents.Process, as: AgentProcess
   alias Norns.Agents.Registry
+  alias Norns.Agents.Replay
   alias Norns.Runs.Run
   alias Norns.Runtime.{Content, Events}
 
@@ -32,7 +32,7 @@ defmodule Norns.Runs.Fork do
     with {:ok, step} <- parse_step(Keyword.get(opts, :step), parent),
          {:ok, message} <- parse_message(Keyword.get(opts, :message)),
          {:ok, agent} <- agent_for(parent, opts) do
-      history = AgentProcess.history_at(parent, step)
+      history = Replay.history_at(parent, step)
       messages = history.messages |> drop_unanswered(history.pending_tools?) |> append_message(message)
 
       key = "fork_#{parent.id}_#{System.unique_integer([:positive])}"

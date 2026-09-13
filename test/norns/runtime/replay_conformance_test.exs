@@ -2,6 +2,7 @@ defmodule Norns.Runtime.ReplayConformanceTest do
   use Norns.DataCase, async: false
 
   alias Norns.Agents.Process, as: AgentProcess
+  alias Norns.Agents.Replay
   alias Norns.TestWorker.LLM
   alias Norns.Runs
   alias Norns.TestWorker.Tool
@@ -86,7 +87,7 @@ defmodule Norns.Runtime.ReplayConformanceTest do
       test_pid: nil
     }
 
-    {:ok, rebuilt} = AgentProcess.rebuild_state(run.id, base_state)
+    {:ok, rebuilt} = Replay.rebuild_state(run.id, base_state)
 
     assert rebuilt.status == :running
     assert rebuilt.step == 1
@@ -222,7 +223,7 @@ defmodule Norns.Runtime.ReplayConformanceTest do
       test_pid: nil
     }
 
-    {:ok, rebuilt} = AgentProcess.rebuild_state(run.id, base_state)
+    {:ok, rebuilt} = Replay.rebuild_state(run.id, base_state)
 
     assert rebuilt.step == 1
     assert match?({:resume_tools, [_ | _]}, rebuilt.resume_action)
@@ -282,7 +283,7 @@ defmodule Norns.Runtime.ReplayConformanceTest do
       pending_tool_tasks: nil
     }
 
-    {:ok, rebuilt} = AgentProcess.rebuild_state(run.id, base_state)
+    {:ok, rebuilt} = Replay.rebuild_state(run.id, base_state)
     events = Runs.list_events(run.id)
 
     assert rebuilt.step == 2
@@ -354,7 +355,7 @@ defmodule Norns.Runtime.ReplayConformanceTest do
       pending_tool_tasks: nil
     }
 
-    {:ok, rebuilt} = AgentProcess.rebuild_state(run.id, base_state)
+    {:ok, rebuilt} = Replay.rebuild_state(run.id, base_state)
 
     assert rebuilt.status == :running
     assert rebuilt.step == 1

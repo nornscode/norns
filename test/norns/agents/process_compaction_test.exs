@@ -9,6 +9,7 @@ defmodule Norns.Agents.ProcessCompactionTest do
   use Norns.DataCase, async: false
 
   alias Norns.Agents.Process, as: AgentProcess
+  alias Norns.Agents.Replay
   alias Norns.{Conversations, Runs}
   alias Norns.TestWorker.LLM
   alias Norns.Runtime.EventValidator
@@ -185,7 +186,7 @@ defmodule Norns.Agents.ProcessCompactionTest do
       append!(run, "llm_response", %{"content" => "", "tool_calls" => [%{"id" => "c2", "name" => "web_search", "arguments" => %{}}], "finish_reason" => "tool_call", "usage" => %{"input_tokens" => 10, "output_tokens" => 1}, "step" => 2})
       append!(run, "tool_call", %{"tool_call_id" => "c2", "name" => "web_search", "arguments" => %{}, "step" => 2})
 
-      {:ok, rebuilt} = AgentProcess.rebuild_state(run.id, base_state(tenant, agent))
+      {:ok, rebuilt} = Replay.rebuild_state(run.id, base_state(tenant, agent))
 
       assert rebuilt.summary == "S1"
       assert [%{role: "tool", content: "r1"}, %{role: "assistant"}] = rebuilt.messages
@@ -201,7 +202,7 @@ defmodule Norns.Agents.ProcessCompactionTest do
       append!(run, "checkpoint_saved", %{"messages" => [%{"role" => "user", "content" => "tail"}], "step" => 3, "summary" => "S2"})
       append!(run, "llm_response", %{"content" => "ok", "finish_reason" => "stop", "usage" => %{}, "step" => 4})
 
-      {:ok, rebuilt} = AgentProcess.rebuild_state(run.id, base_state(tenant, agent))
+      {:ok, rebuilt} = Replay.rebuild_state(run.id, base_state(tenant, agent))
       assert rebuilt.summary == "S2"
       assert [%{role: "user", content: "tail"}, %{role: "assistant", content: "ok"}] = rebuilt.messages
     end

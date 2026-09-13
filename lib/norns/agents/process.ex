@@ -9,7 +9,7 @@ defmodule Norns.Agents.Process do
   require Logger
 
   alias Norns.{Agents, Conversations, Runs}
-  alias Norns.Agents.{AgentDef, SubagentPolicy, ToolPolicy}
+  alias Norns.Agents.{AgentDef, Messages, Replay, SubagentPolicy, ToolPolicy}
   alias Norns.Runtime.{Content, ErrorPolicy, Errors, Events}
   alias Norns.Workers.WorkerRegistry
   alias Norns.Tools.{Catalog, Idempotency, Tool}
@@ -250,7 +250,7 @@ defmodule Norns.Agents.Process do
   end
 
   def handle_continue({:resume, run_id}, state) do
-    case rebuild_state(run_id, state) do
+    case Replay.rebuild_state(run_id, state) do
       {:ok, resumed_state} ->
         broadcast(resumed_state, :agent_resumed, %{run_id: run_id})
         action = resumed_state.resume_action || :llm_loop
@@ -1240,7 +1240,7 @@ defmodule Norns.Agents.Process do
         state.run,
         Events.checkpoint_saved(
           %{"messages" => state.messages, "step" => state.step}
-          |> maybe_put("summary", state.summary)
+          |> Messages.maybe_put("summary", state.summary)
         )
       )
     end
@@ -1262,42 +1262,14 @@ defmodule Norns.Agents.Process do
           state.conversation_key
         )
 
-      %{state | conversation: conversation, messages: normalize_messages(conversation.messages), summary: conversation.summary}
+      %{state | conversation: conversation, messages: Messages.normalize(conversation.messages), summary: conversation.summary}
     end
   end
 
   defp messages_for_new_run(%{messages: messages}, content, context) do
-    context_messages = build_context_messages(context)
+    context_messages = Messages.from_context(context)
     messages ++ context_messages ++ [%{role: "user", content: content}]
   end
-
-  defp build_context_messages(nil), do: []
-  defp build_context_messages(context) when is_map(context) do
-    inherited_messages = normalize_context_messages(context["messages"] || context[:messages])
-    data_messages = build_data_message(context["data"] || context[:data])
-    inherited_messages ++ data_messages
-  end
-  defp build_context_messages(_), do: []
-
-  defp normalize_context_messages(nil), do: []
-  defp normalize_context_messages(messages) when is_list(messages) do
-    Enum.map(messages, fn
-      %{role: role, content: content} -> %{role: role, content: content}
-      %{"role" => role, "content" => content} -> %{role: role, content: content}
-      _ -> nil
-    end)
-    |> Enum.reject(&is_nil/1)
-  end
-  defp normalize_context_messages(_), do: []
-
-  # The parent's data is forwarded as it came; the LLM worker renders the
-  # preamble the model reads.
-  defp build_data_message(nil), do: []
-  defp build_data_message(data) when data == %{}, do: []
-  defp build_data_message(data) when is_map(data) or is_binary(data) do
-    [%{role: "user", kind: "inherited_context", content: data}]
-  end
-  defp build_data_message(_), do: []
 
   defp persist_conversation_messages(%{conversation: conversation} = state)
        when not is_nil(conversation) do
@@ -1351,34 +1323,6 @@ defmodule Norns.Agents.Process do
 
   defp backtrack_to_pair_boundary(_messages, drop), do: drop
 
-  defp normalize_messages(messages) when is_list(messages) do
-    Enum.map(messages, &normalize_message/1)
-  end
-
-  defp normalize_messages(_messages), do: []
-
-  # In-memory messages already carry atom keys and the full neutral shape.
-  defp normalize_message(%{role: _role, content: _content} = message), do: message
-
-  # Messages reloaded from Postgres JSONB come back string-keyed. Rebuild them
-  # with atom keys while preserving the tool-linkage fields (tool_calls on
-  # assistant turns; tool_call_id/name/is_error on tool turns) — without these,
-  # Anthropic rejects the replayed history since tool results can't be paired
-  # back to their tool_use blocks.
-  defp normalize_message(%{"role" => role} = m) do
-    %{role: role, content: m["content"]}
-    |> maybe_put(:tool_calls, m["tool_calls"])
-    |> maybe_put(:tool_call_id, m["tool_call_id"])
-    |> maybe_put(:name, m["name"])
-    |> maybe_put(:is_error, m["is_error"])
-    |> maybe_put(:kind, m["kind"])
-    |> maybe_put(:data, m["data"])
-    |> maybe_put(:run_id, m["run_id"])
-  end
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
   # `run_id` identifies *which* run of this agent emitted the event. A parent
   # awaiting two concurrent launches of the same child agent can only tell the
   # results apart by run, and the topic is per-agent.
@@ -1390,243 +1334,6 @@ defmodule Norns.Agents.Process do
 
     Phoenix.PubSub.broadcast(Norns.PubSub, "agent:#{state.agent_id}", {event, payload})
   end
-
-  # -- State Reconstruction --
-
-  @doc "Rebuild agent state from the event log for a given run."
-  def rebuild_state(run_id, base_state) do
-    run = Runs.get_run!(run_id)
-    events = Runs.list_events(run_id)
-
-    if events == [] do
-      {:error, :no_events}
-    else
-      base_state = restore_conversation_for_run(base_state, run)
-      initial_messages = initial_messages_for_replay(base_state, run)
-      {messages, step, resume_action, summary} = replay_from_events(initial_messages, base_state[:summary], events)
-      {input_tokens, output_tokens} = sum_token_usage(events)
-
-      {:ok,
-       base_state
-       |> Map.put(:run, run)
-       |> Map.put(:messages, messages)
-       |> Map.put(:summary, summary)
-       |> Map.put(:step, step)
-       |> Map.put(:status, :running)
-       |> Map.put(:resume_action, resume_action)
-       |> Map.put(:input_tokens, input_tokens)
-       |> Map.put(:output_tokens, output_tokens)
-       # The gard rides on the run row — a resumed run must keep its
-       # affinity or replayed tool dispatch would leak to no-gard workers.
-       |> Map.put(:gard_id, run.gard_id)}
-    end
-  end
-
-  @doc """
-  The history of a run as it stood after `max_step`: the messages, the
-  compaction summary, and whether that step left tool calls unanswered.
-  Replays the log the way resume does, stopping at the step, from the
-  history the run's first LLM request carried. Used by fork.
-  """
-  def history_at(run, max_step) do
-    all_events = Runs.list_events(run.id)
-
-    events =
-      Enum.filter(all_events, fn event ->
-        case event.payload["step"] do
-          step when is_integer(step) -> step <= max_step
-          _ -> true
-        end
-      end)
-
-    # What the run started from is what its first LLM request carried: a
-    # conversation's history moves on after the run, so it cannot be read
-    # back from the conversation row.
-    {initial_messages, initial_summary} =
-      case Enum.find(all_events, &(&1.event_type == "llm_request")) do
-        %{payload: %{"messages" => msgs} = payload} when is_list(msgs) ->
-          {normalize_messages(msgs), payload["summary"]}
-
-        _ ->
-          base = restore_conversation_for_run(%{conversation: nil, messages: [], summary: nil}, run)
-          {initial_messages_for_replay(base, run), base.summary}
-      end
-
-    {messages, _step, resume_action, summary} = replay_from_events(initial_messages, initial_summary, events)
-
-    %{messages: messages, summary: summary, pending_tools?: match?({:resume_tools, _}, resume_action)}
-  end
-
-  defp restore_conversation_for_run(state, run) do
-    conversation = run.conversation || state.conversation
-    messages = if conversation, do: normalize_messages(conversation.messages), else: []
-    summary = if conversation, do: conversation.summary, else: nil
-    state |> Map.put(:conversation, conversation) |> Map.put(:messages, messages) |> Map.put(:summary, summary)
-  end
-
-  defp initial_messages_for_replay(state, run) do
-    messages = state.messages
-    context = get_in(run.input, ["context"])
-    user_message = get_in(run.input, ["user_message"])
-
-    context_messages = build_context_messages(context)
-
-    messages = messages ++ context_messages
-
-    if Content.valid?(user_message) do
-      messages ++ [%{role: "user", content: user_message}]
-    else
-      messages
-    end
-  end
-
-  defp replay_from_events(initial_messages, initial_summary, events) do
-    checkpoint =
-      events
-      |> Enum.reverse()
-      |> Enum.find(fn event -> event.event_type in ["checkpoint_saved", "checkpoint"] end)
-
-    case checkpoint do
-      %{payload: %{"messages" => messages, "step" => step} = payload} ->
-        post_checkpoint = Enum.drop_while(events, fn event -> event.sequence <= checkpoint.sequence end)
-        replay_events_onto(normalize_messages(messages), step, [], payload["summary"] || initial_summary, post_checkpoint)
-
-      nil ->
-        replay_events_onto(initial_messages, 0, [], initial_summary, events)
-    end
-  end
-
-  defp replay_events_onto(messages, step, pending_tool_calls, summary, events) do
-    {msgs, current_step, pending_calls, summary} =
-      Enum.reduce(events, {messages, step, pending_tool_calls, summary}, fn event,
-                                                                             {msgs, current_step, pending_calls, summary} ->
-        case event.event_type do
-          "llm_response" ->
-            content = event.payload["content"] || ""
-            tool_calls = event.payload["tool_calls"] || []
-
-            assistant_msg =
-              if tool_calls != [] do
-                %{role: "assistant", content: content, tool_calls: tool_calls}
-              else
-                %{role: "assistant", content: content}
-              end
-
-            {msgs ++ [assistant_msg], event.payload["step"] || current_step, tool_calls, summary}
-
-          "tool_result" ->
-            tool_msg =
-              %{
-                role: "tool",
-                tool_call_id: event.payload["tool_call_id"],
-                name: event.payload["name"],
-                content: event.payload["content"]
-              }
-              |> maybe_put(:kind, event.payload["kind"])
-              |> maybe_put(:data, event.payload["data"])
-
-            tool_msg =
-              if event.payload["is_error"] do
-                Map.put(tool_msg, :is_error, true)
-              else
-                tool_msg
-              end
-
-            {msgs ++ [tool_msg], current_step,
-             remove_pending_tool_call(pending_calls, event.payload["tool_call_id"]), summary}
-
-          "tool_duplicate" ->
-            {msgs, current_step, remove_pending_tool_call(pending_calls, event.payload["tool_call_id"]), summary}
-
-          "subagent_launched" ->
-            {msgs, current_step, track_subagent_launch(pending_calls, event.payload), summary}
-
-          # The folded prefix is gone; the summary stands in for it.
-          "context_compacted" ->
-            {Enum.drop(msgs, event.payload["dropped"] || 0), current_step, pending_calls, event.payload["summary"]}
-
-          # Both pauses are re-derived from the still-pending tool call that
-          # caused them, so the event itself replays as a no-op.
-          type when type in ["waiting_for_timer", "waiting_for_user"] ->
-            {msgs, current_step, pending_calls, summary}
-
-          type when type in ["checkpoint_saved", "checkpoint"] ->
-            {normalize_messages(event.payload["messages"]), event.payload["step"], [], event.payload["summary"] || summary}
-
-          _ ->
-            {msgs, current_step, pending_calls, summary}
-        end
-      end)
-
-    resume_action =
-      if pending_calls != [], do: {:resume_tools, pending_calls}, else: :llm_loop
-
-    {msgs, current_step, resume_action, summary}
-  end
-
-  defp sum_token_usage(events) do
-    Enum.reduce(events, {0, 0}, fn event, {in_acc, out_acc} ->
-      case event do
-        %{event_type: type, payload: %{"usage" => usage}} when type in ["llm_response", "context_compacted"] and is_map(usage) ->
-          {in_acc + (usage["input_tokens"] || 0), out_acc + (usage["output_tokens"] || 0)}
-        _ ->
-          {in_acc, out_acc}
-      end
-    end)
-  end
-
-  defp remove_pending_tool_call(pending_calls, tool_call_id) do
-    Enum.reject(pending_calls, fn tc -> tc["id"] == tool_call_id end)
-  end
-
-  # Tag the pending launch with the run it already started, so resume reattaches
-  # to that child instead of spawning a second one.
-  #
-  # Under the default `:on_tool_call` checkpoint policy the call is already
-  # pending, carried over from the `llm_response` that requested it — appending
-  # here as well is what used to dispatch the launch twice. Under `:every_step`
-  # a checkpoint lands between the response and the launch and clears the
-  # pending list, so there we do have to synthesize the call back. The
-  # arguments are lost in that case, but a reattach doesn't need them.
-  defp track_subagent_launch(pending_calls, payload) do
-    tool_call_id = payload["tool_call_id"]
-    child_run_id = parse_run_id(payload["child_run_id"])
-
-    cond do
-      is_nil(child_run_id) ->
-        pending_calls
-
-      Enum.any?(pending_calls, &(&1["id"] == tool_call_id)) ->
-        Enum.map(pending_calls, fn
-          %{"id" => ^tool_call_id} = tc -> Map.put(tc, "child_run_id", child_run_id)
-          tc -> tc
-        end)
-
-      true ->
-        pending_calls ++
-          [
-            %{
-              "id" => tool_call_id,
-              "name" => "launch_agent",
-              "arguments" => %{"agent_name" => payload["child_agent_name"]},
-              "child_run_id" => child_run_id
-            }
-          ]
-    end
-  end
-
-  # Event payloads stringify the id; a value that doesn't parse means we have no
-  # child to reattach to, and the caller falls back to a fresh launch.
-  defp parse_run_id(id) when is_integer(id), do: id
-
-  defp parse_run_id(id) when is_binary(id) do
-    case Integer.parse(id) do
-      {run_id, ""} -> run_id
-      _ -> nil
-    end
-  end
-
-  defp parse_run_id(_), do: nil
 
   # Keyed by child *run* id, not child agent id: one parent step can launch the
   # same agent twice, and after a crash an abandoned child can still be alive

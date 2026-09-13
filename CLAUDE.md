@@ -26,7 +26,7 @@ docker compose run --rm -e MIX_ENV=test -e POSTGRES_HOST=db app mix test
 ```
 lib/norns/
   tenants/          — Tenant schema + context (multi-tenancy)
-  agents/           — Agent, AgentDef, Process (state machine), Registry
+  agents/           — Agent, AgentDef, Process (state machine), Replay (rebuild from the log), Messages, Registry
   conversations/    — Conversation schema + context (persistent chat history)
   runs/             — Run + RunEvent schemas, Runs context (event log)
   runtime/          — Event contracts, error taxonomy, retry policy
