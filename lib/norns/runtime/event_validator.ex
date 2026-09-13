@@ -93,7 +93,7 @@ defmodule Norns.Runtime.EventValidator do
       "llm_request" -> [schema_version_validator(), required_integer("step"), required_integer("message_count"), optional_list("messages"), content("system_prompt"), content("summary"), optional_string("model"), optional_list("tools")]
       "llm_response" -> [schema_version_validator(), required_integer("step"), content("content"), optional_string("finish_reason"), optional_list("tool_calls"), optional_map("usage")]
       "tool_call" -> [schema_version_validator(), required_string("tool_call_id"), required_string("name"), required_map("arguments"), required_integer("step"), optional_string("idempotency_key"), optional_boolean("side_effect")]
-      "tool_duplicate" -> [schema_version_validator(), required_string("tool_call_id"), required_string("name"), required_string("idempotency_key"), required_integer("step"), required_integer("original_event_sequence"), required_string("resolution")]
+      "tool_duplicate" -> [schema_version_validator(), required_string("tool_call_id"), required_string("name"), required_string("idempotency_key"), required_integer("step"), optional_integer("original_event_sequence"), required_string("resolution")]
       "tool_result" -> [schema_version_validator(), required_string("tool_call_id"), required_string("name"), required_content("content"), required_boolean("is_error"), required_integer("step"), optional_string("idempotency_key"), optional_string("kind"), optional_map("data")]
       "checkpoint_saved" -> [schema_version_validator(), required_list("messages"), required_integer("step"), content("summary")]
       "context_compacted" -> [schema_version_validator(), required_integer("step"), required_integer("dropped"), required_integer("kept"), required_content("summary"), optional_map("usage")]
@@ -185,6 +185,20 @@ defmodule Norns.Runtime.EventValidator do
         nil -> :ok
         value when is_map(value) -> :ok
         _ -> {:error, %{payload: "#{key} must be a map"}}
+      end
+    end
+  end
+
+  # Present when core can point at the earlier result in this run's log.
+  # After a crash it usually cannot: the call was re-dispatched precisely
+  # because the first result never landed, and only the worker knows the
+  # side effect already happened.
+  defp optional_integer(key) do
+    fn payload ->
+      case payload[key] do
+        nil -> :ok
+        value when is_integer(value) -> :ok
+        _ -> {:error, %{payload: "#{key} must be an integer"}}
       end
     end
   end

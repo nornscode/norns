@@ -93,7 +93,7 @@ When debugging a failing run, start with `nornsctl runs show <id>` to check the 
 - **Conversations:** persistent chat history, keyed by external ID (auto-generated if not provided)
 - **Events:** versioned (`schema_version: 1`), validated, provider-neutral format
 - **Crash recovery:** replay from last checkpoint, re-dispatch pending tools; a pending `launch_agent` reattaches to its in-flight child run instead of relaunching
-- **Idempotency:** deterministic keys for side-effecting tools, skip on replay
+- **Idempotency:** deterministic keys for side-effecting tools; core issues and records them, the worker skips the repeat and reports `tool_duplicate`
 
 ## Design docs
 

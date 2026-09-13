@@ -328,7 +328,11 @@ kept tail again.
 
 ### Idempotency
 
-Tools marked `side_effect?: true` get deterministic idempotency keys. On replay, the executor checks for an existing result with the same key and skips re-execution.
+Tools a worker declares `side_effect: true` get a deterministic key — `run:<id>:step:<n>:tool:<call_id>:name:<tool>[:gard:<id>]` — built from things that survive a crash, so the same call re-dispatched after one carries the same key it carried the first time.
+
+Core cannot know whether the effect landed: the reason it re-dispatches is that the result never reached it. The worker can, and the key is how it is asked. A worker that has already completed that call answers from the result it kept and flags it; core appends a `tool_duplicate` event (pointing at the earlier result when one is in the log) and the run continues with the result the model was waiting for.
+
+The window this closes is core restarting, or a result lost in flight. A worker that dies with its own memory is not covered by the key alone — for that the key has to reach something durable, which for most payment and messaging APIs means their own idempotency header.
 
 ### Checkpoint / Restore
 

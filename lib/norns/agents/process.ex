@@ -287,6 +287,45 @@ defmodule Norns.Agents.Process do
     %{state | agent: agent, agent_def: agent_def}
   end
 
+  defp idempotency_keys(state, blocks, offered) do
+    Map.new(blocks, fn tc ->
+      case Enum.find(offered, &(&1.name == tc["name"])) do
+        nil -> {tc["id"], %{}}
+        tool -> {tc["id"], Idempotency.context(state.run, state.step, tc, tool)}
+      end
+    end)
+  end
+
+  # The audit half of idempotency: the side effect did not happen twice, and
+  # the log should say so rather than showing a second result that looks like
+  # a second call. `original_event_sequence` is filled in when core can point
+  # at the earlier result in this run; after a crash it usually cannot, since
+  # the reason the call was re-dispatched is that the result never landed.
+  defp idempotency_key(pending, tc) do
+    pending |> Map.get(:idempotency_keys, %{}) |> Map.get(tc["id"], %{}) |> Map.get(:idempotency_key)
+  end
+
+  defp record_duplicate(state, tc, key) do
+    original = key && Runs.find_duplicate_side_effect(state.run.id, key)
+
+    append(
+      state.run,
+      Events.tool_duplicate(
+        Messages.maybe_put(
+          %{
+            "tool_call_id" => tc["id"],
+            "name" => tc["name"],
+            "idempotency_key" => key,
+            "step" => state.step,
+            "resolution" => "reused_worker_result"
+          },
+          "original_event_sequence",
+          original && original.sequence
+        )
+      )
+    )
+  end
+
   defp dispatch_tool_execution(state, tool_use_blocks, log_calls?) do
     {wait_blocks, remaining} =
       Enum.split_with(tool_use_blocks, fn block -> block["name"] == "wait" end)
@@ -319,11 +358,22 @@ defmodule Norns.Agents.Process do
 
     sync_results = denied_results ++ list_agents_results ++ launch_results
 
+    # Idempotency keys are derived from the run, the step, and the tool call
+    # id — all of which survive in the log — so a call re-dispatched after a
+    # crash carries the same key it carried the first time. That is the whole
+    # mechanism: core does not know whether the side effect happened, and the
+    # key is what lets the worker answer.
+    #
+    # Resolved against the tools actually on offer, not just the def's own:
+    # `side_effect` is a worker's declaration about its tool, and reading it
+    # from the wrong list is how this silently applied to nothing.
+    offered = Catalog.for_tenant(state.tenant_id, extra: state.agent_def.tools, gard: state.gard_id)
+    keys = idempotency_keys(state, regular_blocks, offered)
+
     # Log tool_call events for regular (worker-dispatched) blocks
     if log_calls? do
       Enum.each(regular_blocks, fn tc ->
-        tool = Enum.find(state.agent_def.tools, &(&1.name == tc["name"]))
-        idempotency = if tool, do: Idempotency.context(state.run, state.step, tc, tool), else: %{}
+        idempotency = Map.get(keys, tc["id"], %{})
 
         append(
           state.run,
@@ -354,7 +404,8 @@ defmodule Norns.Agents.Process do
               from_pid: self(),
               agent_id: state.agent_id,
               run_id: state.run.id,
-              gard: state.gard_id
+              gard: state.gard_id,
+              idempotency_key: keys |> Map.get(tc["id"], %{}) |> Map.get(:idempotency_key)
             )
 
           {task_id, tc}
@@ -374,7 +425,8 @@ defmodule Norns.Agents.Process do
              results: Map.new(sync_results, fn r -> {r.tool_call_id, r} end),
              wait_blocks: wait_blocks,
              ask_blocks: ask_blocks,
-             log_calls?: log_calls?
+             log_calls?: log_calls?,
+             idempotency_keys: keys
            }
        }}
     else
@@ -806,12 +858,13 @@ defmodule Norns.Agents.Process do
       {tc, remaining_tasks} ->
         # Build the tool result as a neutral message. A sub-agent outcome
         # arrives kinded; a worker result is content, forwarded verbatim.
-        {status, content, extra} =
+        {status, content, extra, duplicate?} =
           case result do
-            {:ok, {:kind, kind, data, content}} -> {:ok, content, %{"kind" => kind, "data" => data}}
-            {:error, {:kind, kind, data, content}} -> {:error, content, %{"kind" => kind, "data" => data}}
-            {:ok, content} -> {:ok, content, %{}}
-            {:error, reason} -> {:error, if(Content.valid?(reason), do: reason, else: inspect(reason)), %{}}
+            {:ok, {:kind, kind, data, content}} -> {:ok, content, %{"kind" => kind, "data" => data}, false}
+            {:error, {:kind, kind, data, content}} -> {:error, content, %{"kind" => kind, "data" => data}, false}
+            {:ok, content, :duplicate} -> {:ok, content, %{}, true}
+            {:ok, content} -> {:ok, content, %{}, false}
+            {:error, reason} -> {:error, if(Content.valid?(reason), do: reason, else: inspect(reason)), %{}, false}
           end
 
         tool_msg = %{
@@ -824,6 +877,10 @@ defmodule Norns.Agents.Process do
         tool_msg = Map.merge(tool_msg, atomize(extra))
         tool_msg = if status == :error, do: Map.put(tool_msg, :is_error, true), else: tool_msg
 
+        # Before the result, so the lookup for the earlier one cannot find the
+        # result we are about to append and point the event at itself.
+        if duplicate?, do: record_duplicate(state, tc, idempotency_key(pending, tc))
+
         # Log the result event
         append(
           state.run,
@@ -832,7 +889,11 @@ defmodule Norns.Agents.Process do
             "name" => tc["name"],
             "content" => content,
             "is_error" => status == :error,
-            "step" => state.step
+            "step" => state.step,
+            # The result carries the key its call carried, so the log can be
+            # asked "was this side effect already done in this run?" without
+            # joining back to the call.
+            "idempotency_key" => idempotency_key(pending, tc)
           }, extra))
         )
 

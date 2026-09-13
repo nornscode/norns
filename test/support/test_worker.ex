@@ -44,22 +44,46 @@ defmodule Norns.TestWorker do
       gard: gard
     )
 
-    {:ok, %{tools: tools}}
+    {:ok, %{tools: tools, completed: %{}}}
   end
 
   @impl true
   def handle_info({:push_tool_task, task}, state) do
-    Task.start(fn ->
-      result = execute_tool(task, state.tools)
+    task_id = task[:task_id] || task["task_id"]
+    key = task[:idempotency_key] || task["idempotency_key"]
 
-      WorkerRegistry.deliver_result(task[:task_id] || task["task_id"], %{
-        "status" => if(match?({:ok, _}, result), do: "ok", else: "error"),
-        "result" => elem(result, 1),
-        "error" => if(match?({:error, _}, result), do: elem(result, 1))
-      })
-    end)
+    case key && Map.get(state.completed, key) do
+      # Already done in this run, and core is asking again — which means the
+      # first result never reached it. Answer from what we kept; doing the
+      # side effect a second time is the thing the key exists to prevent.
+      # A real worker's memory is its own business (in-process here, durable
+      # or provider-side elsewhere); core only sees the flag.
+      nil ->
+        worker = self()
+
+        Task.start(fn ->
+          result = execute_tool(task, state.tools)
+          if key, do: send(worker, {:remember, key, result})
+
+          WorkerRegistry.deliver_result(task_id, %{
+            "status" => if(match?({:ok, _}, result), do: "ok", else: "error"),
+            "result" => elem(result, 1),
+            "error" => if(match?({:error, _}, result), do: elem(result, 1))
+          })
+        end)
+
+      {:ok, content} ->
+        WorkerRegistry.deliver_result(task_id, %{"status" => "ok", "result" => content, "duplicate" => true})
+
+      {:error, reason} ->
+        WorkerRegistry.deliver_result(task_id, %{"status" => "error", "error" => reason})
+    end
 
     {:noreply, state}
+  end
+
+  def handle_info({:remember, key, result}, state) do
+    {:noreply, %{state | completed: Map.put(state.completed, key, result)}}
   end
 
   def handle_info({:llm_task, task}, state) do

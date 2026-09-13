@@ -264,6 +264,7 @@ defmodule Norns.Workers.WorkerRegistry do
     run_id = Keyword.get(opts, :run_id)
     from_pid = Keyword.get(opts, :from_pid, self())
     gard = Keyword.get(opts, :gard)
+    idempotency_key = Keyword.get(opts, :idempotency_key)
 
     # Strict gard equality (nil == nil, "a" == "a"): no-gard runs never grab a
     # gard-bound worker (stolen dispatch), gard runs never fall through to a
@@ -285,7 +286,11 @@ defmodule Norns.Workers.WorkerRegistry do
           tool_name: tool_name,
           input: input,
           agent_id: agent_id,
-          run_id: run_id
+          run_id: run_id,
+          # The same call re-dispatched after a crash carries the same key.
+          # A worker that has already done the side effect answers from what
+          # it kept instead of doing it again.
+          idempotency_key: idempotency_key
         }})
 
         pending = %{from_pid: from_pid, tenant_id: tenant_id, type: :tool, worker_key: key}
@@ -301,7 +306,8 @@ defmodule Norns.Workers.WorkerRegistry do
           from_pid: from_pid,
           agent_id: agent_id,
           run_id: run_id,
-          gard: gard
+          gard: gard,
+          idempotency_key: idempotency_key
         }
 
         TaskQueue.enqueue(tenant_id, task)
@@ -354,7 +360,10 @@ defmodule Norns.Workers.WorkerRegistry do
           case payload do
             # LLM result — pass through the full map
             %{"status" => "ok", "content" => _} = full -> {:ok, full}
-            # Tool result
+            # Tool result. `duplicate` is the worker saying it recognised the
+            # idempotency key and answered from the result it kept, rather
+            # than doing the side effect a second time.
+            %{"status" => "ok", "result" => result, "duplicate" => true} -> {:ok, result, :duplicate}
             %{"status" => "ok", "result" => result} -> {:ok, result}
             %{"status" => "error", "error" => error} -> {:error, error}
             _ -> {:error, "invalid result payload"}
@@ -455,7 +464,7 @@ defmodule Norns.Workers.WorkerRegistry do
   end
 
   defp task_payload(task) do
-    Map.take(task, [:task_id, :tool_name, :input, :agent_id, :run_id])
+    Map.take(task, [:task_id, :tool_name, :input, :agent_id, :run_id, :idempotency_key])
   end
 
   defp llm_task_payload(task) do

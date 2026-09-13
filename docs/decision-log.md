@@ -138,6 +138,35 @@ alone (a fourth language to draw text).
 - Agent is never blocked — always responds to status queries, stop, messages.
 - TaskQueue holds tasks when no worker is connected, flushes on reconnect.
 
+### Idempotency reaches the worker (decided 2026-09-13)
+
+The keys had been computed since gards landed and nothing had ever read
+one. `Idempotency.context/4` looked the tool up in `agent_def.tools`, which
+holds the tools handed to an agent directly and not the ones a worker
+advertises — so for every tool sleipnir has, the lookup missed, `side_effect`
+came out false and the key came out nil. The key was also only computed when
+`log_calls?` was true, which is to say never on the resume path, which is the
+only path where it matters. And `dispatch_task` did not put it on the wire.
+No SDK read it; nothing anywhere produced the `tool_duplicate` event that
+core validates, replays, counts in `TraceSummary` and renders in `RunLive`.
+
+`CLAUDE.md` said "skip on replay" and the Python SDK's README said "Norns can
+enforce idempotency on replay". Both were false.
+
+Now: the tool is resolved through `Tools.Catalog`, so a worker's declaration
+is what decides; the key is computed on every dispatch including resume; it
+rides on the task; and a worker that reports `duplicate` gets a
+`tool_duplicate` event written before its `tool_result`, with
+`original_event_sequence` filled in when core can point at the earlier result
+(usually it cannot — the call was re-dispatched precisely because the first
+result never landed, which is why that field is now optional).
+
+The worker half is in Python SDK `_handle_tool_task`: bounded in-process
+memory of completed keys, failures not remembered. That covers core
+restarting and results lost in flight. It does not cover a worker dying with
+its memory, and the docs now say so rather than implying a guarantee nobody
+implemented.
+
 ### No worker code in the orchestrator (decided 2026-09-13)
 
 Purity was a rule about runtime behaviour; it was never true of the tree.
