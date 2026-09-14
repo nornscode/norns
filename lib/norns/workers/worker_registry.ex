@@ -9,6 +9,11 @@ defmodule Norns.Workers.WorkerRegistry do
   require Logger
 
   alias Norns.Tools.Tool
+
+  # Total tries for one tool call, across every worker that takes it. A task
+  # that outlives three of them is more likely to be the reason they died
+  # than a victim of it.
+  @max_tool_attempts 3
   alias Norns.Workers.TaskQueue
 
   def start_link(opts \\ []) do
@@ -128,11 +133,9 @@ defmodule Norns.Workers.WorkerRegistry do
     key = {tenant_id, worker_id}
 
     # A registration under a key that already holds a worker means a reconnect
-    # (the worker crashed and came back). Stop monitoring the dead incarnation
-    # and reclaim any tasks that were in flight to it — the fresh connection has
-    # no memory of them, so they must fail and let the agent retry/redispatch.
+    # (the worker crashed and came back). Stop monitoring the dead incarnation;
+    # the fresh connection has no memory of what was in flight to it.
     state = demonitor_existing(state, key)
-    state = reclaim_worker_tasks(state, key)
 
     ref = Process.monitor(channel_pid)
 
@@ -148,6 +151,11 @@ defmodule Norns.Workers.WorkerRegistry do
 
     state = put_in(state.workers[key], worker)
 
+    # Reclaim *after* the new incarnation is registered, so the tasks its
+    # predecessor was holding can be re-dispatched to it rather than queued
+    # behind a worker that is already here.
+    state = reclaim_worker_tasks(state, key)
+
     state =
       tools
       |> Enum.map(&tool_name/1)
@@ -159,7 +167,14 @@ defmodule Norns.Workers.WorkerRegistry do
         |> TaskQueue.flush(name, gard: gard)
         |> Enum.reduce(acc, fn task, pending_state ->
           push_to_worker(channel_pid, {:push_tool_task, task_payload(task)})
-          put_in(pending_state.pending[task.task_id], %{from_pid: task.from_pid, tenant_id: tenant_id, type: :tool, worker_key: key})
+
+          put_in(pending_state.pending[task.task_id], %{
+            from_pid: task.from_pid,
+            tenant_id: tenant_id,
+            type: :tool,
+            worker_key: key,
+            task: Map.merge(%{tenant_id: tenant_id, attempts: 1}, task)
+          })
         end)
       end)
 
@@ -260,59 +275,23 @@ defmodule Norns.Workers.WorkerRegistry do
   end
 
   def handle_call({:dispatch, tenant_id, tool_name, input, opts}, _from, state) do
-    agent_id = Keyword.get(opts, :agent_id)
-    run_id = Keyword.get(opts, :run_id)
-    from_pid = Keyword.get(opts, :from_pid, self())
-    gard = Keyword.get(opts, :gard)
-    idempotency_key = Keyword.get(opts, :idempotency_key)
+    task = %{
+      task_id: generate_task_id(),
+      tenant_id: tenant_id,
+      tool_name: tool_name,
+      input: input,
+      from_pid: Keyword.get(opts, :from_pid, self()),
+      agent_id: Keyword.get(opts, :agent_id),
+      run_id: Keyword.get(opts, :run_id),
+      gard: Keyword.get(opts, :gard),
+      # The same call re-dispatched after a worker dies carries the same key.
+      # A worker that has already done the side effect answers from what it
+      # kept instead of doing it again.
+      idempotency_key: Keyword.get(opts, :idempotency_key),
+      attempts: 1
+    }
 
-    # Strict gard equality (nil == nil, "a" == "a"): no-gard runs never grab a
-    # gard-bound worker (stolen dispatch), gard runs never fall through to a
-    # no-gard worker (filesystem state leakage). The :default-tenant fallback
-    # in find_worker only ever holds no-gard workers, so it can only fire when
-    # gard is nil — a gard-bound run never falls back to a generic worker.
-    worker =
-      find_worker(state, tenant_id, fn w ->
-        dispatchable?(w) and w.gard == gard and
-          Enum.any?(w.tools, &(tool_name(&1) == tool_name))
-      end)
-
-    case worker do
-      {key, w} ->
-        task_id = generate_task_id()
-
-        push_to_worker(w.channel_pid, {:push_tool_task, %{
-          task_id: task_id,
-          tool_name: tool_name,
-          input: input,
-          agent_id: agent_id,
-          run_id: run_id,
-          # The same call re-dispatched after a crash carries the same key.
-          # A worker that has already done the side effect answers from what
-          # it kept instead of doing it again.
-          idempotency_key: idempotency_key
-        }})
-
-        pending = %{from_pid: from_pid, tenant_id: tenant_id, type: :tool, worker_key: key}
-        state = put_in(state.pending[task_id], pending)
-
-        {:reply, {:ok, task_id}, state}
-
-      nil ->
-        task = %{
-          task_id: generate_task_id(),
-          tool_name: tool_name,
-          input: input,
-          from_pid: from_pid,
-          agent_id: agent_id,
-          run_id: run_id,
-          gard: gard,
-          idempotency_key: idempotency_key
-        }
-
-        TaskQueue.enqueue(tenant_id, task)
-        {:reply, {:ok, task.task_id}, state}
-    end
+    {:reply, {:ok, task.task_id}, place_tool_task(state, task)}
   end
 
   @impl true
@@ -407,6 +386,44 @@ defmodule Norns.Workers.WorkerRegistry do
 
   # -- Helpers --
 
+  # Put a tool task on a worker, or in the queue if none can take it.
+  #
+  # One function for all three ways a task is placed — first dispatch, flush
+  # after a worker connects, and re-dispatch after one dies — so a task keeps
+  # its identity across every one of them. The `task_id` is what the waiting
+  # agent process correlates on, and the `idempotency_key` is what lets a
+  # worker recognise a call it already ran.
+  #
+  # Strict gard equality (nil == nil, "a" == "a"): no-gard runs never grab a
+  # gard-bound worker (stolen dispatch), gard runs never fall through to a
+  # no-gard worker (filesystem state leakage). The :default-tenant fallback
+  # in find_worker only ever holds no-gard workers, so it can only fire when
+  # gard is nil — a gard-bound run never falls back to a generic worker.
+  defp place_tool_task(state, task) do
+    worker =
+      find_worker(state, task.tenant_id, fn w ->
+        dispatchable?(w) and w.gard == task.gard and
+          Enum.any?(w.tools, &(tool_name(&1) == task.tool_name))
+      end)
+
+    case worker do
+      {key, w} ->
+        push_to_worker(w.channel_pid, {:push_tool_task, task_payload(task)})
+
+        put_in(state.pending[task.task_id], %{
+          from_pid: task.from_pid,
+          tenant_id: task.tenant_id,
+          type: :tool,
+          worker_key: key,
+          task: task
+        })
+
+      nil ->
+        TaskQueue.enqueue(task.tenant_id, task)
+        state
+    end
+  end
+
   # Stop monitoring the previous incarnation registered under `key`, if any.
   # `:flush` drops a possibly-already-queued :DOWN for it so a later handler
   # can't act on a stale ref that no longer identifies the current worker.
@@ -419,20 +436,49 @@ defmodule Norns.Workers.WorkerRegistry do
     state
   end
 
-  # Fail every pending task owned by `worker_key`, notifying the waiting agent
-  # process so its retry policy re-dispatches to a healthy worker (or queues).
+  # A worker died holding tasks. Re-dispatch its tool calls; only give up on
+  # one after `@max_tool_attempts` tries.
+  #
+  # The alternative — telling the agent the tool failed — sounds safer and is
+  # worse. Core cannot know whether the side effect happened, so the model
+  # gets "worker disconnected" and retries, and that retry is a *new* call at
+  # a new step with a new idempotency key, which no worker can recognise. The
+  # effect then happens twice, reliably. Re-dispatching the same call with
+  # the same key is what gives the worker something to recognise, and it is
+  # the only version of this where "exactly once" means anything.
+  #
+  # The attempt cap is for the task that kills whatever runs it: after three
+  # workers die holding it, the model is told, and it can decide.
   defp reclaim_worker_tasks(state, worker_key) do
-    {failed, remaining} =
+    {lost, remaining} =
       Map.split_with(state.pending, fn {_task_id, info} ->
         Map.get(info, :worker_key) == worker_key
       end)
 
-    Enum.each(failed, fn {task_id, %{from_pid: pid}} ->
-      send(pid, {:task_result, task_id, {:error, "worker disconnected"}})
-    end)
+    state = %{state | pending: remaining}
 
-    %{state | pending: remaining}
+    Enum.reduce(lost, state, fn {task_id, info}, acc ->
+      case redispatchable(info) do
+        {:ok, task} ->
+          Logger.info(
+            "Re-dispatching #{task.tool_name} (task #{task_id}, attempt #{task.attempts + 1}) " <>
+              "after its worker disconnected"
+          )
+
+          place_tool_task(acc, %{task | attempts: task.attempts + 1})
+
+        :no ->
+          send(info.from_pid, {:task_result, task_id, {:error, "worker disconnected"}})
+          acc
+      end
+    end)
   end
+
+  defp redispatchable(%{type: :tool, task: %{attempts: attempts} = task})
+       when attempts < @max_tool_attempts,
+       do: {:ok, task}
+
+  defp redispatchable(_info), do: :no
 
   # Both the unregister and DOWN paths can fire on the same disconnect;
   # Gards.mark_disconnected is idempotent, so calling it from both is safe.

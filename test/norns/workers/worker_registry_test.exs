@@ -120,22 +120,50 @@ defmodule Norns.Workers.WorkerRegistryTest do
   end
 
   describe "worker crash recovery" do
-    test "reclaims in-flight tasks when a worker reconnects under the same id" do
+    test "a lost tool call is re-dispatched to the reconnected worker, keeping its identity" do
       tools = [%{"name" => "reconnect_tool", "description" => "R", "input_schema" => %{}}]
       :ok = WorkerRegistry.register_worker(1, "recon", self(), tools)
 
-      {:ok, task_id} = WorkerRegistry.dispatch_task(1, "reconnect_tool", %{}, from_pid: self())
+      {:ok, task_id} =
+        WorkerRegistry.dispatch_task(1, "reconnect_tool", %{},
+          from_pid: self(),
+          idempotency_key: "run:1:step:1:tool:call_1:name:reconnect_tool"
+        )
+
       assert_receive {:push_tool_task, %{task_id: ^task_id}}, 1_000
 
       # The worker crashes and its container reconnects: a fresh registration
-      # arrives under the same {tenant, worker_id} key. The task that was in
-      # flight to the dead incarnation is lost and must be reclaimed at once,
-      # rather than stranding the run until the 5-minute task timeout.
+      # arrives under the same {tenant, worker_id} key. The call it was holding
+      # goes to the new incarnation *as the same call* — same task id, same
+      # idempotency key — so a worker that already ran it can say so. Telling
+      # the agent it failed would instead produce a retry at a new step with a
+      # new key, and the side effect would happen twice.
       :ok = WorkerRegistry.register_worker(1, "recon", self(), tools)
+
+      assert_receive {:push_tool_task, %{task_id: ^task_id, idempotency_key: key}}, 1_000
+      assert key == "run:1:step:1:tool:call_1:name:reconnect_tool"
+      refute_receive {:task_result, ^task_id, _}, 200
+
+      WorkerRegistry.unregister_worker(1, "recon")
+    end
+
+    test "a task that outlives three workers is finally reported to the agent" do
+      tools = [%{"name" => "poison", "description" => "P", "input_schema" => %{}}]
+      :ok = WorkerRegistry.register_worker(1, "poisoned", self(), tools)
+
+      {:ok, task_id} = WorkerRegistry.dispatch_task(1, "poison", %{}, from_pid: self())
+      assert_receive {:push_tool_task, %{task_id: ^task_id}}, 1_000
+
+      # Each reconnect re-dispatches it once more. A task that keeps killing
+      # whatever runs it is more likely to be the cause than the victim, so
+      # after the cap the agent is told and can decide.
+      for _ <- 1..3 do
+        :ok = WorkerRegistry.register_worker(1, "poisoned", self(), tools)
+      end
 
       assert_receive {:task_result, ^task_id, {:error, "worker disconnected"}}, 1_000
 
-      WorkerRegistry.unregister_worker(1, "recon")
+      WorkerRegistry.unregister_worker(1, "poisoned")
     end
 
     test "reclaim is scoped to the disconnected worker, not the whole tenant" do
@@ -146,13 +174,20 @@ defmodule Norns.Workers.WorkerRegistryTest do
 
       {:ok, task_id} = WorkerRegistry.dispatch_task(1, "tool_a", %{}, from_pid: self())
 
-      # Disconnecting a different worker on the same tenant must not fail this task.
+      # Disconnecting a different worker on the same tenant must not touch this task.
       WorkerRegistry.unregister_worker(1, "wb")
       refute_receive {:task_result, ^task_id, _}, 300
 
-      # Disconnecting the owning worker reclaims it.
+      # Disconnecting the owning worker reclaims it. Nothing else serves
+      # tool_a, so it waits in the queue for one that does — still the same
+      # call, not a failure the agent has to interpret.
       WorkerRegistry.unregister_worker(1, "wa")
-      assert_receive {:task_result, ^task_id, {:error, "worker disconnected"}}, 1_000
+      refute_receive {:task_result, ^task_id, _}, 300
+
+      :ok = WorkerRegistry.register_worker(1, "wc", self(), [%{"name" => "tool_a", "description" => "A", "input_schema" => %{}}])
+      assert_receive {:push_tool_task, %{task_id: ^task_id}}, 1_000
+
+      WorkerRegistry.unregister_worker(1, "wc")
     end
 
     test "a late terminate from a replaced connection does not evict the new worker" do
