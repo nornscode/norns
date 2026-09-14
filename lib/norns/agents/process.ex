@@ -973,8 +973,16 @@ defmodule Norns.Agents.Process do
   end
 
   def handle_info({:task_timeout, _task_id}, %{status: :awaiting_tools} = state) do
-    Logger.warning("Tool task timed out after #{@task_timeout_ms}ms")
-    {:noreply, complete_with_error(state, "Tool task timed out — worker may have disconnected")}
+    if waiting_only_on_subagents?(state) do
+      # The timer covers the worker's calls in this step, and those are back.
+      # What is left is a child run: it has its own step budget and its own
+      # timeouts, and it may be parked on a question to a human, so how long
+      # it takes says nothing about a worker having gone.
+      {:noreply, %{state | task_timer: nil}}
+    else
+      Logger.warning("Tool task timed out after #{@task_timeout_ms}ms")
+      {:noreply, complete_with_error(state, "Tool task timed out — worker may have disconnected")}
+    end
   end
 
   def handle_info({:task_timeout, _task_id}, state) do
@@ -1433,6 +1441,14 @@ defmodule Norns.Agents.Process do
 
     Phoenix.PubSub.broadcast(Norns.PubSub, "agent:#{state.agent_id}", {event, payload})
   end
+
+  defp waiting_only_on_subagents?(%{pending_tool_tasks: %{tasks: tasks}, pending_subagents: subagents})
+       when map_size(tasks) > 0 do
+    launched = MapSet.new(subagents, fn {_child_run_id, %{task_id: task_id}} -> task_id end)
+    Enum.all?(Map.keys(tasks), &MapSet.member?(launched, &1))
+  end
+
+  defp waiting_only_on_subagents?(_state), do: false
 
   # Keyed by child *run* id, not child agent id: one parent step can launch the
   # same agent twice, and after a crash an abandoned child can still be alive

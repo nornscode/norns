@@ -762,5 +762,38 @@ defmodule Norns.Agents.ProcessSubagentTest do
 
       assert [_] = runs_of(coder)
     end
+
+    test "a child still working when the step's timer fires does not fail the parent", %{tenant: tenant} do
+      helper = team_agent(tenant, "helper")
+      lead = team_agent(tenant, "lead")
+
+      LLM.set_responses([
+        launch_with(helper.name, "call_launch", "take your time"),
+        # The helper parks on a question: as long as a person takes, which
+        # is no measure of whether a worker is still there.
+        ask_response("Allow bash `make`?"),
+        done_response(),
+        done_response()
+      ])
+
+      helper_id = helper.id
+      lead_id = lead.id
+      Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{helper_id}")
+      {:ok, pid} = AgentProcess.start_link(agent_id: lead.id, tenant_id: tenant.id, conversation_key: "session")
+      subscribe_and_send(pid, lead.id, "go")
+      assert_receive {:waiting_for_user, %{agent_id: ^helper_id}}, 5000
+
+      # What five minutes of waiting delivers.
+      send(pid, {:task_timeout, :tools})
+      assert AgentProcess.get_state(pid).status == :awaiting_tools
+
+      [child] = runs_of(helper)
+      {:ok, helper_pid} = Norns.Agents.Registry.lookup(tenant.id, helper.id, child.conversation.key)
+      assert :ok = AgentProcess.reply_to_human(helper_pid, "yes")
+
+      assert_receive {:completed, %{agent_id: ^lead_id}}, 5000
+      assert launch_tool_result(run_events(pid)).payload["kind"] == "subagent_completed"
+      assert Runs.get_run!(AgentProcess.get_state(pid).run_id).status == "completed"
+    end
   end
 end
