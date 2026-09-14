@@ -16,16 +16,27 @@ defmodule Norns.Conversations do
 
   Archived sessions are left out too, unless `archived: true`, which lists
   only those: the drawer you go to when you want one back.
+
+  Sub-agent conversations are listed, because a client drawing a session tree
+  needs them: a child parked on a question is what makes its parent session
+  "needs you". They are recognisable by key (every child conversation key
+  starts with `subagent`) and by the embedded run's `parent_run_id`.
+  `subagents: false` leaves them out for a client that only wants top-level
+  sessions. A conversation counts as a child's when every run in it has a
+  `parent_run_id`; one a person has also messaged directly stays in, and so
+  does one with no runs yet.
   """
   def list_sessions(tenant_id, opts \\ []) do
     limit = Keyword.get(opts, :limit, 100)
     archived? = Keyword.get(opts, :archived, false)
+    subagents? = Keyword.get(opts, :subagents, true)
 
     conversations =
-      Conversation
+      from(c in Conversation, as: :conversation)
       |> join(:inner, [c], a in Norns.Agents.Agent, on: a.id == c.agent_id)
       |> where([c, a], c.tenant_id == ^tenant_id and is_nil(a.archived_at))
       |> archived_filter(archived?)
+      |> subagent_filter(subagents?)
       |> order_by([c], desc: c.updated_at)
       |> limit(^limit)
       |> preload(:agent)
@@ -36,6 +47,22 @@ defmodule Norns.Conversations do
 
   defp archived_filter(query, true), do: where(query, [c], not is_nil(c.archived_at))
   defp archived_filter(query, _), do: where(query, [c], is_nil(c.archived_at))
+
+  defp subagent_filter(query, true), do: query
+
+  defp subagent_filter(query, _) do
+    child_runs =
+      from r in Norns.Runs.Run,
+        where: r.conversation_id == parent_as(:conversation).id and not is_nil(r.parent_run_id),
+        select: 1
+
+    root_runs =
+      from r in Norns.Runs.Run,
+        where: r.conversation_id == parent_as(:conversation).id and is_nil(r.parent_run_id),
+        select: 1
+
+    where(query, [c], not exists(subquery(child_runs)) or exists(subquery(root_runs)))
+  end
 
   @doc """
   Put a session away, or take it back out.

@@ -9,7 +9,7 @@ defmodule Norns.Agents.Process do
   require Logger
 
   alias Norns.{Agents, Conversations, Runs}
-  alias Norns.Agents.{AgentDef, Messages, Replay, SubagentPolicy, ToolPolicy}
+  alias Norns.Agents.{AgentDef, Messages, Replay, SubagentConversation, SubagentPolicy, ToolPolicy}
   alias Norns.Runtime.{Content, ErrorPolicy, Errors, Events}
   alias Norns.Workers.WorkerRegistry
   alias Norns.Tools.{Catalog, Idempotency, Tool}
@@ -163,9 +163,20 @@ defmodule Norns.Agents.Process do
   # A message arriving while parked on ask_human is the answer. Conversational
   # clients (a Slack bot, a chat UI) shouldn't have to track agent state and
   # switch endpoints mid-conversation — the human just replies.
-  def handle_call({:send_message, content, _opts}, _from, %{status: :waiting, pending_human: pending} = state)
+  #
+  # Except when it is not from a human. A sub-agent launch into a conversation
+  # that is parked (a `per_parent` child, see SubagentConversation) would
+  # otherwise land as the answer to the child's question — and a harness that
+  # asks permission through ask_human would read the parent's instructions as
+  # the user saying yes. A launch is refused as busy; the question stays open.
+  def handle_call({:send_message, content, opts}, _from, %{status: :waiting, pending_human: pending} = state)
       when not is_nil(pending) do
-    deliver_human_answer(state, content, {:ok, state.run.id})
+    if launch?(opts) do
+      Logger.warning("Agent #{state.agent_id} refused a sub-agent launch while waiting on a human")
+      {:reply, {:error, :busy}, state}
+    else
+      deliver_human_answer(state, content, {:ok, state.run.id})
+    end
   end
 
   def handle_call({:send_message, _content, _opts}, _from, state) do
@@ -196,6 +207,10 @@ defmodule Norns.Agents.Process do
 
     {:reply, reply, state}
   end
+
+  # Lineage is only ever set by launch_agent; depth covers a launch whose
+  # parent run id was somehow nil.
+  defp launch?(opts), do: not is_nil(Keyword.get(opts, :parent_run_id)) or Keyword.get(opts, :depth, 0) > 0
 
   # Resolve the parked ask_human call with the human's answer and resume.
   # Shared by the dedicated reply call and by a plain message arriving while
@@ -633,7 +648,14 @@ defmodule Norns.Agents.Process do
         # Subscribe to child agent events
         Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{child_agent.id}")
 
-        conversation_key = "subagent_#{block["id"]}_#{System.unique_integer([:positive])}"
+        # The child decides whether it is launched fresh or into the one
+        # conversation it keeps for this parent conversation.
+        conversation_key =
+          SubagentConversation.key(
+            AgentDef.from_agent(child_agent).subagent_conversation,
+            block["id"],
+            st.run && st.run.conversation_id
+          )
 
         # A child working on the same task should see the same filesystem —
         # inherit the parent's gard unless the call names a different one.
@@ -681,6 +703,15 @@ defmodule Norns.Agents.Process do
               })
 
             {results, pending ++ [{task_id, synthetic_tc}], st}
+
+          # A per_parent child still working on the last assignment, or parked
+          # on a question to the user. Refused rather than queued: the model
+          # can wait for the earlier launch, and a second writer on the same
+          # conversation is what the setting exists to rule out.
+          {:error, :busy} ->
+            data = %{"agent_name" => agent_name}
+            result = make_system_result(st, block, "launch_agent", "subagent_busy", data, "", true)
+            {results ++ [result], pending, st}
 
           {:error, reason} ->
             data = %{"agent_name" => agent_name, "reason" => inspect(reason)}

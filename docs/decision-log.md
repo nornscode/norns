@@ -313,6 +313,58 @@ worker is the reference core tests against, and it is test support.
 - Subscribe-before-read closes the completion race; `run_id` rides on every agent broadcast; a parent resumed alone restarts its own orphaned child.
 - See `architecture.md` § "Recovering a parent that was awaiting a sub-agent".
 
+### A sub-agent can keep its conversation (decided 2026-09-14)
+
+Every `launch_agent` used to mint a fresh conversation key. That is right for
+a read-only explorer and wrong for a coder: sleipnir's team hands one coder a
+sequence of assignments in a session, and a coder that forgets the last one
+re-reads the tree to find out what it just did. Worse, two launches in a row
+started two coders editing the same working tree at once.
+
+Now the child opts in with `model_config["subagent_conversation"]`:
+`"per_launch"` (the default, unchanged) or `"per_parent"`, which keys the
+child's conversation `subagent:<parent conversation id>`. It is the child's
+setting because it describes the child — whether it is safe to run twice is
+not the launcher's call. A parent run with no conversation falls back to
+per-launch. `Norns.Agents.SubagentConversation` holds it, in the same
+parsed-from-`model_config`, permissive-defaults shape as the two policies.
+
+One conversation is one process, and a busy process already refuses
+messages, so the second writer is ruled out by what was there: a launch into
+a child that is still working returns a `subagent_busy` result
+(`data: {"agent_name"}`, `is_error`) instead of the generic
+`subagent_launch_failed`. No audit event: nothing was decided, the launch was
+allowed and `subagent_launch_allowed` already says so; the kinded result is
+the record. Refused rather than queued, because the model can wait for the
+launch it already has, and a queue would be a second writer on a delay.
+
+The reuse opened a hole that had been closed only by accident. A message
+arriving at a conversation parked on `ask_human` is taken as the answer —
+the primary path for chat clients. With per-launch keys no launch could ever
+reach a parked conversation. With a reusable one, a parent's instructions
+could land as the user's reply to the child's question, and sleipnir asks
+permission through `ask_human`. So a `send_message` carrying lineage
+(`parent_run_id`, or a depth above zero) to a parked process is refused as
+busy, and the question stays open for the human it was put to.
+
+Recovery needed nothing: resume already restarts a child under the key its
+run's conversation records, whatever shape that key has. There is a test
+that says so.
+
+Sessions: `GET /api/v1/sessions` keeps listing child conversations — a client
+drawing a session tree needs them, and a child parked on a question is what
+marks its parent session as needing you. Every child key starts with
+`subagent`, and the embedded run carries `parent_run_id`. `?subagents=false`
+leaves out conversations whose runs all have a parent, for a client that
+wants only the top level.
+
+Found while checking the worker side: worker routing never looked at agents.
+LLM tasks go to any `llm` worker in the tenant and gard, tool tasks to any
+worker advertising the tool in the gard, and the `agents` list in a join
+payload is not read at all (the SDK registers agents over REST). A worker
+listing several agents already serves all of them; a channel test now pins
+that.
+
 ---
 
 ## Open

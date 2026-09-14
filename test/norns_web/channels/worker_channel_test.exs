@@ -82,6 +82,51 @@ defmodule NornsWeb.WorkerChannelTest do
       WorkerRegistry.unregister_worker(tenant.id, "llm-worker")
     end
 
+    # Routing is by capability, tool name and gard — never by agent — so a
+    # worker that lists several agents at join serves every one of them.
+    test "a worker serving several agents gets the work of each, in its gard", %{socket: socket, tenant: tenant} do
+      {:ok, gard} = Norns.Gards.create_gard(%{tenant_id: tenant.id, name: "team"})
+      agents = for name <- ["sleipnir", "sleipnir-explore", "sleipnir-code"], do: create_agent(tenant, %{name: name})
+
+      {:ok, _, _socket} =
+        subscribe_and_join(socket, WorkerChannel, "worker:lobby", %{
+          "worker_id" => "team-worker",
+          "tools" => [%{"name" => "read_file", "description" => "Reads a file", "input_schema" => %{}}],
+          "capabilities" => ["llm", "tools"],
+          "agents" => Enum.map(agents, &%{"name" => &1.name}),
+          "gard" => gard.id,
+          "claim_token" => gard.claim_token
+        })
+
+      for agent <- agents do
+        {:ok, llm_task_id} =
+          WorkerRegistry.dispatch_llm_task(
+            tenant.id,
+            %{model: "m", system_prompt: "p", messages: [], agent_id: agent.id, run_id: 1, step: 1},
+            from_pid: self(),
+            gard: gard.id
+          )
+
+        assert_push "llm_task", llm_task, 1_000
+        assert (llm_task["task_id"] || llm_task[:task_id]) == llm_task_id
+        assert (llm_task["agent_id"] || llm_task[:agent_id]) == agent.id
+
+        {:ok, tool_task_id} =
+          WorkerRegistry.dispatch_task(tenant.id, "read_file", %{},
+            from_pid: self(),
+            agent_id: agent.id,
+            run_id: 1,
+            gard: gard.id
+          )
+
+        assert_push "tool_task", tool_task, 1_000
+        assert (tool_task["task_id"] || tool_task[:task_id]) == tool_task_id
+        assert (tool_task["agent_id"] || tool_task[:agent_id]) == agent.id
+      end
+
+      WorkerRegistry.unregister_worker(tenant.id, "team-worker")
+    end
+
     test "rejects join without worker_id", %{socket: socket} do
       assert {:error, %{reason: "invalid_registration", code: "missing_worker_id_or_tools"}} =
                subscribe_and_join(socket, WorkerChannel, "worker:lobby", %{})

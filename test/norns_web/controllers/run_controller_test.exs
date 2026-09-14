@@ -25,6 +25,40 @@ defmodule NornsWeb.RunControllerTest do
       assert id == run.id
     end
 
+    # What a client needs to hang a child under its parent and to tell that
+    # the child is waiting on the user, without reading the event log.
+    test "a sub-agent run carries its agent, its parent, and what it is waiting for",
+         %{conn: conn, tenant: tenant, agent: agent} do
+      child_agent = create_agent(tenant, %{name: "sleipnir-code"})
+
+      {:ok, parent} =
+        Norns.Runs.create_run(%{agent_id: agent.id, tenant_id: tenant.id, trigger_type: "message", input: %{}, status: "running"})
+
+      {:ok, child} =
+        Norns.Runs.create_run(%{
+          agent_id: child_agent.id,
+          tenant_id: tenant.id,
+          trigger_type: "message",
+          input: %{},
+          status: "waiting",
+          parent_run_id: parent.id,
+          depth: 1
+        })
+
+      {:ok, _} =
+        Norns.Runs.append_event(child, %{
+          event_type: "waiting_for_user",
+          source: "system",
+          payload: %{"question" => "Allow bash `make`?", "tool_call_id" => "c1", "step" => 1}
+        })
+
+      assert %{"data" => data} = json_response(get(conn, "/api/v1/runs/#{child.id}"), 200)
+      assert data["agent_id"] == child_agent.id
+      assert data["parent_run_id"] == parent.id
+      assert data["status"] == "waiting"
+      assert data["waiting_for"]["question"] == "Allow bash `make`?"
+    end
+
     test "includes failure inspector for failed runs", %{conn: conn, tenant: tenant, agent: agent} do
       {:ok, run} =
         Norns.Runs.create_run(%{

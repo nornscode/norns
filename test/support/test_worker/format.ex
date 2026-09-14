@@ -120,6 +120,10 @@ defmodule Norns.TestWorker.Format do
     "Failed to launch agent '#{data["agent_name"]}': #{data["reason"]}"
   end
 
+  defp render_kind("subagent_busy", data, _content) do
+    "Agent '#{data["agent_name"]}' is still working on an earlier assignment or waiting on the user. Wait for that launch to finish before sending it more work."
+  end
+
   # The child's run id rides along with its text so the parent has a handle
   # to inspect *how* the child got there, not just what it said.
   defp render_kind("subagent_completed", data, content) do

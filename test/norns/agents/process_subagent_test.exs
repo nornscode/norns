@@ -597,4 +597,170 @@ defmodule Norns.Agents.ProcessSubagentTest do
       assert Enum.any?(result.payload["data"]["agents"], &(&1["name"] == "listable-agent"))
     end
   end
+
+  describe "subagent_conversation" do
+    defp team_agent(tenant, prefix, config \\ %{}) do
+      create_agent(tenant, %{name: "#{prefix}-#{System.unique_integer([:positive])}", model_config: config})
+    end
+
+    defp launch_with(target, id, message) do
+      %{
+        content: [
+          %{
+            "type" => "tool_use",
+            "id" => id,
+            "name" => "launch_agent",
+            "input" => %{"agent_name" => target, "message" => message}
+          }
+        ],
+        stop_reason: "tool_use"
+      }
+    end
+
+    defp ask_response(question) do
+      %{
+        content: [
+          %{"type" => "tool_use", "id" => "call_ask", "name" => "ask_human", "input" => %{"question" => question}}
+        ],
+        stop_reason: "tool_use"
+      }
+    end
+
+    defp runs_of(agent) do
+      from(r in Norns.Runs.Run, where: r.agent_id == ^agent.id, order_by: [asc: r.id])
+      |> Repo.all()
+      |> Repo.preload(:conversation)
+    end
+
+    # Two assignments to `coder`, in two runs of one lead conversation.
+    defp assign_twice(tenant, coder) do
+      lead = team_agent(tenant, "lead")
+
+      LLM.set_responses([launch_with(coder.name, "call_1", "first task"), done_response(), done_response()])
+      {:ok, pid} = AgentProcess.start_link(agent_id: lead.id, tenant_id: tenant.id, conversation_key: "session")
+      subscribe_and_send(pid, lead.id, "start")
+      wait_for(:completed)
+
+      LLM.set_responses([launch_with(coder.name, "call_2", "second task"), done_response(), done_response()])
+      AgentProcess.send_message(pid, "continue")
+      wait_for(:completed)
+
+      pid
+    end
+
+    test "per_launch stays the default: every launch starts fresh", %{tenant: tenant} do
+      coder = team_agent(tenant, "coder")
+      assign_twice(tenant, coder)
+
+      assert [first, second] = runs_of(coder)
+      refute first.conversation_id == second.conversation_id
+    end
+
+    test "per_parent lands every launch from one conversation in one child conversation", %{tenant: tenant} do
+      coder = team_agent(tenant, "coder", %{"subagent_conversation" => "per_parent"})
+      pid = assign_twice(tenant, coder)
+
+      session_id = AgentProcess.get_state(pid).conversation_id
+      assert [first, second] = runs_of(coder)
+      assert first.conversation_id == second.conversation_id
+      assert first.conversation.key == "subagent:#{session_id}"
+
+      # The second assignment was made with the first still in view.
+      request = second.id |> Runs.list_events() |> Enum.find(&(&1.event_type == "llm_request"))
+      contents = Enum.map(request.payload["messages"], & &1["content"])
+      assert "first task" in contents
+      assert "second task" in contents
+    end
+
+    test "a launch while the per_parent child is still working is refused as busy", %{tenant: tenant} do
+      coder = team_agent(tenant, "coder", %{"subagent_conversation" => "per_parent"})
+      lead = team_agent(tenant, "lead")
+
+      LLM.set_responses([
+        %{
+          content: [
+            %{"type" => "tool_use", "id" => "call_a", "name" => "launch_agent",
+              "input" => %{"agent_name" => coder.name, "message" => "first"}},
+            %{"type" => "tool_use", "id" => "call_b", "name" => "launch_agent",
+              "input" => %{"agent_name" => coder.name, "message" => "second"}}
+          ],
+          stop_reason: "tool_use"
+        },
+        # The coder parks on a question, so it is certainly still busy when
+        # the second launch arrives, however the timing falls.
+        ask_response("Allow bash `make`?"),
+        done_response(),
+        done_response()
+      ])
+
+      coder_id = coder.id
+      lead_id = lead.id
+      Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{coder_id}")
+      {:ok, pid} = AgentProcess.start_link(agent_id: lead.id, tenant_id: tenant.id, conversation_key: "session")
+      subscribe_and_send(pid, lead.id, "go")
+
+      assert_receive {:waiting_for_user, %{agent_id: ^coder_id}}, 5000
+      session_id = AgentProcess.get_state(pid).conversation_id
+      {:ok, coder_pid} = Norns.Agents.Registry.lookup(tenant.id, coder.id, "subagent:#{session_id}")
+      assert :ok = AgentProcess.reply_to_human(coder_pid, "yes")
+
+      assert_receive {:completed, %{agent_id: ^lead_id}}, 5000
+
+      results =
+        pid
+        |> run_events()
+        |> Enum.filter(&(&1.event_type == "tool_result" && &1.payload["name"] == "launch_agent"))
+        |> Map.new(&{&1.payload["tool_call_id"], &1.payload})
+
+      assert results["call_a"]["kind"] == "subagent_completed"
+      assert results["call_b"]["kind"] == "subagent_busy"
+      assert results["call_b"]["is_error"]
+      assert results["call_b"]["data"] == %{"agent_name" => coder.name}
+
+      # One writer: the refused launch started nothing.
+      assert [_] = runs_of(coder)
+    end
+
+    test "a launch is never delivered as the answer to the child's question", %{tenant: tenant} do
+      coder = team_agent(tenant, "coder", %{"subagent_conversation" => "per_parent"})
+      lead = team_agent(tenant, "lead")
+
+      {:ok, lead_pid} = AgentProcess.start_link(agent_id: lead.id, tenant_id: tenant.id, conversation_key: "session")
+      key = "subagent:#{AgentProcess.get_state(lead_pid).conversation_id}"
+
+      # The coder, parked on a permission question from an earlier assignment
+      # the lead has since stopped waiting on.
+      LLM.set_responses([ask_response("Allow bash `rm -rf build`?")])
+      Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{coder.id}")
+      {:ok, coder_pid} = AgentProcess.start_link(agent_id: coder.id, tenant_id: tenant.id, conversation_key: key)
+      {:ok, coder_run_id} = AgentProcess.send_message(coder_pid, "clean the build")
+      assert_receive {:waiting_for_user, %{question: "Allow bash `rm -rf build`?"}}, 5000
+
+      # Delivered as an answer, this would read as the user saying yes.
+      LLM.set_responses([launch_with(coder.name, "call_launch", "yes, go ahead"), done_response()])
+      lead_id = lead.id
+      Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{lead_id}")
+      {:ok, _} = AgentProcess.send_message(lead_pid, "carry on")
+      assert_receive {:completed, %{agent_id: ^lead_id}}, 5000
+
+      result = launch_tool_result(run_events(lead_pid))
+      assert result.payload["kind"] == "subagent_busy"
+      assert result.payload["is_error"]
+
+      # Still parked on its own question, which nobody has answered.
+      state = AgentProcess.get_state(coder_pid)
+      assert state.status == :waiting
+      assert state.run_id == coder_run_id
+
+      coder_run = Runs.get_run!(coder_run_id)
+      assert coder_run.status == "waiting"
+      assert %{"question" => "Allow bash `rm -rf build`?"} = Runs.pending_question(coder_run)
+
+      refute coder_run_id
+             |> Runs.list_events()
+             |> Enum.any?(&(&1.event_type == "tool_result" && &1.payload["name"] == "ask_human"))
+
+      assert [_] = runs_of(coder)
+    end
+  end
 end

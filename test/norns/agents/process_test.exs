@@ -275,6 +275,36 @@ defmodule Norns.Agents.ProcessTest do
       assert answer.payload["content"] == "yes, the 7pm one"
     end
 
+    test "a sub-agent launch into a parked agent is refused, not taken as the answer", %{tenant: tenant, agent: agent} do
+      LLM.set_responses([
+        ask_human_response("Allow bash `rm -rf build`?"),
+        %{content: [%{"type" => "text", "text" => "Cleaned."}], stop_reason: "end_turn"}
+      ])
+
+      {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
+      subscribe_and_send(pid, agent.id, "Clean the build")
+      wait_for(:waiting_for_user)
+
+      # A parent's instructions are not the user's permission.
+      assert {:error, :busy} = AgentProcess.send_message(pid, "yes, go ahead", parent_run_id: 123_456, depth: 1)
+
+      state = AgentProcess.get_state(pid)
+      assert state.status == :waiting
+      run = Runs.get_run!(state.run_id)
+      assert %{"question" => "Allow bash `rm -rf build`?"} = Runs.pending_question(run)
+      refute Enum.any?(Runs.list_events(run.id), &(&1.event_type == "tool_result" and &1.payload["name"] == "ask_human"))
+
+      # The human's own reply still lands as the answer.
+      assert {:ok, _run_id} = AgentProcess.send_message(pid, "yes")
+      wait_for(:completed)
+
+      answer =
+        Runs.list_events(run.id)
+        |> Enum.find(&(&1.event_type == "tool_result" and &1.payload["name"] == "ask_human"))
+
+      assert answer.payload["content"] == "yes"
+    end
+
     test "replying to an agent that is not waiting is rejected", %{tenant: tenant, agent: agent} do
       LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "Done."}], stop_reason: "end_turn"}

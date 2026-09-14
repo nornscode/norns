@@ -9,6 +9,7 @@ defmodule Norns.Agents.ProcessSubagentRecoveryTest do
   use Norns.DataCase, async: false
 
   alias Norns.Agents.Process, as: AgentProcess
+  alias Norns.Conversations
   alias Norns.TestWorker.LLM
   alias Norns.Runs
   alias Norns.Runs.Run
@@ -37,6 +38,7 @@ defmodule Norns.Agents.ProcessSubagentRecoveryTest do
       Runs.create_run(%{
         agent_id: parent.id,
         tenant_id: tenant.id,
+        conversation_id: Keyword.get(opts, :conversation_id),
         trigger_type: "message",
         input: %{"user_message" => "Delegate this"},
         status: "running"
@@ -306,6 +308,80 @@ defmodule Norns.Agents.ProcessSubagentRecoveryTest do
       assert result.payload["is_error"]
       assert result.payload["kind"] == "subagent_missing"
       assert result.payload["data"]["run_id"] == 999_999
+    end
+
+    test "resumes a per_parent child under its stable key, with its history", ctx do
+      %{tenant: tenant, parent: parent} = ctx
+
+      coder = create_agent(tenant, %{name: "coder-agent", model_config: %{"subagent_conversation" => "per_parent"}})
+      {:ok, session} = Conversations.find_or_create_conversation(parent.id, tenant.id, "session")
+      key = "subagent:#{session.id}"
+
+      # An earlier assignment in the same session, which the coder should
+      # still have when it comes back.
+      {:ok, coder_conversation} = Conversations.find_or_create_conversation(coder.id, tenant.id, key)
+
+      {:ok, coder_conversation} =
+        Conversations.update_conversation(coder_conversation, %{
+          messages: [
+            %{"role" => "user", "content" => "Earlier assignment"},
+            %{"role" => "assistant", "content" => "Earlier result"}
+          ]
+        })
+
+      pending = child_run(tenant, coder, nil, %{status: "waiting", conversation_id: coder_conversation.id})
+      Runs.append_event(pending, %{event_type: "run_started", source: "system"})
+
+      Runs.append_event(pending, %{
+        event_type: "llm_response",
+        source: "system",
+        payload: %{
+          "content" => "",
+          "tool_calls" => [
+            %{"id" => "call_ask", "name" => "ask_human", "arguments" => %{"question" => "Which one?"}}
+          ],
+          "finish_reason" => "tool_call",
+          "step" => 1,
+          "usage" => %{}
+        }
+      })
+
+      Runs.append_event(pending, %{
+        event_type: "waiting_for_user",
+        source: "system",
+        payload: %{"tool_call_id" => "call_ask", "question" => "Which one?", "step" => 1}
+      })
+
+      parent_run = crashed_parent_run(tenant, parent, pending.id, conversation_id: session.id)
+
+      Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{coder.id}")
+      resume(parent, tenant, parent_run)
+
+      # Brought back under the key the launch used, where the next launch from
+      # this session will look for it — not under "default".
+      assert_receive {:waiting_for_user, %{question: "Which one?"}}, 5000
+      assert {:ok, coder_pid} = Norns.Agents.Registry.lookup(tenant.id, coder.id, key)
+      assert :error = Norns.Agents.Registry.lookup(tenant.id, coder.id, "default")
+
+      LLM.set_responses([
+        %{content: [%{"type" => "text", "text" => "The second one."}], stop_reason: "end_turn"},
+        %{content: [%{"type" => "text", "text" => "Coder chose the second one."}], stop_reason: "end_turn"}
+      ])
+
+      assert :ok = AgentProcess.reply_to_human(coder_pid, "the second one")
+
+      parent_id = parent.id
+      assert_receive {:completed, %{agent_id: ^parent_id}}, 5000
+
+      assert [result] = launch_results(parent_run.id)
+      assert result.payload["kind"] == "subagent_completed"
+      assert result.payload["data"]["run_id"] == pending.id
+      assert run_ids_for(coder) == [pending.id]
+
+      # The crash cost the coder nothing it knew before it.
+      contents = Enum.map(Conversations.get_conversation!(coder_conversation.id).messages, & &1["content"])
+      assert "Earlier assignment" in contents
+      assert "Do the thing" in contents
     end
   end
 
