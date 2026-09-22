@@ -337,7 +337,9 @@ When a worker disconnects, the gard transitions to `disconnected`, not `destroye
 `DELETE /api/gards/:id` is not just a status flip. It must clean up connected workers and in-flight runs:
 
 1. Transition status → `destroyed`.
-2. Close the WebSocket of any worker currently claiming this gard. This triggers the existing `unregister`/DOWN path in `WorkerRegistry`, which sends `{:task_result, task_id, {:error, "worker disconnected"}}` to any in-flight agent — already implemented at `worker_registry.ex:236-239`.
+2. Close the WebSocket of any worker currently claiming this gard. This triggers the existing `unregister`/DOWN path in `WorkerRegistry` (`kick_gard_workers/2`).
+
+   **Known gap (2026-09-22):** that path now re-dispatches the tool calls those workers held rather than failing them (`decision-log.md` § A lost tool call is re-dispatched). Dispatch is gard-strict, and the gard is destroyed, so no worker can ever take them: the task queues and the run stalls until the agent's five-minute task timeout. A destroyed gard should fail its in-flight tasks outright — the run cannot continue without the checkout it was bound to — so the kick needs to be distinguishable from a worker simply dying.
 3. Cascade-delete ports.
 
 Optionally, reject `DELETE` if the gard has an active run (status `running` in the `runs` table) unless `force: true` is passed. If forced, the run fails with a clear error: "gard destroyed mid-run."

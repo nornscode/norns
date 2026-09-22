@@ -20,7 +20,7 @@ Orchestrator (state machine)              Worker (your code)
 
 Workers connect via `/worker` WebSocket, register their tools and LLM capability, and receive task pushes. Workers hold all API keys and secrets. Norns never sees them.
 
-If a worker disconnects, pending tasks are queued and flushed when it reconnects.
+If a worker disconnects, the tasks it held are re-dispatched, and anything with nowhere to go is queued and flushed when a worker registers.
 
 ## Agent States
 
@@ -105,8 +105,17 @@ results, questions, output — may hold a string, a map, or an opaque block
 A worker shutting down cleanly sends `drain`, finishes and reports the
 tasks it already holds, then leaves. New work that would have reached it
 queues (or goes to another matching worker) until a replacement registers.
-A worker that just disconnects has its in-flight tasks failed with
-`worker disconnected`, which the agent's retry policy re-dispatches.
+A worker that just disconnects has the tool calls it was holding
+re-dispatched — the same call, with the same task id and the same
+idempotency key, to whatever worker can take it, or to the queue until one
+registers. Three attempts in total: a task that outlives three workers is
+more likely to be why they died than a victim of it, and after that the
+agent is told and can decide.
+
+Handing the agent a failed tool result instead is the version that looks
+safer and is not. The model reads "worker disconnected", retries, and that
+retry is a *new* call at a new step with a new idempotency key, which no
+worker can recognise — so the side effect happens again.
 
 ## Runtime Contracts
 
@@ -332,7 +341,9 @@ Tools a worker declares `side_effect: true` get a deterministic key — `run:<id
 
 Core cannot know whether the effect landed: the reason it re-dispatches is that the result never reached it. The worker can, and the key is how it is asked. A worker that has already completed that call answers from the result it kept and flags it; core appends a `tool_duplicate` event (pointing at the earlier result when one is in the log) and the run continues with the result the model was waiting for.
 
-The window this closes is core restarting, or a result lost in flight. A worker that dies with its own memory is not covered by the key alone — for that the key has to reach something durable, which for most payment and messaging APIs means their own idempotency header.
+The worker's record of what it has completed is kept on disk (Python SDK: `NORNS_STATE_DIR`, else a file under the system temp dir), because the case the key exists for is the worker dying — one that came back with an empty head would do the effect a second time.
+
+What this does not close, and cannot: the record is written after the tool handler returns, so a worker killed *between* the effect landing and that write remembers nothing, and the re-dispatched call runs it again. Recording before executing only moves the hole — then a worker that dies mid-call has claimed something that may never have happened. This is the dual-write problem and it has no local solution. The guarantee is at-least-once with a strong duplicate suppressor, and where "twice" is genuinely unacceptable the key has to reach something that dedupes on it — which for most payment and messaging APIs means their own idempotency header.
 
 ### Checkpoint / Restore
 

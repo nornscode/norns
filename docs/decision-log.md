@@ -1,6 +1,6 @@
 # Decision Log
 
-Last updated: 2026-09-13
+Last updated: 2026-09-22
 
 ## Product Decisions
 
@@ -161,11 +161,45 @@ rides on the task; and a worker that reports `duplicate` gets a
 (usually it cannot — the call was re-dispatched precisely because the first
 result never landed, which is why that field is now optional).
 
-The worker half is in Python SDK `_handle_tool_task`: bounded in-process
-memory of completed keys, failures not remembered. That covers core
-restarting and results lost in flight. It does not cover a worker dying with
-its memory, and the docs now say so rather than implying a guarantee nobody
-implemented.
+The worker half is in Python SDK `_handle_tool_task`: a bounded record of
+completed keys, failures not remembered. Superseded in part by
+§ A lost tool call is re-dispatched below, which is what made any of it
+reachable.
+
+### A lost tool call is re-dispatched (decided 2026-09-22)
+
+`reclaim_worker_tasks` used to tell the agent its tool had failed —
+`worker disconnected` as the tool result — with a comment claiming the retry
+policy would re-dispatch. Nothing did. Watched end to end on a live run: the
+model reads the error, retries, and that retry is a *new* call at a new step
+with a new idempotency key. No worker can recognise it, so the side effect
+happens again. The keys we compute so carefully protected nothing, because
+the case they exist for was the one case that never produced them.
+
+Now the call itself is handed on — same task id, so the waiting agent's
+bookkeeping still matches; same idempotency key, so a worker that already
+ran it can say so. No worker free, it queues and flushes on connect, which
+is what already happened to LLM tasks and is why a killed worker never
+stalled a run. Capped at three attempts total, after which the agent is told.
+Reclaim on re-registration runs after the new incarnation is in the registry,
+so its predecessor's work goes to it rather than queueing behind a worker
+that is already here.
+
+The worker's record of completed calls is on disk from Python SDK 0.8.1
+(`NORNS_STATE_DIR`), since a memory that dies with the process is no use for
+the failure it guards.
+
+**What this still does not give you, and nothing local will:** the record is
+written after the handler returns, so a worker killed between the effect
+landing and that write remembers nothing, and the re-dispatched call runs it
+again. Recording first only moves the hole. This is at-least-once with a
+strong duplicate suppressor, not exactly-once, and the README caption and
+architecture doc now say that rather than implying otherwise. Where twice is
+unacceptable, the key has to reach a destination that dedupes on it.
+
+Found by building a scripted worker and killing it with `-9` at three
+different moments. Every claim in this entry was watched, not reasoned about;
+the previous version of this entry was reasoned about, and was wrong.
 
 ### No worker code in the orchestrator (decided 2026-09-13)
 
