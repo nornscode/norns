@@ -65,7 +65,7 @@ defmodule NornsWeb.RunLive do
       </div>
       <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-3">
         <div class="text-xs text-gray-500">Started</div>
-        <div class="text-sm"><%= format_time(@run.inserted_at) %></div>
+        <div class="text-sm"><.local_time id="run-started-at" at={@run.inserted_at} /></div>
       </div>
       <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-3">
         <div class="text-xs text-gray-500">Events</div>
@@ -127,7 +127,7 @@ defmodule NornsWeb.RunLive do
                   fork from step <%= event.payload["step"] %>
                 </button>
               <% end %>
-              <span class="text-xs text-gray-400 dark:text-gray-700"><%= format_time(event.inserted_at) %></span>
+              <.local_time id={"event-#{event.id}-at"} at={event.inserted_at} format="time" class="text-xs text-gray-400 dark:text-gray-700" />
             </div>
           </div>
           <%= if detail = event_detail(event) do %>
@@ -362,9 +362,6 @@ defmodule NornsWeb.RunLive do
       [only] -> {"", only}
     end
   end
-
-  defp format_time(nil), do: ""
-  defp format_time(dt), do: Calendar.strftime(dt, "%H:%M:%S.") <> String.slice(to_string(dt.microsecond |> elem(0)), 0, 3)
 
   defp load_tenant(%{"tenant_id" => tenant_id}) do
     {:ok, Norns.Tenants.get_tenant!(tenant_id)}

@@ -20,9 +20,30 @@
     </script>
     <script>
       let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content");
+      // Rewrites server-rendered UTC timestamps in the viewer's timezone and locale.
+      const timeFormats = {
+        datetime: new Intl.DateTimeFormat(undefined, {
+          year: "numeric", month: "2-digit", day: "2-digit",
+          hour: "2-digit", minute: "2-digit", second: "2-digit"
+        }),
+        time: new Intl.DateTimeFormat(undefined, {
+          hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3
+        })
+      };
+      const LocalTime = {
+        mounted() { this.render(); },
+        updated() { this.render(); },
+        render() {
+          let date = new Date(this.el.getAttribute("datetime"));
+          let format = timeFormats[this.el.dataset.format] || timeFormats.datetime;
+          if (!isNaN(date)) this.el.textContent = format.format(date);
+        }
+      };
+
       let liveSocket = new LiveView.LiveSocket("/live", Phoenix.Socket, {
         longPollFallbackMs: 2500,
-        params: { _csrf_token: csrfToken }
+        params: { _csrf_token: csrfToken },
+        hooks: { LocalTime }
       });
       liveSocket.connect();
 
