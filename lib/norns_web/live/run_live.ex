@@ -30,8 +30,13 @@ defmodule NornsWeb.RunLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="mb-6">
+    <div class="mb-6 flex items-center gap-3">
       <a href={"/agents/#{@run.agent_id}"} class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-400">&larr; agent</a>
+      <%= if @run.parent_run_id do %>
+        <a href={"/runs/#{@run.parent_run_id}"} class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-400">
+          &larr; launched by run #<%= @run.parent_run_id %>
+        </a>
+      <% end %>
     </div>
 
     <div class="flex items-center gap-3 mb-6">
@@ -83,6 +88,22 @@ defmodule NornsWeb.RunLive do
         <% end %>
       </div>
     </div>
+
+    <%!-- What this run launched --%>
+    <%= if @children != [] do %>
+      <div class="mb-6">
+        <div class="text-xs text-gray-500 mb-2">Launched</div>
+        <div class="space-y-1">
+          <%= for child <- @children do %>
+            <a href={"/runs/#{child.id}"} class="flex items-center gap-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded px-3 py-2 hover:border-gray-300 dark:hover:border-gray-700">
+              <span class={["w-2 h-2 rounded-full", run_status_color(child.status)]}></span>
+              <span class="text-sm">Run #<%= child.id %></span>
+              <span class="text-xs text-gray-500"><%= child.status %></span>
+            </a>
+          <% end %>
+        </div>
+      </div>
+    <% end %>
 
     <%!-- Output --%>
     <%= if @run.output do %>
@@ -240,7 +261,12 @@ defmodule NornsWeb.RunLive do
   # Sub-agents' calls are not on this page, so their share is a query, run
   # when the page reloads the run rather than on every render.
   defp assign_run(socket, run, events) do
-    assign(socket, run: run, events: events, total_cost: Runs.cost(run, subagents: true))
+    assign(socket,
+      run: run,
+      events: events,
+      total_cost: Runs.cost(run, subagents: true),
+      children: Runs.child_runs(run.id)
+    )
   end
 
   defp run_status_color("completed"), do: "bg-green-400"
