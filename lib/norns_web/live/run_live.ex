@@ -54,7 +54,7 @@ defmodule NornsWeb.RunLive do
     <% end %>
 
     <%!-- Run info --%>
-    <div class="grid grid-cols-4 gap-4 mb-6">
+    <div class="grid grid-cols-5 gap-4 mb-6">
       <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-3">
         <div class="text-xs text-gray-500">Trigger</div>
         <div class="text-sm">
@@ -74,6 +74,10 @@ defmodule NornsWeb.RunLive do
       <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-3">
         <div class="text-xs text-gray-500">Tokens</div>
         <div class="text-sm"><%= @run.input_tokens + @run.output_tokens %> total</div>
+      </div>
+      <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-3">
+        <div class="text-xs text-gray-500">Cost</div>
+        <div class="text-sm"><%= format_cost(event_cost(@events)) %></div>
       </div>
     </div>
 
@@ -369,6 +373,21 @@ defmodule NornsWeb.RunLive do
       [header, body] -> {header, body}
       [only] -> {"", only}
     end
+  end
+
+  # Priced from the events already on the page, so live updates need no query.
+  defp event_cost(events) do
+    events
+    |> Enum.filter(&(&1.event_type in ["llm_response", "context_compacted"]))
+    |> Enum.map(&{&1.payload["model"], &1.payload["usage"] || %{}})
+    |> Norns.Runs.Cost.of_usages()
+  end
+
+  defp format_cost(%{usd: usd, unpriced: []}), do: "$" <> Decimal.to_string(Decimal.round(usd, 4), :normal)
+
+  defp format_cost(%{usd: usd, unpriced: unpriced}) do
+    models = Enum.map_join(unpriced, ", ", &(&1.model || "unknown model"))
+    "$#{Decimal.to_string(Decimal.round(usd, 4), :normal)} + unpriced (#{models})"
   end
 
   defp load_tenant(%{"tenant_id" => tenant_id}) do
