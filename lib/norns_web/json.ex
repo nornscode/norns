@@ -37,6 +37,7 @@ defmodule NornsWeb.JSON do
       input_tokens: run.input_tokens || 0,
       output_tokens: run.output_tokens || 0,
       cost: cost(Norns.Runs.cost(run)),
+      total_cost: cost(Norns.Runs.cost(run, subagents: true)),
       inserted_at: run.inserted_at,
       updated_at: run.updated_at
     }

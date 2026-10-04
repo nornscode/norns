@@ -36,7 +36,7 @@ defmodule NornsWeb.RunControllerTest do
           payload: %{"content" => "hi", "step" => 1, "model" => "claude-haiku-4-5", "usage" => %{"input_tokens" => 1_000, "output_tokens" => 100}}
         })
 
-      assert %{"data" => %{"cost" => %{"usd" => "0.001500", "unpriced" => []}}} =
+      assert %{"data" => %{"cost" => %{"usd" => "0.001500", "unpriced" => []}, "total_cost" => %{"usd" => "0.001500"}}} =
                json_response(get(conn, "/api/v1/runs/#{run.id}"), 200)
     end
 

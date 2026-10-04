@@ -98,4 +98,30 @@ defmodule Norns.Runs.CostTest do
       assert Decimal.equal?(usd, Decimal.new("0.0468"))
     end
   end
+  describe "Runs.cost/2 with subagents: true" do
+    test "adds every sub-agent run below this one, and nothing beside it" do
+      tenant = create_tenant()
+      agent = create_agent(tenant)
+
+      run = fn attrs ->
+        {:ok, run} =
+          Runs.create_run(Map.merge(%{agent_id: agent.id, tenant_id: tenant.id, trigger_type: "message", input: %{}, status: "completed"}, attrs))
+
+        # Haiku, 1k in / 100 out: $0.0015 a call.
+        payload = %{"content" => "x", "step" => 1, "model" => "claude-haiku-4-5", "usage" => %{"input_tokens" => 1_000, "output_tokens" => 100}}
+        {:ok, _} = Runs.append_event(run, %{event_type: "llm_response", source: "system", payload: payload})
+        run
+      end
+
+      parent = run.(%{})
+      child = run.(%{parent_run_id: parent.id, depth: 1})
+      _grandchild = run.(%{parent_run_id: child.id, depth: 2})
+      _sibling = run.(%{parent_run_id: child.id, depth: 2})
+      _unrelated = run.(%{})
+
+      assert Decimal.equal?(Runs.cost(parent).usd, Decimal.new("0.0015"))
+      assert Decimal.equal?(Runs.cost(parent, subagents: true).usd, Decimal.new("0.006"))
+      assert Decimal.equal?(Runs.cost(child, subagents: true).usd, Decimal.new("0.0045"))
+    end
+  end
 end

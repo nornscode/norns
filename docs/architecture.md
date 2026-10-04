@@ -95,7 +95,8 @@ already inside `input_tokens`. `model` is the model that served the call, as
 the provider named it. Core keeps both on `llm_response` and
 `context_compacted` (falling back to the def's model) so each call can be
 priced from its own event. `Norns.Runs.Cost` does that when a run is read
-(`cost` on the run JSON and the run page): tokens are stored, dollars are
+(`cost` on the run JSON and the run page; `total_cost` adds every sub-agent
+run below it): tokens are stored, dollars are
 not, so a price change never rewrites history. The table holds Anthropic
 first-party rates; operators add other models in config, and a model with
 no price is reported as unpriced rather than free.

@@ -83,10 +83,19 @@ defmodule Norns.Runs do
   @doc """
   What the run's LLM calls cost. See `Norns.Runs.Cost`. Sums usage per
   model in the database, so it reads one row per model, not every event.
+
+  With `subagents: true`, the run's own calls plus those of every sub-agent
+  run it launched, and theirs in turn.
   """
-  def cost(%Run{id: run_id}) do
+  def cost(%Run{} = run, opts \\ []) do
+    run_ids =
+      if Keyword.get(opts, :subagents, false),
+        do: subquery(run_tree(run)),
+        else: from(r in Run, where: r.id == ^run.id, select: %{id: r.id})
+
     RunEvent
-    |> where([e], e.run_id == ^run_id and e.event_type in ["llm_response", "context_compacted"])
+    |> join(:inner, [e], t in subquery(run_ids), on: e.run_id == t.id)
+    |> where([e], e.event_type in ["llm_response", "context_compacted"])
     |> group_by([e], fragment("?->>'model'", e.payload))
     |> select([e], {
       fragment("?->>'model'", e.payload),
@@ -99,6 +108,24 @@ defmodule Norns.Runs do
     })
     |> Repo.all()
     |> Norns.Runs.Cost.of_usages()
+  end
+
+  # The run and its descendants through parent_run_id, within its tenant.
+  defp run_tree(%Run{id: run_id, tenant_id: tenant_id}) do
+    root = from(r in Run, where: r.id == ^run_id, select: %{id: r.id})
+
+    descendants =
+      from(r in Run,
+        join: t in "run_tree",
+        on: r.parent_run_id == t.id,
+        where: r.tenant_id == ^tenant_id,
+        select: %{id: r.id}
+      )
+
+    {"run_tree", Run}
+    |> recursive_ctes(true)
+    |> with_cte("run_tree", as: ^union_all(root, ^descendants))
+    |> select([t], %{id: t.id})
   end
 
   def list_events(run_id) do
