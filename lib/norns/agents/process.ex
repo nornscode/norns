@@ -423,7 +423,7 @@ defmodule Norns.Agents.Process do
               idempotency_key: keys |> Map.get(tc["id"], %{}) |> Map.get(:idempotency_key)
             )
 
-          {task_id, tc}
+          {task_id, {:worker, tc}}
         end)
 
       all_pending = worker_pending ++ launch_pending
@@ -575,7 +575,7 @@ defmodule Norns.Agents.Process do
         tool_call_id: block["id"]
       })
 
-    {results, pending ++ [{task_id, block}], st}
+    {results, pending ++ [{task_id, {:subagent, block}}], st}
   end
 
   # A partial crash can leave the parent resumed and the child not. Nothing else
@@ -702,7 +702,7 @@ defmodule Norns.Agents.Process do
                 tool_call_id: block["id"]
               })
 
-            {results, pending ++ [{task_id, synthetic_tc}], st}
+            {results, pending ++ [{task_id, {:subagent, synthetic_tc}}], st}
 
           # A per_parent child still working on the last assignment, or parked
           # on a question to the user. Refused rather than queued: the model
@@ -880,7 +880,7 @@ defmodule Norns.Agents.Process do
         # Unknown task ID — ignore
         {:noreply, state}
 
-      {tc, remaining_tasks} ->
+      {{_kind, tc}, remaining_tasks} ->
         # Build the tool result as a neutral message. A sub-agent outcome
         # arrives kinded; a worker result is content, forwarded verbatim.
         {status, content, extra, duplicate?} =
@@ -973,15 +973,29 @@ defmodule Norns.Agents.Process do
   end
 
   def handle_info({:task_timeout, _task_id}, %{status: :awaiting_tools} = state) do
-    if waiting_only_on_subagents?(state) do
-      # The timer covers the worker's calls in this step, and those are back.
-      # What is left is a child run: it has its own step budget and its own
-      # timeouts, and it may be parked on a question to a human, so how long
-      # it takes says nothing about a worker having gone.
-      {:noreply, %{state | task_timer: nil}}
-    else
-      Logger.warning("Tool task timed out after #{@task_timeout_ms}ms")
-      {:noreply, complete_with_error(state, "Tool task timed out — worker may have disconnected")}
+    cond do
+      waiting_only_on_subagents?(state) ->
+        # The timer covers the worker's calls in this step, and those are back.
+        # What is left is a child run: it has its own step budget and its own
+        # timeouts, and it may be parked on a question to a human, so how long
+        # it takes says nothing about a worker having gone.
+        {:noreply, %{state | task_timer: nil}}
+
+      live_child_run?(state) ->
+        # Our own bookkeeping says a worker is overdue; the database says a
+        # child of this run is still going. Failing the parent on the weaker
+        # of the two destroys a live tree, and "worker may have disconnected"
+        # is then simply untrue. Re-arm instead of clearing: once the child
+        # is done, a genuinely hung worker still gets caught on the next tick.
+        Logger.warning(
+          "Tool task timed out after #{@task_timeout_ms}ms, but a child run is still live — not failing the parent"
+        )
+
+        {:noreply, %{state | task_timer: Process.send_after(self(), {:task_timeout, :tools}, @task_timeout_ms)}}
+
+      true ->
+        Logger.warning("Tool task timed out after #{@task_timeout_ms}ms")
+        {:noreply, complete_with_error(state, "Tool task timed out — worker may have disconnected")}
     end
   end
 
@@ -1442,13 +1456,21 @@ defmodule Norns.Agents.Process do
     Phoenix.PubSub.broadcast(Norns.PubSub, "agent:#{state.agent_id}", {event, payload})
   end
 
-  defp waiting_only_on_subagents?(%{pending_tool_tasks: %{tasks: tasks}, pending_subagents: subagents})
-       when map_size(tasks) > 0 do
-    launched = MapSet.new(subagents, fn {_child_run_id, %{task_id: task_id}} -> task_id end)
-    Enum.all?(Map.keys(tasks), &MapSet.member?(launched, &1))
+  # Each task says what it is, set where it was dispatched. This used to be a
+  # join between `tasks` (keyed by task id) and `pending_subagents` (keyed by
+  # child run id) agreeing on a string each derived separately — and when they
+  # disagreed it failed closed, killing a live run with "worker may have
+  # disconnected" and leaving nothing in the log to say which side was wrong.
+  defp waiting_only_on_subagents?(%{pending_tool_tasks: %{tasks: tasks}}) when map_size(tasks) > 0 do
+    Enum.all?(Map.values(tasks), &match?({:subagent, _}, &1))
   end
 
   defp waiting_only_on_subagents?(_state), do: false
+
+  # Asked of the log, not of this process's memory, so it still answers when
+  # the two have drifted apart.
+  defp live_child_run?(%{run: %{id: run_id}}) when is_integer(run_id), do: Runs.live_children?(run_id)
+  defp live_child_run?(_state), do: false
 
   # Keyed by child *run* id, not child agent id: one parent step can launch the
   # same agent twice, and after a crash an abandoned child can still be alive

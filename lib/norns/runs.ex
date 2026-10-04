@@ -13,6 +13,20 @@ defmodule Norns.Runs do
   def get_run(id), do: Repo.get(Run, id) |> Repo.preload(:conversation)
   def get_run!(id), do: Repo.get!(Run, id) |> Repo.preload(:conversation)
 
+  @doc """
+  Whether this run still has a child going.
+
+  Independent of the parent process's own bookkeeping, which is the point:
+  a child recorded as running or waiting is positive evidence that nothing
+  disconnected, and it survives the parent losing track of the task.
+  """
+  def live_children?(run_id) do
+    Repo.exists?(
+      from r in Run,
+        where: r.parent_run_id == ^run_id and r.status in ["pending", "running", "waiting"]
+    )
+  end
+
   def list_runs(agent_id) do
     Run
     |> where([r], r.agent_id == ^agent_id)

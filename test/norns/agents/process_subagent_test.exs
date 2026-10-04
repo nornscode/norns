@@ -795,5 +795,83 @@ defmodule Norns.Agents.ProcessSubagentTest do
       assert launch_tool_result(run_events(pid)).payload["kind"] == "subagent_completed"
       assert Runs.get_run!(AgentProcess.get_state(pid).run_id).status == "completed"
     end
+
+    test "a live child saves the parent even when its own bookkeeping has drifted", %{tenant: tenant} do
+      # The belt to the braces above. If the process loses track of which
+      # pending task is the sub-agent, the timer used to read that as a
+      # vanished worker and kill a run whose child was alive and parked on a
+      # question — which is what it did in production, with the tracking
+      # intact and no record of which half disagreed. The log is the second
+      # opinion: a child that is running or waiting is positive evidence that
+      # nothing disconnected.
+      helper = team_agent(tenant, "helper")
+      lead = team_agent(tenant, "lead")
+
+      LLM.set_responses([
+        launch_with(helper.name, "call_launch", "take your time"),
+        ask_response("Allow bash `make`?"),
+        done_response(),
+        done_response()
+      ])
+
+      helper_id = helper.id
+      lead_id = lead.id
+      Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{helper_id}")
+      {:ok, pid} = AgentProcess.start_link(agent_id: lead.id, tenant_id: tenant.id, conversation_key: "session")
+      subscribe_and_send(pid, lead.id, "go")
+      assert_receive {:waiting_for_user, %{agent_id: ^helper_id}}, 5000
+
+      # Mislabel the pending task so the first check reads it as a worker's,
+      # leaving the live-child check to be the only thing standing between a
+      # parked child and a dead parent.
+      :sys.replace_state(pid, fn state ->
+        tasks = Map.new(state.pending_tool_tasks.tasks, fn {id, {_kind, tc}} -> {id, {:worker, tc}} end)
+        %{state | pending_tool_tasks: %{state.pending_tool_tasks | tasks: tasks}}
+      end)
+
+      send(pid, {:task_timeout, :tools})
+      assert AgentProcess.get_state(pid).status == :awaiting_tools
+      assert Runs.get_run!(AgentProcess.get_state(pid).run_id).status == "running"
+
+      [child] = runs_of(helper)
+      {:ok, helper_pid} = Norns.Agents.Registry.lookup(tenant.id, helper.id, child.conversation.key)
+      assert :ok = AgentProcess.reply_to_human(helper_pid, "yes")
+
+      assert_receive {:completed, %{agent_id: ^lead_id}}, 5000
+      assert Runs.get_run!(AgentProcess.get_state(pid).run_id).status == "completed"
+    end
+
+    test "a hung worker with no child to vouch for it still fails the parent", %{tenant: tenant} do
+      # The cost of the second opinion is a timer that re-arms, so this makes
+      # sure it still fires when nothing is alive to justify the delay.
+      slow = %Norns.TestWorker.Tool{
+        name: "slow_tool",
+        description: "never answers in time",
+        input_schema: %{},
+        handler: fn _ -> Process.sleep(60_000) end
+      }
+
+      {:ok, worker} = Norns.TestWorker.start_link(tenant: tenant.id, name: nil, tools: [slow])
+      on_exit(fn -> if Process.alive?(worker), do: GenServer.stop(worker) end)
+
+      lead = team_agent(tenant, "lead")
+
+      LLM.set_responses([
+        %{
+          content: [%{"type" => "tool_use", "id" => "call_1", "name" => "slow_tool", "input" => %{}}],
+          stop_reason: "tool_use"
+        }
+      ])
+
+      lead_id = lead.id
+      {:ok, pid} = AgentProcess.start_link(agent_id: lead.id, tenant_id: tenant.id, conversation_key: "session")
+      subscribe_and_send(pid, lead.id, "go")
+
+      wait_for(:tool_call)
+      send(pid, {:task_timeout, :tools})
+
+      assert_receive {:error, %{agent_id: ^lead_id}}, 5000
+      assert Runs.get_run!(AgentProcess.get_state(pid).run_id).status == "failed"
+    end
   end
 end
