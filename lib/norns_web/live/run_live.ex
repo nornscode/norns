@@ -19,7 +19,14 @@ defmodule NornsWeb.RunLive do
             Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{run.agent_id}")
           end
 
-          {:ok, assign(socket, tenant: tenant, current_tenant: tenant, run: run, events: events)}
+          {:ok,
+           assign(socket,
+             tenant: tenant,
+             current_tenant: tenant,
+             run: run,
+             events: events,
+             children: Runs.child_runs(run.id)
+           )}
         end
 
       :error ->
@@ -30,8 +37,13 @@ defmodule NornsWeb.RunLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="mb-6">
+    <div class="mb-6 flex items-center gap-3">
       <a href={"/agents/#{@run.agent_id}"} class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-400">&larr; agent</a>
+      <%= if @run.parent_run_id do %>
+        <a href={"/runs/#{@run.parent_run_id}"} class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-400">
+          &larr; launched by run #<%= @run.parent_run_id %>
+        </a>
+      <% end %>
     </div>
 
     <div class="flex items-center gap-3 mb-6">
@@ -76,6 +88,22 @@ defmodule NornsWeb.RunLive do
         <div class="text-sm"><%= @run.input_tokens + @run.output_tokens %> total</div>
       </div>
     </div>
+
+    <%!-- What this run launched --%>
+    <%= if @children != [] do %>
+      <div class="mb-6">
+        <div class="text-xs text-gray-500 mb-2">Launched</div>
+        <div class="space-y-1">
+          <%= for child <- @children do %>
+            <a href={"/runs/#{child.id}"} class="flex items-center gap-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded px-3 py-2 hover:border-gray-300 dark:hover:border-gray-700">
+              <span class={["w-2 h-2 rounded-full", run_status_color(child.status)]}></span>
+              <span class="text-sm">Run #<%= child.id %></span>
+              <span class="text-xs text-gray-500"><%= child.status %></span>
+            </a>
+          <% end %>
+        </div>
+      </div>
+    <% end %>
 
     <%!-- Output --%>
     <%= if @run.output do %>
@@ -225,7 +253,9 @@ defmodule NornsWeb.RunLive do
       when event in [:llm_response, :tool_call, :tool_result, :completed, :error, :waiting, :agent_resumed] do
     run = Runs.get_run!(socket.assigns.run.id)
     events = Runs.list_events(run.id)
-    {:noreply, assign(socket, run: run, events: events)}
+    # Re-read the children too: a launch happens mid-run, and the interesting
+    # moment to be watching is the one where a child appears.
+    {:noreply, assign(socket, run: run, events: events, children: Runs.child_runs(run.id))}
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
