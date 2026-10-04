@@ -50,6 +50,7 @@ defmodule NornsWeb do
   defp html_helpers do
     quote do
       import Phoenix.LiveView.Helpers, warn: false
+      import NornsWeb.Time
       unquote(verified_routes())
     end
   end

@@ -54,16 +54,13 @@ defmodule NornsWeb.TelemetryLive do
               <span class="text-sm text-gray-900 dark:text-white"><%= event.source %></span>
               <span class="text-xs text-gray-500"><%= event.version %></span>
             </div>
-            <span class="text-xs text-gray-400 dark:text-gray-700"><%= format_time(event.inserted_at) %></span>
+            <.local_time id={"telemetry-#{event.id}-at"} at={event.inserted_at} class="text-xs text-gray-400 dark:text-gray-700" />
           </div>
         <% end %>
       </div>
     <% end %>
     """
   end
-
-  defp format_time(nil), do: ""
-  defp format_time(dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
 
   defp load_tenant(%{"tenant_id" => tenant_id}) do
     {:ok, Norns.Tenants.get_tenant!(tenant_id)}

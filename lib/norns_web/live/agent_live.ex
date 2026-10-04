@@ -197,7 +197,7 @@ defmodule NornsWeb.AgentLive do
                     <span class="text-xs text-gray-500 truncate"><%= preview %></span>
                   <% end %>
                 </div>
-                <span class="text-xs text-gray-500 dark:text-gray-600 shrink-0 ml-3"><%= format_time(run.inserted_at) %></span>
+                <.local_time id={"run-#{run.id}-at"} at={run.inserted_at} class="text-xs text-gray-500 dark:text-gray-600 shrink-0 ml-3" />
               </a>
             <% end %>
           </div>
@@ -354,9 +354,6 @@ defmodule NornsWeb.AgentLive do
     |> Enum.group_by(& &1.conversation_id)
     |> Enum.sort_by(fn {_conv_id, runs} -> hd(runs).inserted_at end, {:desc, DateTime})
   end
-
-  defp format_time(nil), do: ""
-  defp format_time(dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
 
   defp load_tenant(%{"tenant_id" => tenant_id}) do
     {:ok, Norns.Tenants.get_tenant!(tenant_id)}
