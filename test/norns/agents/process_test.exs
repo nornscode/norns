@@ -96,6 +96,25 @@ defmodule Norns.Agents.ProcessTest do
       assert response.payload["finish_reason"] == "length"
     end
 
+    test "the llm_response event keeps the worker's cache-read count", %{tenant: tenant, agent: agent} do
+      LLM.set_responses([
+        %{
+          content: [%{"type" => "text", "text" => "Hi."}],
+          stop_reason: "end_turn",
+          usage: %{input_tokens: 4_000, output_tokens: 5, cache_read_tokens: 3_600}
+        }
+      ])
+
+      {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
+      subscribe_and_send(pid, agent.id, "hello")
+      wait_for(:completed)
+
+      run = Runs.get_run!(AgentProcess.get_state(pid).run_id)
+      response = Enum.find(Runs.list_events(run.id), &(&1.event_type == "llm_response"))
+      assert response.payload["usage"] == %{"input_tokens" => 4_000, "output_tokens" => 5, "cache_read_tokens" => 3_600}
+      assert run.input_tokens == 4_000
+    end
+
     test "conversation persists messages across runs", %{tenant: tenant, agent: agent} do
       LLM.set_responses([
         %{content: [%{"type" => "text", "text" => "first"}], stop_reason: "end_turn"},
