@@ -19,7 +19,7 @@ defmodule NornsWeb.RunLive do
             Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{run.agent_id}")
           end
 
-          {:ok, assign(socket, tenant: tenant, current_tenant: tenant, run: run, events: events)}
+          {:ok, socket |> assign(tenant: tenant, current_tenant: tenant) |> assign_run(run, events)}
         end
 
       :error ->
@@ -54,7 +54,7 @@ defmodule NornsWeb.RunLive do
     <% end %>
 
     <%!-- Run info --%>
-    <div class="grid grid-cols-4 gap-4 mb-6">
+    <div class="grid grid-cols-5 gap-4 mb-6">
       <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-3">
         <div class="text-xs text-gray-500">Trigger</div>
         <div class="text-sm">
@@ -74,6 +74,13 @@ defmodule NornsWeb.RunLive do
       <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-3">
         <div class="text-xs text-gray-500">Tokens</div>
         <div class="text-sm"><%= @run.input_tokens + @run.output_tokens %> total</div>
+      </div>
+      <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-3">
+        <div class="text-xs text-gray-500">Cost</div>
+        <div class="text-sm"><%= format_cost(event_cost(@events)) %></div>
+        <%= if Enum.any?(@events, &(&1.event_type == "subagent_launched")) do %>
+          <div class="text-xs text-gray-500"><%= format_cost(@total_cost) %> with sub-agents</div>
+        <% end %>
       </div>
     </div>
 
@@ -185,7 +192,7 @@ defmodule NornsWeb.RunLive do
 
     {:noreply,
      socket
-     |> assign(run: updated_run, events: events)
+     |> assign_run(updated_run, events)
      |> put_flash(:info, "Run cancelled")}
   end
 
@@ -225,10 +232,16 @@ defmodule NornsWeb.RunLive do
       when event in [:llm_response, :tool_call, :tool_result, :completed, :error, :waiting, :agent_resumed] do
     run = Runs.get_run!(socket.assigns.run.id)
     events = Runs.list_events(run.id)
-    {:noreply, assign(socket, run: run, events: events)}
+    {:noreply, assign_run(socket, run, events)}
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
+
+  # Sub-agents' calls are not on this page, so their share is a query, run
+  # when the page reloads the run rather than on every render.
+  defp assign_run(socket, run, events) do
+    assign(socket, run: run, events: events, total_cost: Runs.cost(run, subagents: true))
+  end
 
   defp run_status_color("completed"), do: "bg-green-400"
   defp run_status_color("running"), do: "bg-blue-400 animate-pulse-dot"
@@ -369,6 +382,21 @@ defmodule NornsWeb.RunLive do
       [header, body] -> {header, body}
       [only] -> {"", only}
     end
+  end
+
+  # Priced from the events already on the page, so live updates need no query.
+  defp event_cost(events) do
+    events
+    |> Enum.filter(&(&1.event_type in ["llm_response", "context_compacted"]))
+    |> Enum.map(&{&1.payload["model"], &1.payload["usage"] || %{}})
+    |> Norns.Runs.Cost.of_usages()
+  end
+
+  defp format_cost(%{usd: usd, unpriced: []}), do: "$" <> Decimal.to_string(Decimal.round(usd, 4), :normal)
+
+  defp format_cost(%{usd: usd, unpriced: unpriced}) do
+    models = Enum.map_join(unpriced, ", ", &(&1.model || "unknown model"))
+    "$#{Decimal.to_string(Decimal.round(usd, 4), :normal)} + unpriced (#{models})"
   end
 
   defp load_tenant(%{"tenant_id" => tenant_id}) do

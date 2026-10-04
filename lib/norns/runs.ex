@@ -80,6 +80,54 @@ defmodule Norns.Runs do
   """
   defdelegate trace_summary(run_id), to: Norns.Runs.TraceSummary, as: :build
 
+  @doc """
+  What the run's LLM calls cost. See `Norns.Runs.Cost`. Sums usage per
+  model in the database, so it reads one row per model, not every event.
+
+  With `subagents: true`, the run's own calls plus those of every sub-agent
+  run it launched, and theirs in turn.
+  """
+  def cost(%Run{} = run, opts \\ []) do
+    run_ids =
+      if Keyword.get(opts, :subagents, false),
+        do: subquery(run_tree(run)),
+        else: from(r in Run, where: r.id == ^run.id, select: %{id: r.id})
+
+    RunEvent
+    |> join(:inner, [e], t in subquery(run_ids), on: e.run_id == t.id)
+    |> where([e], e.event_type in ["llm_response", "context_compacted"])
+    |> group_by([e], fragment("?->>'model'", e.payload))
+    |> select([e], {
+      fragment("?->>'model'", e.payload),
+      %{
+        "input_tokens" => type(sum(fragment("COALESCE((?->'usage'->>'input_tokens')::bigint, 0)", e.payload)), :integer),
+        "output_tokens" => type(sum(fragment("COALESCE((?->'usage'->>'output_tokens')::bigint, 0)", e.payload)), :integer),
+        "cache_read_tokens" => type(sum(fragment("COALESCE((?->'usage'->>'cache_read_tokens')::bigint, 0)", e.payload)), :integer),
+        "cache_write_tokens" => type(sum(fragment("COALESCE((?->'usage'->>'cache_write_tokens')::bigint, 0)", e.payload)), :integer)
+      }
+    })
+    |> Repo.all()
+    |> Norns.Runs.Cost.of_usages()
+  end
+
+  # The run and its descendants through parent_run_id, within its tenant.
+  defp run_tree(%Run{id: run_id, tenant_id: tenant_id}) do
+    root = from(r in Run, where: r.id == ^run_id, select: %{id: r.id})
+
+    descendants =
+      from(r in Run,
+        join: t in "run_tree",
+        on: r.parent_run_id == t.id,
+        where: r.tenant_id == ^tenant_id,
+        select: %{id: r.id}
+      )
+
+    {"run_tree", Run}
+    |> recursive_ctes(true)
+    |> with_cte("run_tree", as: ^union_all(root, ^descendants))
+    |> select([t], %{id: t.id})
+  end
+
   def list_events(run_id) do
     RunEvent
     |> where([e], e.run_id == ^run_id)

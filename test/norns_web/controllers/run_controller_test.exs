@@ -25,6 +25,21 @@ defmodule NornsWeb.RunControllerTest do
       assert id == run.id
     end
 
+    test "says what the run's LLM calls cost", %{conn: conn, tenant: tenant, agent: agent} do
+      {:ok, run} =
+        Norns.Runs.create_run(%{agent_id: agent.id, tenant_id: tenant.id, trigger_type: "message", input: %{}, status: "completed"})
+
+      {:ok, _} =
+        Norns.Runs.append_event(run, %{
+          event_type: "llm_response",
+          source: "system",
+          payload: %{"content" => "hi", "step" => 1, "model" => "claude-haiku-4-5", "usage" => %{"input_tokens" => 1_000, "output_tokens" => 100}}
+        })
+
+      assert %{"data" => %{"cost" => %{"usd" => "0.001500", "unpriced" => []}, "total_cost" => %{"usd" => "0.001500"}}} =
+               json_response(get(conn, "/api/v1/runs/#{run.id}"), 200)
+    end
+
     # What a client needs to hang a child under its parent and to tell that
     # the child is waiting on the user, without reading the event log.
     test "a sub-agent run carries its agent, its parent, and what it is waiting for",

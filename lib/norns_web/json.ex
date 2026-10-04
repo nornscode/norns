@@ -36,10 +36,15 @@ defmodule NornsWeb.JSON do
       waiting_for: Norns.Runs.pending_question(run),
       input_tokens: run.input_tokens || 0,
       output_tokens: run.output_tokens || 0,
+      cost: cost(Norns.Runs.cost(run)),
+      total_cost: cost(Norns.Runs.cost(run, subagents: true)),
       inserted_at: run.inserted_at,
       updated_at: run.updated_at
     }
   end
+
+  # Dollars as a decimal string, so no client rounds them through a float.
+  defp cost(%{usd: usd, unpriced: unpriced}), do: %{usd: Decimal.to_string(usd, :normal), unpriced: unpriced}
 
   # Never includes the claim token — that's returned once, on create.
   def gard(gard) do
