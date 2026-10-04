@@ -39,7 +39,9 @@ answer it:
 - **Just send a message.** `POST /api/v1/agents/:id/messages` to a parked
   agent is treated as the answer. Conversational clients (a Slack bot, a chat
   UI) don't have to track agent state or switch endpoints mid-conversation.
-  This is the primary path.
+  This is the primary path. A sub-agent launch is never an answer: a message
+  carrying lineage to a parked agent is refused as busy (see § "Sub-agent
+  conversations").
 - **Answer a specific run.** `POST /api/v1/runs/:id/reply` (`{"answer": "..."}`)
   targets one run explicitly — useful for programmatic clients and for agents
   with several conversations parked at once.
@@ -286,6 +288,41 @@ only thing that tells the two results apart.
 If the child run is gone entirely, the call returns an error. Relaunching would
 look like recovery while quietly paying for the work a second time.
 
+### Sub-agent conversations
+
+By default every `launch_agent` call starts the child in a fresh conversation:
+it remembers nothing between assignments, and any number of copies can run at
+once. A child can opt into one conversation per parent conversation instead,
+in its own `model_config`:
+
+```json
+{"subagent_conversation": "per_parent"}
+```
+
+| Value | Child conversation key |
+|-------|------------------------|
+| `per_launch` (default) | `subagent_<tool call id>_<unique>` |
+| `per_parent` | `subagent:<parent conversation id>` |
+
+The setting belongs to the child because it describes the child: a coder
+editing a working tree wants one memory and one writer at a time; an explorer
+wants neither. Keys are already scoped by the child agent (the registry and
+the conversation's unique index are both per agent), and every child key
+starts with `subagent`, which is how a client tells a child conversation from
+a session. A parent run with no conversation falls back to `per_launch`.
+
+A conversation is one process, so a `per_parent` child that is still working
+refuses the next launch. The parent gets an error result with
+`kind: "subagent_busy"` and `data: {"agent_name": ...}`, and no child run is
+created. That includes a child parked on `ask_human`: a message to a parked
+agent is normally taken as the answer, but a launch is refused instead, so a
+parent's instructions can never be read as the user's reply to the child's
+question.
+
+Recovery is unchanged. A resumed parent restarts an orphaned child under the
+key its run's conversation records, so a `per_parent` child comes back where
+the next launch from that session will look for it, with its history.
+
 ### Error Classification
 
 | Class | Example | Retry behavior |
@@ -380,7 +417,7 @@ GET    /api/v1/runs/:id                      — run details + failure inspector
 GET    /api/v1/runs/:id/events               — event log
 GET    /api/v1/runs/:id/summary              — fixed-size trace summary
 POST   /api/v1/runs/:id/fork                 — new run from the history after `step`; optional message, system_prompt, model
-GET    /api/v1/sessions                      — every conversation across agents and gards with its latest run and live state (`?limit=`)
+GET    /api/v1/sessions                      — every conversation across agents and gards with its latest run and live state (`?limit=`, `?archived=true`, `?subagents=false` for top-level only)
 GET    /api/v1/sessions/:id                  — one session with its messages
 GET    /api/v1/tools                         — tools callable in this tenant
 ```

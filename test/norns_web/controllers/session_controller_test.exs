@@ -171,6 +171,52 @@ defmodule NornsWeb.SessionControllerTest do
     end
   end
 
+  test "a sub-agent's conversation is listed, recognisably, and can be left out", %{conn: conn, tenant: tenant, agent: agent} do
+    coder = create_agent(tenant, %{name: "sleipnir-code"})
+    run = fn agent, conversation, attrs ->
+      {:ok, run} =
+        Runs.create_run(
+          Map.merge(
+            %{agent_id: agent.id, tenant_id: tenant.id, conversation_id: conversation.id, trigger_type: "message", input: %{}, status: "completed"},
+            attrs
+          )
+        )
+
+      run
+    end
+
+    {:ok, session} = Conversations.find_or_create_conversation(agent.id, tenant.id, "session")
+    parent_run = run.(agent, session, %{})
+
+    {:ok, child} = Conversations.find_or_create_conversation(coder.id, tenant.id, "subagent:#{session.id}")
+    run.(coder, child, %{parent_run_id: parent_run.id, depth: 1})
+
+    # Messaged directly as well: somebody's session, whoever else launched into it.
+    {:ok, direct} = Conversations.find_or_create_conversation(coder.id, tenant.id, "direct")
+    run.(coder, direct, %{parent_run_id: parent_run.id, depth: 1})
+    run.(coder, direct, %{})
+
+    # Listed by default — a client drawing a tree needs the children — and
+    # recognisable by key prefix and by whose child its run says it is.
+    assert %{"data" => all} = json_response(get(conn, "/api/v1/sessions"), 200)
+    assert Enum.sort(Enum.map(all, & &1["id"])) == Enum.sort([session.id, child.id, direct.id])
+
+    assert %{"key" => "subagent" <> _, "run" => %{"parent_run_id" => parent_run_id, "status" => "completed"} = listed_run} =
+             Enum.find(all, &(&1["id"] == child.id))
+
+    assert parent_run_id == parent_run.id
+    assert Map.has_key?(listed_run, "waiting_for")
+
+    # Top-level only, for a client that wants just that.
+    assert %{"data" => top} = json_response(get(conn, "/api/v1/sessions?subagents=false"), 200)
+    assert Enum.sort(Enum.map(top, & &1["id"])) == Enum.sort([session.id, direct.id])
+
+    # And readable by id, which is how a client reaches it from the parent's
+    # subagent_launched event.
+    assert %{"data" => %{"id" => child_id}} = json_response(get(conn, "/api/v1/sessions/#{child.id}"), 200)
+    assert child_id == child.id
+  end
+
   test "reports the live state of a running process", %{conn: conn, tenant: tenant, agent: agent} do
     {:ok, _pid} = Norns.Agents.Registry.start_conversation(agent.id, tenant.id, "live")
     {:ok, _c} = Conversations.find_or_create_conversation(agent.id, tenant.id, "live")

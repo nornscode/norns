@@ -15,10 +15,13 @@ defmodule NornsWeb.SessionController do
     tenant = conn.assigns.current_tenant
     limit = parse_limit(Map.get(params, "limit"))
     archived = Map.get(params, "archived") in [true, "true"]
+    # Sub-agent conversations are listed unless `subagents=false`; see
+    # Conversations.list_sessions/2.
+    subagents = Map.get(params, "subagents") not in [false, "false"]
 
     sessions =
       tenant.id
-      |> Conversations.list_sessions(limit: limit, archived: archived)
+      |> Conversations.list_sessions(limit: limit, archived: archived, subagents: subagents)
       |> Enum.map(&session_json(&1, tenant.id, false))
 
     json(conn, %{data: sessions})

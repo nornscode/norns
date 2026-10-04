@@ -9,7 +9,7 @@ defmodule Norns.Agents.Process do
   require Logger
 
   alias Norns.{Agents, Conversations, Runs}
-  alias Norns.Agents.{AgentDef, Messages, Replay, SubagentPolicy, ToolPolicy}
+  alias Norns.Agents.{AgentDef, Messages, Replay, SubagentConversation, SubagentPolicy, ToolPolicy}
   alias Norns.Runtime.{Content, ErrorPolicy, Errors, Events}
   alias Norns.Workers.WorkerRegistry
   alias Norns.Tools.{Catalog, Idempotency, Tool}
@@ -163,9 +163,20 @@ defmodule Norns.Agents.Process do
   # A message arriving while parked on ask_human is the answer. Conversational
   # clients (a Slack bot, a chat UI) shouldn't have to track agent state and
   # switch endpoints mid-conversation — the human just replies.
-  def handle_call({:send_message, content, _opts}, _from, %{status: :waiting, pending_human: pending} = state)
+  #
+  # Except when it is not from a human. A sub-agent launch into a conversation
+  # that is parked (a `per_parent` child, see SubagentConversation) would
+  # otherwise land as the answer to the child's question — and a harness that
+  # asks permission through ask_human would read the parent's instructions as
+  # the user saying yes. A launch is refused as busy; the question stays open.
+  def handle_call({:send_message, content, opts}, _from, %{status: :waiting, pending_human: pending} = state)
       when not is_nil(pending) do
-    deliver_human_answer(state, content, {:ok, state.run.id})
+    if launch?(opts) do
+      Logger.warning("Agent #{state.agent_id} refused a sub-agent launch while waiting on a human")
+      {:reply, {:error, :busy}, state}
+    else
+      deliver_human_answer(state, content, {:ok, state.run.id})
+    end
   end
 
   def handle_call({:send_message, _content, _opts}, _from, state) do
@@ -196,6 +207,10 @@ defmodule Norns.Agents.Process do
 
     {:reply, reply, state}
   end
+
+  # Lineage is only ever set by launch_agent; depth covers a launch whose
+  # parent run id was somehow nil.
+  defp launch?(opts), do: not is_nil(Keyword.get(opts, :parent_run_id)) or Keyword.get(opts, :depth, 0) > 0
 
   # Resolve the parked ask_human call with the human's answer and resume.
   # Shared by the dedicated reply call and by a plain message arriving while
@@ -408,7 +423,7 @@ defmodule Norns.Agents.Process do
               idempotency_key: keys |> Map.get(tc["id"], %{}) |> Map.get(:idempotency_key)
             )
 
-          {task_id, tc}
+          {task_id, {:worker, tc}}
         end)
 
       all_pending = worker_pending ++ launch_pending
@@ -560,7 +575,7 @@ defmodule Norns.Agents.Process do
         tool_call_id: block["id"]
       })
 
-    {results, pending ++ [{task_id, block}], st}
+    {results, pending ++ [{task_id, {:subagent, block}}], st}
   end
 
   # A partial crash can leave the parent resumed and the child not. Nothing else
@@ -633,7 +648,14 @@ defmodule Norns.Agents.Process do
         # Subscribe to child agent events
         Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{child_agent.id}")
 
-        conversation_key = "subagent_#{block["id"]}_#{System.unique_integer([:positive])}"
+        # The child decides whether it is launched fresh or into the one
+        # conversation it keeps for this parent conversation.
+        conversation_key =
+          SubagentConversation.key(
+            AgentDef.from_agent(child_agent).subagent_conversation,
+            block["id"],
+            st.run && st.run.conversation_id
+          )
 
         # A child working on the same task should see the same filesystem —
         # inherit the parent's gard unless the call names a different one.
@@ -680,7 +702,16 @@ defmodule Norns.Agents.Process do
                 tool_call_id: block["id"]
               })
 
-            {results, pending ++ [{task_id, synthetic_tc}], st}
+            {results, pending ++ [{task_id, {:subagent, synthetic_tc}}], st}
+
+          # A per_parent child still working on the last assignment, or parked
+          # on a question to the user. Refused rather than queued: the model
+          # can wait for the earlier launch, and a second writer on the same
+          # conversation is what the setting exists to rule out.
+          {:error, :busy} ->
+            data = %{"agent_name" => agent_name}
+            result = make_system_result(st, block, "launch_agent", "subagent_busy", data, "", true)
+            {results ++ [result], pending, st}
 
           {:error, reason} ->
             data = %{"agent_name" => agent_name, "reason" => inspect(reason)}
@@ -849,7 +880,7 @@ defmodule Norns.Agents.Process do
         # Unknown task ID — ignore
         {:noreply, state}
 
-      {tc, remaining_tasks} ->
+      {{_kind, tc}, remaining_tasks} ->
         # Build the tool result as a neutral message. A sub-agent outcome
         # arrives kinded; a worker result is content, forwarded verbatim.
         {status, content, extra, duplicate?} =
@@ -942,8 +973,30 @@ defmodule Norns.Agents.Process do
   end
 
   def handle_info({:task_timeout, _task_id}, %{status: :awaiting_tools} = state) do
-    Logger.warning("Tool task timed out after #{@task_timeout_ms}ms")
-    {:noreply, complete_with_error(state, "Tool task timed out — worker may have disconnected")}
+    cond do
+      waiting_only_on_subagents?(state) ->
+        # The timer covers the worker's calls in this step, and those are back.
+        # What is left is a child run: it has its own step budget and its own
+        # timeouts, and it may be parked on a question to a human, so how long
+        # it takes says nothing about a worker having gone.
+        {:noreply, %{state | task_timer: nil}}
+
+      live_child_run?(state) ->
+        # Our own bookkeeping says a worker is overdue; the database says a
+        # child of this run is still going. Failing the parent on the weaker
+        # of the two destroys a live tree, and "worker may have disconnected"
+        # is then simply untrue. Re-arm instead of clearing: once the child
+        # is done, a genuinely hung worker still gets caught on the next tick.
+        Logger.warning(
+          "Tool task timed out after #{@task_timeout_ms}ms, but a child run is still live — not failing the parent"
+        )
+
+        {:noreply, %{state | task_timer: Process.send_after(self(), {:task_timeout, :tools}, @task_timeout_ms)}}
+
+      true ->
+        Logger.warning("Tool task timed out after #{@task_timeout_ms}ms")
+        {:noreply, complete_with_error(state, "Tool task timed out — worker may have disconnected")}
+    end
   end
 
   def handle_info({:task_timeout, _task_id}, state) do
@@ -1402,6 +1455,22 @@ defmodule Norns.Agents.Process do
 
     Phoenix.PubSub.broadcast(Norns.PubSub, "agent:#{state.agent_id}", {event, payload})
   end
+
+  # Each task says what it is, set where it was dispatched. This used to be a
+  # join between `tasks` (keyed by task id) and `pending_subagents` (keyed by
+  # child run id) agreeing on a string each derived separately — and when they
+  # disagreed it failed closed, killing a live run with "worker may have
+  # disconnected" and leaving nothing in the log to say which side was wrong.
+  defp waiting_only_on_subagents?(%{pending_tool_tasks: %{tasks: tasks}}) when map_size(tasks) > 0 do
+    Enum.all?(Map.values(tasks), &match?({:subagent, _}, &1))
+  end
+
+  defp waiting_only_on_subagents?(_state), do: false
+
+  # Asked of the log, not of this process's memory, so it still answers when
+  # the two have drifted apart.
+  defp live_child_run?(%{run: %{id: run_id}}) when is_integer(run_id), do: Runs.live_children?(run_id)
+  defp live_child_run?(_state), do: false
 
   # Keyed by child *run* id, not child agent id: one parent step can launch the
   # same agent twice, and after a crash an abandoned child can still be alive

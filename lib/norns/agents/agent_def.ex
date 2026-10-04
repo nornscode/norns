@@ -17,6 +17,7 @@ defmodule Norns.Agents.AgentDef do
     max_steps: 50,
     on_failure: :stop,
     subagents: %Norns.Agents.SubagentPolicy{},
+    subagent_conversation: :per_launch,
     tool_policy: %Norns.Agents.ToolPolicy{}
   ]
 
@@ -38,6 +39,7 @@ defmodule Norns.Agents.AgentDef do
           max_steps: pos_integer(),
           on_failure: failure_policy(),
           subagents: Norns.Agents.SubagentPolicy.t(),
+          subagent_conversation: Norns.Agents.SubagentConversation.t(),
           tool_policy: Norns.Agents.ToolPolicy.t()
         }
 
@@ -102,6 +104,7 @@ defmodule Norns.Agents.AgentDef do
       checkpoint_policy: parse_checkpoint_policy(config),
       on_failure: parse_failure_policy(config),
       subagents: Norns.Agents.SubagentPolicy.from_config(config),
+      subagent_conversation: Norns.Agents.SubagentConversation.from_config(config),
       tool_policy: Norns.Agents.ToolPolicy.from_config(config)
     }
   end
