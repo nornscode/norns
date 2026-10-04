@@ -305,6 +305,10 @@ defmodule NornsWeb.RunLive do
     # Token usage
     parts =
       case payload["usage"] do
+        %{"input_tokens" => i, "output_tokens" => o, "cache_read_tokens" => c}
+        when is_integer(i) and is_integer(o) and is_integer(c) ->
+          ["#{i} in (#{c} cached) / #{o} out tokens" | parts]
+
         %{"input_tokens" => i, "output_tokens" => o} when is_integer(i) and is_integer(o) ->
           ["#{i} in / #{o} out tokens" | parts]
         _ -> parts

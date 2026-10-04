@@ -804,10 +804,7 @@ defmodule Norns.Agents.Process do
 
     case result do
       {:ok, %{"content" => summary} = resp} when (is_binary(summary) and summary != "") or is_map(summary) ->
-        usage = %{
-          "input_tokens" => get_in(resp, ["usage", "input_tokens"]) || 0,
-          "output_tokens" => get_in(resp, ["usage", "output_tokens"]) || 0
-        }
+        usage = worker_usage(resp["usage"])
 
         state = add_usage(state, usage["input_tokens"], usage["output_tokens"])
         {:noreply, apply_compaction(state, compaction, summary, usage), {:continue, :llm_loop}}
@@ -830,15 +827,12 @@ defmodule Norns.Agents.Process do
           final_output: resp["final_output"],
           tool_calls: resp["tool_calls"] || [],
           finish_reason: finish_reason,
-          usage: %{
-            input_tokens: usage["input_tokens"] || 0,
-            output_tokens: usage["output_tokens"] || 0
-          }
+          usage: worker_usage(usage)
         }
 
         state =
-          %{state | retry_count: 0, last_input_tokens: response.usage.input_tokens}
-          |> add_usage(response.usage.input_tokens, response.usage.output_tokens)
+          %{state | retry_count: 0, last_input_tokens: response.usage["input_tokens"]}
+          |> add_usage(response.usage["input_tokens"], response.usage["output_tokens"])
 
         handle_llm_response(state, response)
 
@@ -1137,6 +1131,22 @@ defmodule Norns.Agents.Process do
   defp envelope_context_policy(%{compact_at: at, keep: keep}), do: %{compact_at: at, keep: keep}
   defp envelope_context_policy(_), do: nil
 
+  # The token counts core keeps from a worker's usage report. Cache reads
+  # are already inside input_tokens; the count only says how many.
+  defp worker_usage(usage) do
+    usage = if is_map(usage), do: usage, else: %{}
+
+    base = %{
+      "input_tokens" => usage["input_tokens"] || 0,
+      "output_tokens" => usage["output_tokens"] || 0
+    }
+
+    case usage["cache_read_tokens"] do
+      n when is_integer(n) -> Map.put(base, "cache_read_tokens", n)
+      _ -> base
+    end
+  end
+
   defp add_usage(state, input_tokens, output_tokens) do
     state = %{state |
       input_tokens: state.input_tokens + input_tokens,
@@ -1153,10 +1163,7 @@ defmodule Norns.Agents.Process do
       "content" => response.content,
       "tool_calls" => response.tool_calls,
       "finish_reason" => response.finish_reason,
-      "usage" => %{
-        "input_tokens" => response.usage.input_tokens,
-        "output_tokens" => response.usage.output_tokens
-      },
+      "usage" => response.usage,
       "step" => state.step
     }
 
