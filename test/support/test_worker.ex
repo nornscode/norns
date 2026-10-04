@@ -115,7 +115,8 @@ defmodule Norns.TestWorker do
         anthropic_body = %{
           "content" => response.content,
           "stop_reason" => response.stop_reason,
-          "usage" => Map.new(response.usage, fn {k, v} -> {to_string(k), v} end)
+          "usage" => Map.new(response.usage, fn {k, v} -> {to_string(k), v} end),
+          "model" => response[:model]
         }
 
         neutral = Format.from_anthropic_response(anthropic_body)

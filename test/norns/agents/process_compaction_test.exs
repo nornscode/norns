@@ -66,6 +66,7 @@ defmodule Norns.Agents.ProcessCompactionTest do
       assert [compacted] = events(run_id, "context_compacted")
       assert %{"dropped" => 1, "kept" => 2, "summary" => "SUMMARY: searched a", "step" => 1} = compacted.payload
       assert %{"input_tokens" => 10, "output_tokens" => 20} = compacted.payload["usage"]
+      assert compacted.payload["model"] == agent.model
 
       # A checkpoint right after it carries the summary.
       checkpoint = run_id |> events("checkpoint_saved") |> Enum.find(&(&1.sequence > compacted.sequence))

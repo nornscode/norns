@@ -305,12 +305,20 @@ defmodule NornsWeb.RunLive do
     # Token usage
     parts =
       case payload["usage"] do
-        %{"input_tokens" => i, "output_tokens" => o, "cache_read_tokens" => c}
-        when is_integer(i) and is_integer(o) and is_integer(c) ->
-          ["#{i} in (#{c} cached) / #{o} out tokens" | parts]
+        %{"input_tokens" => i, "output_tokens" => o} = usage when is_integer(i) and is_integer(o) ->
+          cache =
+            [{"cache_read_tokens", "cached"}, {"cache_write_tokens", "written to cache"}]
+            |> Enum.flat_map(fn {key, label} ->
+              case usage[key] do
+                n when is_integer(n) -> ["#{n} #{label}"]
+                _ -> []
+              end
+            end)
 
-        %{"input_tokens" => i, "output_tokens" => o} when is_integer(i) and is_integer(o) ->
-          ["#{i} in / #{o} out tokens" | parts]
+          input = if cache == [], do: "#{i} in", else: "#{i} in (#{Enum.join(cache, ", ")})"
+          model = if is_binary(payload["model"]), do: " · #{payload["model"]}", else: ""
+          ["#{input} / #{o} out tokens#{model}" | parts]
+
         _ -> parts
       end
 

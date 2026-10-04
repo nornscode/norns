@@ -82,12 +82,19 @@ Task dispatch uses a provider-neutral format. The worker translates to/from what
 | Direction | Event | Payload |
 |-----------|-------|---------|
 | Server → Worker | `llm_task` | model, system_prompt, summary, date, messages, tools, context_policy; `purpose: "compact"` for a summarisation call |
-| Worker → Server | `tool_result` | task_id, status, content/tool_calls, finish_reason, usage, final_output |
+| Worker → Server | `tool_result` | task_id, status, content/tool_calls, finish_reason, usage, model, final_output |
 | Server → Worker | `tool_task` | task_id, tool_name, input |
 | Worker → Server | `tool_result` | task_id, status, result/error |
 | Worker → Server | `register_port` | internal_port, name, protocol, url (gard workers only) |
 | Worker → Server | `drain` | — : stop dispatching to me; I will finish my in-flight tasks, then leave |
 | Server → Worker | `gard_destroyed` | — : the gard this worker claimed is gone; the channel closes |
+
+`usage` is `input_tokens` and `output_tokens`, plus `cache_read_tokens` and
+`cache_write_tokens` when the provider reports them; both cache counts are
+already inside `input_tokens`. `model` is the model that served the call, as
+the provider named it. Core keeps both on `llm_response` and
+`context_compacted` (falling back to the def's model) so each call can be
+priced from its own event.
 
 **Content is opaque to the orchestrator** (`Norns.Runtime.Content`,
 `decision-log.md` § Content is opaque). Core routes on the envelope — roles,
