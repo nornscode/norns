@@ -838,7 +838,7 @@ defmodule Norns.Agents.Process do
         usage = worker_usage(resp["usage"])
 
         state = add_usage(state, usage["input_tokens"], usage["output_tokens"])
-        {:noreply, apply_compaction(state, compaction, summary, usage), {:continue, :llm_loop}}
+        {:noreply, apply_compaction(state, compaction, summary, usage, served_model(resp, state)), {:continue, :llm_loop}}
 
       other ->
         # No summary: carry on uncompacted and try again after the next response.
@@ -858,7 +858,8 @@ defmodule Norns.Agents.Process do
           final_output: resp["final_output"],
           tool_calls: resp["tool_calls"] || [],
           finish_reason: finish_reason,
-          usage: worker_usage(usage)
+          usage: worker_usage(usage),
+          model: served_model(resp, state)
         }
 
         state =
@@ -1157,7 +1158,7 @@ defmodule Norns.Agents.Process do
      %{state | status: :awaiting_llm, pending_llm_task: task_id, task_timer: timer, pending_compaction: compaction}}
   end
 
-  defp apply_compaction(state, %{drop: drop}, summary, usage) do
+  defp apply_compaction(state, %{drop: drop}, summary, usage, model) do
     kept = Enum.drop(state.messages, drop)
 
     append(state.run, Events.context_compacted(%{
@@ -1165,7 +1166,8 @@ defmodule Norns.Agents.Process do
       "dropped" => drop,
       "kept" => length(kept),
       "summary" => summary,
-      "usage" => usage
+      "usage" => usage,
+      "model" => model
     }))
 
     state = %{state | messages: kept, summary: summary, last_input_tokens: nil}
@@ -1185,7 +1187,8 @@ defmodule Norns.Agents.Process do
   defp envelope_context_policy(_), do: nil
 
   # The token counts core keeps from a worker's usage report. Cache reads
-  # are already inside input_tokens; the count only says how many.
+  # and writes are already inside input_tokens; the counts only say how
+  # many, since providers price them differently from plain input.
   defp worker_usage(usage) do
     usage = if is_map(usage), do: usage, else: %{}
 
@@ -1194,11 +1197,19 @@ defmodule Norns.Agents.Process do
       "output_tokens" => usage["output_tokens"] || 0
     }
 
-    case usage["cache_read_tokens"] do
-      n when is_integer(n) -> Map.put(base, "cache_read_tokens", n)
-      _ -> base
-    end
+    Enum.reduce(["cache_read_tokens", "cache_write_tokens"], base, fn key, acc ->
+      case usage[key] do
+        n when is_integer(n) -> Map.put(acc, key, n)
+        _ -> acc
+      end
+    end)
   end
+
+  # The model that served the call, as the worker reports it; the one the
+  # def asked for when it does not. Kept beside usage so a call can be
+  # priced from its own event.
+  defp served_model(%{"model" => model}, _state) when is_binary(model) and model != "", do: model
+  defp served_model(_resp, state), do: state.agent_def.model
 
   defp add_usage(state, input_tokens, output_tokens) do
     state = %{state |
@@ -1217,6 +1228,7 @@ defmodule Norns.Agents.Process do
       "tool_calls" => response.tool_calls,
       "finish_reason" => response.finish_reason,
       "usage" => response.usage,
+      "model" => response.model,
       "step" => state.step
     }
 

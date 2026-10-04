@@ -232,6 +232,8 @@ defmodule Norns.TestWorker.Format do
       "usage" => response["usage"] || %{}
     }
 
+    result = if is_binary(response["model"]), do: Map.put(result, "model", response["model"]), else: result
+
     if tool_calls != [] do
       Map.put(result, "tool_calls", tool_calls)
     else
