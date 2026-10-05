@@ -14,6 +14,15 @@ kill_signal = 'SIGTERM'
   auto_stop_machines = 'off'
   auto_start_machines = true
   min_machines_running = 1
+  # TEMPORARY RAIL, not a target: WorkerRegistry and TaskQueue are
+  # node-local (no libcluster, no Horde — mix.exs has neither), so a
+  # second machine is a second, unsynchronised worker registry and task
+  # queue, not more capacity. The machine count is held at 1 by operator
+  # action (`fly scale count 1`, already done) — there is no fly.toml key
+  # that caps it, so nothing in this file enforces the limit; the boot-time
+  # guard in lib/norns/application.ex is what actually catches a violation
+  # if a second node ever comes up unclustered. Raise the count only once
+  # the Horde/clustering work lands — nornscode/norns#17.
   processes = ['app']
 
   [http_service.concurrency]
