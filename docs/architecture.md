@@ -131,6 +131,20 @@ safer and is not. The model reads "worker disconnected", retries, and that
 retry is a *new* call at a new step with a new idempotency key, which no
 worker can recognise — so the side effect happens again.
 
+`GET /api/v1/workers` (`NornsWeb.WorkerController`) answers from
+`Norns.Workers.WorkerRegistry`, which keeps its connected-worker map in one
+node-local GenServer. The list it returns is only the workers that
+registered with *this* node — not every worker connected to the tenant
+across a deployment. That is not a scoping choice; clustering (Horde,
+libcluster) was never built, so there is no cluster-wide view for the
+registry to draw on (`nornscode/norns#17`; see `docs/roadmap.md` §
+"Multi-node / Horde clustering" and `docs/decision-log.md` § "## Open" >
+"Multi-node"). `Norns.Workers.TaskQueue` has the identical node-local
+shape. A deployment with more than one node connected without clustering
+has independent, unsynchronised copies of both — the deployed app is
+currently held at one machine by operator action (`fly scale count 1`,
+see `fly.toml`) as a rail against that until the clustering work lands.
+
 ## Runtime Contracts
 
 ### Events

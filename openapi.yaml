@@ -401,6 +401,38 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /workers:
+    get:
+      operationId: listWorkers
+      summary: List connected workers
+      description: >-
+        Workers currently holding a connection for this tenant, **to the
+        node that serves this request**. `Norns.Workers.WorkerRegistry`
+        keeps its connected-worker map in one node-local GenServer, so a
+        deployment with more than one node connected returns a different,
+        partial list from each node rather than a single cluster-wide
+        view. This is not a scoping choice: clustering (Horde, libcluster)
+        is unbuilt — see nornscode/norns#17 and the "Multi-node / Horde
+        clustering" entry in
+        https://github.com/nornscode/norns/blob/main/docs/roadmap.md.
+        `Norns.Workers.TaskQueue` has the identical node-local shape. The
+        deployed app is currently held at one machine by operator action
+        (`fly scale count 1`) as a rail against this until clustering
+        lands.
+      tags: [Workers]
+      responses:
+        "200":
+          description: Connected workers for this tenant, on this node
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Worker"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -618,3 +650,25 @@ components:
         updated_at:
           type: string
           format: date-time
+
+    Worker:
+      type: object
+      description: >-
+        A worker connection held by this node's WorkerRegistry. Scoped to
+        the node that answered the request — see the description on
+        `GET /workers`.
+      properties:
+        worker_id:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+            enum: [llm, tools]
+        tool_count:
+          type: integer
+        gard:
+          type: integer
+          nullable: true
+        draining:
+          type: boolean
