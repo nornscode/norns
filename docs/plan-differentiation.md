@@ -99,7 +99,7 @@ whole handshake:
   variables claims the gard on connect.
 - `DeploymentsLive` at `/deployments`, and start/stop/restart/refresh.
 
-Four gaps, three of them small:
+Five gaps, three of them small:
 
 1. **Nothing creates the gard.** `worker_env` reads `deployment.gard_id`
    when it is set; no path sets it. One function.
@@ -110,6 +110,10 @@ Four gaps, three of them small:
    here, and the client should say "this gard has no worker" rather than
    pretend.
 4. **The checkout.** A cloud gard has no code in it.
+5. **The environment.** A checkout is not enough to run anything in; see
+   below for why this is the gard's hardest constraint to get right and
+   the easiest to get wrong in a way that only shows up on the second
+   repository.
 
 ### The checkout, and why P2b is not on this path
 
@@ -177,6 +181,68 @@ So: (1) now, with the token scoped per gard and revoked on teardown, and
 credential belongs in the secrets context, never on the `Deployment`
 record, and never in a run event.
 
+### The environment, and why the gard must not know what Elixir is
+
+A gard that can run Norns' tests is useless as a product. The steward's
+value is that it could be pointed at any repository, so the moment the
+image carries Elixir and Postgres we have built a Norns tool and called it
+a general one. The split is:
+
+**The gard is a runner.** git, `gh`, a credential, the worker runtime
+(Python, the SDK, sleipnir), a version manager, a package manager, and a
+persistent volume for the checkout. Nothing repository-specific.
+
+**The repository declares its own environment.** `.tool-versions` already
+says `elixir 1.18.4-otp-27` / `erlang 27.3.4`, and most repositories carry
+the equivalent. A Python repository's gives Python, a Node one's gives
+Node, and the image changes for none of them.
+
+This is not a new idea — it is what CI already does, and `.github/workflows/ci.yml`
+is the proof. The GitHub runner is generic; `erlef/setup-beam` is declared
+by the repository. Note also what CI does *not* do: it never runs `docker
+compose`. It starts a `postgres:16-alpine` service and runs `mix test`
+against `localhost:5432`. The compose file in this repository is a local
+developer convenience, not a requirement of the suite, and a gard that
+assumed otherwise would be putting a container runtime inside a microVM
+to satisfy a habit.
+
+What `.tool-versions` does not cover is services. The general answer is a
+repository-declared bootstrap — `.sleipnir/setup.sh`, run once on first
+boot, which does whatever that repository needs; here, install and start
+Postgres. Honouring `docker-compose.yml` directly is the obvious
+alternative and a later convenience: it is already the standard
+declaration for this, this repository already has one, and it needs a
+container runtime in the machine. The script subsumes it and costs
+nothing, so it goes first.
+
+**The inner loop is the reason this matters.** Pushing a branch and
+reading CI is not a coding loop — minutes per iteration, no way to run a
+single test, nothing to inspect when it fails. The agent needs `mix test
+test/norns/agents/process_test.exs` to answer in seconds and `iex -S mix`
+to exist. CI keeps its role as the gate on the pull request, which is also
+the answer to "what if the agent only *says* the tests passed".
+
+### The private network is a bigger hole than the PAT
+
+Machines in a Fly organisation reach each other over 6PN. A gard on that
+network can reach `norns-runtime`, its Postgres, and every other gard —
+and unlike the credential tension above, nothing in this design closes it.
+Scoping the PAT does not help: the exposure is not the token, it is that
+the machine is inside the perimeter.
+
+A gard should reach the public Norns API with its own key, and nothing
+else. That means putting gards outside the private network, or firewalling
+them to the API, before the first one boots — not after. It is cheap now
+and expensive once there are gards to migrate.
+
+Worth stating plainly because it is easy to misread the risk: the
+bootstrap script is not the dangerous part. Cloning a repository and
+running its test suite executes that repository's code whatever the
+mechanism, which is what CI does on every pull request, and a Firecracker
+microVM destroyed at teardown is a real boundary. The ordering by actual
+risk reduction is: gards off the private network, then the PAT scoped and
+revoked at teardown, then the credential-helper sidecar.
+
 ### Scope: two different things are called the MVP
 
 - **P2a as a business** — self-serve, secrets context, billing,
@@ -194,7 +260,13 @@ that space does real work with the laptop closed; the space appears in
 every sleipnir instance like any other. Destroying the gard revokes its
 PAT, and no run event anywhere contains the token.
 
-**Cost:** ~4 days.
+Two more, because they are what stop this being a Norns-only tool with a
+hole in it: the same image, given a repository in another language, runs
+that repository's tests without a change to the image; and a shell in a
+gard cannot reach `norns-runtime` or another gard except through the
+public API.
+
+**Cost:** ~4 days, plus the network work.
 
 ## D1 — Answer from anywhere
 
