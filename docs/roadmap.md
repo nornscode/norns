@@ -1,7 +1,17 @@
 # Norns Roadmap
 
-**Status:** v6
-**Last updated:** 2026-09-11 (v6.5: D0–D5 differentiation sequenced after H4, ahead of tenant self-serve; D0 cloud gards as the substrate D2 needs — `plan-differentiation.md`)
+**Status:** v6, paused
+**Last updated:** 2026-10-14 (active development slowed deliberately — see
+`decision-log.md` § Slowing down)
+
+> **Paused 2026-10-14.** Everything below the shipped items is on hold:
+> D0–D5, chains (step 8), P2a, tenant self-serve, E1–E4. They serve an
+> adopter who is not there yet, and the decision log says why and what
+> would resume them. The runtime keeps running and bugs that bite it still
+> get fixed; the filter for new work is "does Mimir or sleipnir need it?",
+> not "does this advance the platform". Steps 1–7 are shipped and the
+> sequence below is kept as the plan to pick back up, not the plan in
+> progress.
 
 Sequencing for the next phase of work. For what's already built and why, see
 `decision-log.md`. For the product direction this sequence serves, see

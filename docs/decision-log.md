@@ -1,8 +1,60 @@
 # Decision Log
 
-Last updated: 2026-09-22
+Last updated: 2026-10-14
 
 ## Product Decisions
+
+### Slowing down (decided 2026-10-14)
+
+Active development on Norns is paused. Not abandoned, not announced, and
+nothing is being deleted or turned off — the hosted instance keeps running,
+Mimir and sleipnir keep using it, and bugs that bite a running system still
+get fixed. What stops is building against an adopter who is not there.
+
+**The reasoning.** Norns is a platform in search of a problem. Most people
+building agents bring their own database and model transcripts, tool results
+and context with ordinary tables; persistence is not their hard part. The
+minority who do want durability reach for Temporal, where an agent loop on
+top of durable execution is a couple hundred lines. Every step of that funnel
+leaks — need durability at all, then want a platform rather than three tables,
+then want one that is not Temporal, then accept a solo-maintained Elixir one
+— and the product is the same multiplied four times. The model vendors also
+keep absorbing this layer: server-side tool loops, hosted sessions, managed
+agents.
+
+The Elixir/Python split is real for generating buzz — no community owns a
+thing whose surface is in another language — but it is not the cause.
+Temporal is Go and nearly nobody who uses it writes Go. Implementation
+language becomes a reason not to adopt only when there is no strong reason to
+adopt.
+
+**What is probably true.** We may simply be early. Agents that run for days,
+coordinate in trees, and need crash recovery mid-tool-call likely do become a
+real problem. But early is indistinguishable from wrong unless you can afford
+to wait, and we can. What you do while waiting is keep the thing cheap and
+alive, not spec D0 through D5.
+
+**The test for resuming.** Build agents the way we would build them anyway,
+picking the best tool each time with no loyalty to Norns. If we keep reaching
+for it, it is earning its keep and the problem it solves will be discovered by
+living it. If we keep reaching past it, that is the answer, arrived at without
+having to decide it in the abstract. The failure mode to avoid is bending an
+agent to fit the platform in order to justify the platform.
+
+Someone external turning up and wanting this is the other resume condition.
+
+**What this changes in the roadmap.** D0–D5, chains, P2a, tenant self-serve
+and E1–E4 are parked — all of them serve an adopter who is not there.
+`plan-differentiation.md` carries a parked header; its two durable findings
+are the gard-is-a-runner split and the private-network exposure. Features are
+now filtered by one question: does Mimir or sleipnir need it?
+
+Also decided and not built, for the same reason: a docs site, and a Slack or
+Discord community. An empty community channel is worse than none — it
+advertises that nobody is home, where no channel reads as early. If a tripwire
+is wanted, GitHub Discussions costs nothing and notifies us when a real person
+arrives.
+
 
 ### Pure orchestrator — no execution
 - Norns is a state machine and event log. It never makes LLM calls or executes tools.
