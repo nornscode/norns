@@ -190,6 +190,24 @@ defmodule Norns.Workers.WorkerRegistryTest do
       WorkerRegistry.unregister_worker(1, "wc")
     end
 
+    # Issue #3: a worker that died holding an LLM call left the run flagged
+    # `running` forever and the conversation locked behind a 409. Unlike a
+    # tool call there is nothing to re-dispatch identically — the call has no
+    # idempotency key and no side effect — so the agent has to be told, and
+    # told promptly, so its retry policy can run.
+    test "a lost LLM call is reported to the agent rather than left in flight" do
+      :ok = WorkerRegistry.register_worker(1, "llm-crash", self(), [], capabilities: [:llm])
+
+      {:ok, task_id} =
+        WorkerRegistry.dispatch_llm_task(1, %{"messages" => [], "model" => "test"}, from_pid: self())
+
+      assert_receive {:llm_task, %{task_id: ^task_id}}, 1_000
+
+      WorkerRegistry.unregister_worker(1, "llm-crash")
+
+      assert_receive {:task_result, ^task_id, {:error, "worker disconnected"}}, 1_000
+    end
+
     test "a late terminate from a replaced connection does not evict the new worker" do
       old_pid = spawn(fn -> Process.sleep(:infinity) end)
       tools = [%{"name" => "guard_tool", "description" => "G", "input_schema" => %{}}]

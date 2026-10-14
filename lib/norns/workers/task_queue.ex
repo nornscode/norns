@@ -73,9 +73,13 @@ defmodule Norns.Workers.TaskQueue do
             now - task.queued_at > @stale_timeout_ms
           end)
 
-        # Notify waiting processes that their tasks timed out
+        # Notify waiting processes that their tasks timed out. `:task_result`
+        # is the name the agent process has clauses for; `:tool_result` is
+        # the legacy one, which no longer reaches anything that listens —
+        # it crashed the agent on a function_clause instead of timing the
+        # run out, and left the conversation locked (issue #3).
         Enum.each(stale, fn task ->
-          if pid = task[:from_pid], do: send(pid, {:tool_result, task.task_id, {:error, :timeout}})
+          if pid = task[:from_pid], do: send(pid, {:task_result, task.task_id, {:error, :timeout}})
         end)
 
         {tenant_id, fresh}
