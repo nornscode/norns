@@ -131,19 +131,23 @@ safer and is not. The model reads "worker disconnected", retries, and that
 retry is a *new* call at a new step with a new idempotency key, which no
 worker can recognise — so the side effect happens again.
 
+Norns runs as a single node. That is the supported deployment, and the
+durability story does not depend on it: run state lives in Postgres and is
+rebuilt from the event log, so a restart of that one node loses nothing.
+What is node-local is the *live* view of connected workers.
 `GET /api/v1/workers` (`NornsWeb.WorkerController`) answers from
-`Norns.Workers.WorkerRegistry`, which keeps its connected-worker map in one
-node-local GenServer. The list it returns is only the workers that
-registered with *this* node — not every worker connected to the tenant
-across a deployment. That is not a scoping choice; clustering (Horde,
-libcluster) was never built, so there is no cluster-wide view for the
-registry to draw on (`nornscode/norns#17`; see `docs/roadmap.md` §
-"Multi-node / Horde clustering" and `docs/decision-log.md` § "## Open" >
-"Multi-node"). `Norns.Workers.TaskQueue` has the identical node-local
-shape. A deployment with more than one node connected without clustering
-has independent, unsynchronised copies of both — the deployed app is
-currently held at one machine by operator action (`fly scale count 1`,
-see `fly.toml`) as a rail against that until the clustering work lands.
+`Norns.Workers.WorkerRegistry`, a plain GenServer holding the WebSocket
+connections that registered with this node; `Norns.Workers.TaskQueue` has
+the same shape. Neither is clustered — there is no libcluster or Horde in
+`mix.exs` — so two nodes would run independent, unsynchronised copies of
+both, and a worker registered on one would be invisible to dispatch on
+the other (that failure was observed once on Fly, `nornscode/norns#17`).
+Multi-node deployment is planned: libcluster for node discovery and a
+port of both registries to Horde (`docs/roadmap.md` § "Multi-node / Horde
+clustering", `docs/decision-log.md` § "## Open" > "Multi-node"). Pull
+requests toward it are welcome. Until it lands the deployed app is held at
+one machine (`fly scale count 1`, see `fly.toml`) and the boot-time guard
+in `Norns.Application` warns if a second connected node ever appears.
 
 ## Runtime Contracts
 
