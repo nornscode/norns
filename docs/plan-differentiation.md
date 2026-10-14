@@ -1,6 +1,14 @@
 # Plan: What Sleipnir Has That No Other Harness Can
 
-**Status:** Proposed (2026-09-11). Revised the same day after reading
+> **Parked 2026-10-14. None of D0–D5 is built.** Active development on
+> Norns slowed deliberately — see `decision-log.md` § Slowing down, and
+> the test for resuming. Nothing here was implemented; this document is
+> analysis, kept because two parts of it stay true whenever the work is
+> picked up: the gard-is-a-runner / repo-declares-its-toolchain split, and
+> the private-network exposure, which is a real security finding and is
+> cheap to fix before the first gard boots rather than after.
+
+**Status:** Proposed (2026-09-11), parked 2026-10-14. Revised the same day after reading
 norns-cloud: the first version assumed the worker lives on the developer's
 laptop, which quietly made its best idea false. See § The substrate.
 D0's git credential decided 2026-09-12 (fine-grained PAT now, GitHub App
