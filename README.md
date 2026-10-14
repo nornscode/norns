@@ -12,13 +12,11 @@
 
 <p align="center">Agents that work while you're away.</p>
 
-Norns runs agents that are on their own for days. The run lives in Postgres rather than in a process, so losing the process costs you nothing.
+Norns runs agents that are on their own for days at a time. The run is backed by durable storage, not a process, so a deploy or a crash doesn't end it.
 
-The one I run every weekday morning goes like this. A cron trigger starts the steward. It reads the open issues and recent commits across a few repos, picks something worth doing, and calls `ask_human` with a one-line proposal. The run parks; no process is waiting on it. A couple of hours later I see the question in Slack and reply "go". The run wakes up, calls `launch_agent`, and a coding agent picks the job up on a worker that has the repo checked out. When the coder opens a PR, the steward posts the link and finishes. Deploy Norns while the question is waiting, restart every worker, and the reply still lands on the right run.
+I have a steward agent that runs every weekday morning. It reads the open issues across a few repositories, decides what is worth doing, and asks me in Slack before it starts. The run parks on that question for as long as I take to answer. When I approve, it hands the job to a coding agent and waits. When the PR is up, the steward posts the link and the run ends.
 
-- **A deploy or an eviction doesn't kill the run.** The next worker to connect replays the event log and continues from the last finished step. Tools that already ran are skipped on replay.
-- **A coding agent gets a machine of its own.** A [gard](docs/gards.md) pins a run's tool calls to one worker, so `read_file` and `bash` land on the same checkout every time.
-- **Agents are configuration.** Workers bring tools; an agent is a prompt, a model, a tool allowlist and a trigger. Once a Slack worker and a database worker are running, a new agent is an API call.
+That is the shape of thing Norns is for: a run that waits for a person, hands work to another agent, and keeps going regardless of what happens to the processes underneath it.
 
 https://github.com/user-attachments/assets/b300b164-dc0c-44ea-a794-1de00b4f01a7
 
@@ -39,7 +37,7 @@ That gives you a Norns server and a worker connected to it. The [hello agent](ht
 
 ## How it works
 
-Norns is an orchestrator written in Elixir on the BEAM. It never calls a model and never runs a tool. Workers connect over WebSocket, register their tools, and hold the API keys. The agent sees the union of every tool a connected worker registered, and the orchestrator routes each call to a worker that has it. If a worker dies mid-task, the task goes back in the queue.
+Norns is an orchestrator written in Elixir on the BEAM. It never calls a model and never runs a tool. Workers connect over WebSocket, register their tools, and hold the API keys.
 
 ```mermaid
 sequenceDiagram
@@ -56,7 +54,7 @@ sequenceDiagram
     Note over O,B: checkpoint, repeat
 ```
 
-Every LLM call, tool call and tool result is an event in a Postgres log. The log is the run: a worker that picks a run up after a crash replays it to find out where things stand. Postgres is the only thing you run besides Norns. Idempotency, error classification and the rest are in [docs/architecture.md](docs/architecture.md).
+Every LLM call, tool call and tool result is an event in a Postgres log. A worker that picks a run up after a crash replays the log to find out where things stand. The details are in [docs/architecture.md](docs/architecture.md).
 
 ## SDKs and examples
 
@@ -64,8 +62,8 @@ Every LLM call, tool call and tool result is an event in a Postgres log. The log
 - [Elixir SDK](https://github.com/nornscode/norns-sdk-elixir) — `{:norns_sdk, "~> 0.1"}` ([Hex](https://hex.pm/packages/norns_sdk))
 - [CLI (`nornsctl`)](https://github.com/nornscode/nornsctl)
 - [Hello example](https://github.com/nornscode/norns-hello-agent)
-- [Mimir](https://github.com/nornscode/norns-mimir-agent) — a Slack knowledge bot, and the steward from the top of this page
-- [Sleipnir](https://github.com/nornscode/sleipnir) — a coding worker; the agent the steward hands off to
+- [Mimir](https://github.com/nornscode/norns-mimir-agent) — a Slack knowledge bot, and the steward described above
+- [Sleipnir](https://github.com/nornscode/sleipnir) — the coding agent the steward hands off to
 
 ## Status
 
