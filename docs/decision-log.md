@@ -426,10 +426,12 @@ that.
   Postgres event log, not from clustering, so one node restarting loses
   no run state. Only the live worker/task view (`WorkerRegistry`,
   `TaskQueue`) is node-local.
-- Deferred on purpose: no current deployment needs a second machine, and
-  the hosted instance is held at one (`fly scale count 1`, boot-time guard
-  in `Norns.Application`). Port to Horde when one does. `nornscode/norns#17`
-  is the one time this bit, from an unclustered multi-machine Fly setup.
+- Multi-node is planned: libcluster for discovery, Horde for the agent
+  registry/supervisor and `WorkerRegistry`, and either a clustered or
+  Postgres-backed `TaskQueue`. Pull requests welcome. Until then the hosted
+  instance is held at one machine (`fly scale count 1`, boot-time guard in
+  `Norns.Application`). `nornscode/norns#17` is the one time this bit,
+  from an unclustered multi-machine Fly setup.
 
 ### Policy enforcement
 - Pre-dispatch hook point in the orchestrator (not built, architecture supports it).

@@ -21,8 +21,8 @@ kill_signal = 'SIGTERM'
   # action (`fly scale count 1`, already done) — there is no fly.toml key
   # that caps it, so nothing in this file enforces the limit; the boot-time
   # guard in lib/norns/application.ex is what catches it if a second node
-  # ever comes up. Multi-node is deferred until a deployment needs it;
-  # raise the count only once the Horde port lands — nornscode/norns#17.
+  # ever comes up. Multi-node support is planned; raise the count only
+  # once the libcluster + Horde port lands — nornscode/norns#17.
   processes = ['app']
 
   [http_service.concurrency]

@@ -396,9 +396,10 @@ Carried forward, deliberately unscheduled:
   capability model exists.
 - **Eval primitive / diff_runs / fixture runner** — after the builder loop
   proves itself.
-- **Multi-node / Horde clustering.** Single-node is the supported
-  deployment; deferred until a deployment needs a second machine
-  (`decision-log.md` § "Multi-node").
+- **Multi-node / Horde clustering.** Planned; single-node is the
+  supported deployment today. libcluster + Horde for the registries,
+  then `TaskQueue`. Pull requests welcome (`decision-log.md` §
+  "Multi-node").
 - **Generic policy-enforcement hook.** Pre-dispatch hook point; architecture
   supports it, not built. Note: `SubagentPolicy` and tool selection are both
   bespoke policy checks — a third one is the signal to build the generic hook.

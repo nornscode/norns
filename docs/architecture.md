@@ -142,12 +142,12 @@ the same shape. Neither is clustered — there is no libcluster or Horde in
 `mix.exs` — so two nodes would run independent, unsynchronised copies of
 both, and a worker registered on one would be invisible to dispatch on
 the other (that failure was observed once on Fly, `nornscode/norns#17`).
-Multi-node is deferred, not planned around: it lands when a real
-deployment needs more than one machine, and the port is to Horde
-(`docs/roadmap.md` § "Multi-node / Horde clustering", `docs/decision-log.md`
-§ "## Open" > "Multi-node"). Until then the deployed app is held at one
-machine (`fly scale count 1`, see `fly.toml`) and the boot-time guard in
-`Norns.Application` warns if a second connected node ever appears.
+Multi-node deployment is planned: libcluster for node discovery and a
+port of both registries to Horde (`docs/roadmap.md` § "Multi-node / Horde
+clustering", `docs/decision-log.md` § "## Open" > "Multi-node"). Pull
+requests toward it are welcome. Until it lands the deployed app is held at
+one machine (`fly scale count 1`, see `fly.toml`) and the boot-time guard
+in `Norns.Application` warns if a second connected node ever appears.
 
 ## Runtime Contracts
 

@@ -65,8 +65,8 @@ defmodule Norns.Application do
   # process state, keyed with no node identity at all. Two connected nodes
   # each run their own, independent copies: a worker registered on one is
   # invisible to dispatch on the other, and GET /api/v1/workers only ever
-  # answers for the node that served the request. Multi-node is deferred
-  # until a deployment needs it; the port is to Horde (nornscode/norns#17;
+  # answers for the node that served the request. Multi-node is planned;
+  # the port is to libcluster + Horde (nornscode/norns#17;
   # docs/roadmap.md "Multi-node / Horde clustering"; docs/decision-log.md
   # "## Open" > "Multi-node"). A single node with no peers (the deployed
   # default: the operator holds the machine count at 1 via `fly scale
@@ -85,7 +85,7 @@ defmodule Norns.Application do
         unsynchronised copies of worker dispatch and the task queue are \
         now running. Workers registered on one node are invisible to the \
         other, and GET /api/v1/workers only reports the node that served \
-        the request. Multi-node is deferred work (nornscode/norns#17; \
+        the request. Multi-node support is planned (nornscode/norns#17; \
         docs/roadmap.md "Multi-node / Horde clustering"). Run one node \
         until it lands.
         """)
