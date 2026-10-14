@@ -23,10 +23,10 @@ Sequencing for the next phase of work. For what's already built and why, see
 
 The core is shipping: durable agent process, orchestrator/worker split,
 provider-neutral LLM format, conversations, REST API + dashboard, multi-agent
-orchestration, and both SDKs published (Python at 0.4.0 with gard support
-and graceful shutdown, 0.5.0 released 2026-09-09; Elixir 0.2.0 on Hex).
-Norns itself is at **v0.6** ("content is opaque", 2026-09-09; v0.5 was
-"agents are configuration"). Steps 1–5 below are shipped, and the provisioner (step 6)
+orchestration, and both SDKs published (Python at 0.8.3 on PyPI; Elixir
+0.3.1 on Hex).
+Norns itself is at **v0.7** ("a run accounts for itself", 2026-10-14; v0.6
+was "content is opaque", v0.5 "agents are configuration"). Steps 1–5 below are shipped, and the provisioner (step 6)
 has its P0 and P1 landed and hardened, with CI and a machine-readable
 status seam in place for P2 — the sequence now adds two things on top of
 that foundation: the harness (step 7) and chains (step 8).
