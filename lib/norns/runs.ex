@@ -14,6 +14,13 @@ defmodule Norns.Runs do
   def get_run!(id), do: Repo.get!(Run, id) |> Repo.preload(:conversation)
 
   @doc """
+  The runs this one launched, oldest first.
+  """
+  def child_runs(run_id) do
+    Repo.all(from r in Run, where: r.parent_run_id == ^run_id, order_by: [asc: r.id])
+  end
+
+  @doc """
   Whether this run still has a child going.
 
   Independent of the parent process's own bookkeeping, which is the point:
