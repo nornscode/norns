@@ -422,8 +422,14 @@ that.
 ## Open
 
 ### Multi-node
-- Registry + DynamicSupervisor are single-node.
-- Port to Horde when clustering is needed.
+- Single-node is the supported deployment. Durability comes from the
+  Postgres event log, not from clustering, so one node restarting loses
+  no run state. Only the live worker/task view (`WorkerRegistry`,
+  `TaskQueue`) is node-local.
+- Deferred on purpose: no current deployment needs a second machine, and
+  the hosted instance is held at one (`fly scale count 1`, boot-time guard
+  in `Norns.Application`). Port to Horde when one does. `nornscode/norns#17`
+  is the one time this bit, from an unclustered multi-machine Fly setup.
 
 ### Policy enforcement
 - Pre-dispatch hook point in the orchestrator (not built, architecture supports it).

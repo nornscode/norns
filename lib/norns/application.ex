@@ -56,20 +56,21 @@ defmodule Norns.Application do
     end
   end
 
-  # Node.list() is the only signal available: mix.exs has no libcluster and
-  # no Horde, so nothing here forms, verifies, or even names a cluster. If
-  # this node can already see others, something outside this app (an
-  # operator, a deploy tool) connected them, and that is a problem, not a
-  # feature — Norns.Workers.WorkerRegistry and Norns.Workers.TaskQueue both
-  # keep their state in plain GenServer process state, keyed with no node
-  # identity at all. Two connected nodes each run their own, independent
-  # copies: a worker registered on one is invisible to dispatch on the
-  # other, and GET /api/v1/workers only ever answers for the node that
-  # served the request. This is not a design choice — clustering was never
-  # built (nornscode/norns#17; see docs/roadmap.md "Multi-node / Horde
-  # clustering" and docs/decision-log.md "## Open" > "Multi-node"). A
-  # single node with no peers (the deployed default: the operator holds
-  # the machine count at 1 via `fly scale count 1`) never hits this branch.
+  # Norns is a single-node deployment. Node.list() is the only signal
+  # available: mix.exs has no libcluster and no Horde, so nothing here
+  # forms, verifies, or even names a cluster. If this node can already see
+  # others, something outside this app (an operator, a deploy tool)
+  # connected them, and that is unsupported — Norns.Workers.WorkerRegistry
+  # and Norns.Workers.TaskQueue both keep their state in plain GenServer
+  # process state, keyed with no node identity at all. Two connected nodes
+  # each run their own, independent copies: a worker registered on one is
+  # invisible to dispatch on the other, and GET /api/v1/workers only ever
+  # answers for the node that served the request. Multi-node is deferred
+  # until a deployment needs it; the port is to Horde (nornscode/norns#17;
+  # docs/roadmap.md "Multi-node / Horde clustering"; docs/decision-log.md
+  # "## Open" > "Multi-node"). A single node with no peers (the deployed
+  # default: the operator holds the machine count at 1 via `fly scale
+  # count 1`) never hits this branch.
   defp warn_if_unclustered_multi_node do
     case Node.list() do
       [] ->
@@ -77,17 +78,16 @@ defmodule Norns.Application do
 
       peers ->
         Logger.warning("""
-        This build has no clustering (no libcluster, no Horde): \
-        WorkerRegistry and TaskQueue are node-local. This node \
-        (#{inspect(Node.self())}) can see other connected nodes \
-        (#{inspect(peers)}), which means two independent, unsynchronised \
-        copies of worker dispatch and the task queue are now running. \
-        Workers registered on one node are invisible to the other, and \
-        GET /api/v1/workers only reports the node that served the \
-        request. This is an unbuilt constraint, not an intended one — \
-        see nornscode/norns#17 and docs/roadmap.md "Multi-node / Horde \
-        clustering". Do not run more than one connected node until that \
-        work lands.
+        Norns is single-node: this build has no clustering (no \
+        libcluster, no Horde), and WorkerRegistry and TaskQueue are \
+        node-local. This node (#{inspect(Node.self())}) can see other \
+        connected nodes (#{inspect(peers)}), which means two independent, \
+        unsynchronised copies of worker dispatch and the task queue are \
+        now running. Workers registered on one node are invisible to the \
+        other, and GET /api/v1/workers only reports the node that served \
+        the request. Multi-node is deferred work (nornscode/norns#17; \
+        docs/roadmap.md "Multi-node / Horde clustering"). Run one node \
+        until it lands.
         """)
     end
   end
