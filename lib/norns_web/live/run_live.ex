@@ -78,7 +78,8 @@ defmodule NornsWeb.RunLive do
       </div>
       <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-3">
         <div class="text-xs text-gray-500">Tokens</div>
-        <div class="text-sm"><%= @run.input_tokens + @run.output_tokens %> total</div>
+        <div class="text-sm"><%= format_count(@run.input_tokens) %> in</div>
+        <div class="text-xs text-gray-500"><%= format_count(@run.output_tokens) %> out</div>
       </div>
       <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-3">
         <div class="text-xs text-gray-500">Cost</div>
@@ -417,6 +418,22 @@ defmodule NornsWeb.RunLive do
     |> Enum.map(&{&1.payload["model"], &1.payload["usage"] || %{}})
     |> Norns.Runs.Cost.of_usages()
   end
+
+  # Input and output price roughly 5x apart, so their sum converts to no
+  # cost and answers no question. They are also not the context size: input
+  # is re-sent and re-counted every step, so most of a big total is the same
+  # prefix over again.
+  defp format_count(n) when is_integer(n) do
+    n
+    |> Integer.to_string()
+    |> String.graphemes()
+    |> Enum.reverse()
+    |> Enum.chunk_every(3)
+    |> Enum.map_join(",", &Enum.join/1)
+    |> String.reverse()
+  end
+
+  defp format_count(_), do: "0"
 
   defp format_cost(%{usd: usd, unpriced: []}), do: "$" <> Decimal.to_string(Decimal.round(usd, 4), :normal)
 
