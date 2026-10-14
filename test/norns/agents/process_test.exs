@@ -46,6 +46,33 @@ defmodule Norns.Agents.ProcessTest do
     end
   end
 
+  describe "the model string" do
+    # Issue #4: core resolved `-latest` aliases against a map of its own
+    # before dispatching, so a stale map sent the worker a retired model and
+    # the provider 404'd. Core has no business knowing model names — the
+    # worker's client is the component with the current map. The def's
+    # string goes on the wire exactly as written.
+    test "reaches the worker exactly as the def wrote it", %{tenant: tenant} do
+      agent = create_agent(tenant, %{model: "claude-sonnet-4-latest"})
+
+      LLM.set_responses([
+        %{content: [%{"type" => "text", "text" => "ok"}], stop_reason: "end_turn"}
+      ])
+
+      {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
+      subscribe_and_send(pid, agent.id, "hello")
+      wait_for(:completed)
+
+      run = Runs.list_runs(agent.id) |> hd()
+
+      request =
+        Runs.list_events(run.id)
+        |> Enum.find(&(&1.event_type == "llm_request"))
+
+      assert request.payload["model"] == "claude-sonnet-4-latest"
+    end
+  end
+
   describe "simple end_turn flow" do
     test "processes a message and completes", %{tenant: tenant, agent: agent} do
       LLM.set_responses([
