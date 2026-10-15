@@ -1,14 +1,15 @@
 # Plan: Code Mode
 
 **Status:** Proposed (2026-10-15). Parked by default under
-`decision-log.md` § Slowing down; C0 is the exception because it is
-worker-only, a day's work, and is itself the test for whether C1 is wanted.
+`decision-log.md` § Slowing down; the worker-only step is the exception
+because it is a day's work and is itself the test for whether the
+pause-to-core step is wanted.
 **Depends on:** the harness (shipped), opaque content (shipped), the SDK's
 idempotency cache (shipped).
 **Relates to:** `plan-harness-e2e.md` (sleipnir is the first and only
-caller), `roadmap.md` § Not now "Two-phase step API" (C1 is that API, with
-the concrete workflow it was waiting for), E2 encrypted content (C1 wants it
-for snapshot integrity).
+caller), `roadmap.md` § Not now "Two-phase step API" (pause-to-core is that API,
+with the concrete workflow it was waiting for), E2 encrypted content
+(pause-to-core wants it for snapshot integrity).
 
 Code mode is one tool, `run_code`, whose argument is a short program the
 model wrote. The program calls the agent's other tools as functions and
@@ -42,7 +43,7 @@ that matched" is six model turns today and one with code mode, and the
 explorer agents do almost nothing else. Each saved turn is a full context
 resend, so on a long session the token saving follows from the turn saving.
 
-C0 exists to measure that, not to assume it. The numbers to take from
+The worker-only step exists to measure that, not to assume it. The numbers to take from
 Mimir and sleipnir runs, before and after, with the same tasks:
 
 - model turns per run
@@ -52,12 +53,13 @@ Mimir and sleipnir runs, before and after, with the same tasks:
   retries (Monty is a subset; the model will hit it)
 
 If turns drop by a third or more on explorer runs and the retry rate is
-tolerable, C1 is worth designing. If not, C0 stays as a worker tool nobody
+tolerable, pause-to-core is worth designing. If not, `run_code` stays as a
+worker tool nobody
 reaches for, and that is an answer that cost a day.
 
 ---
 
-## C0. `run_code` in the Python SDK, worker-only
+## Step one, worker-only: `run_code` in the Python SDK
 
 No core change. The tool lives in the SDK, not in any one agent, because
 code mode wraps tools where they already run: sleipnir's `read_file` reads
@@ -84,7 +86,8 @@ read what matched". It also runs in production, so the before-and-after
 numbers mean something. sleipnir's explorers, with seven tools and a
 laptop-local worker, are the second data point.
 
-- **Read-only tools only.** This is the whole idempotency story for C0.
+- **Read-only tools only.** This is the whole idempotency story for the
+  worker-only step.
   Core mints keys for side-effecting calls before dispatch and the worker's
   `_handle_tool_task` dedupes on them. An inner call inside a program has
   no key, so a side-effecting inner call would be a call core cannot
@@ -111,7 +114,7 @@ laptop-local worker, are the second data point.
   - `max_memory` (Monty): 4 MiB. This is what keeps file contents out of
     the interpreter. A program that reads six large files into variables
     and concatenates them hits `MemoryError`; one that reads, extracts a
-    few lines, and drops the rest does not. In C1 this is also the bound
+    few lines, and drops the rest does not. Once the program pauses to core this is also the bound
     on snapshot size, since the snapshot is the heap.
   - Per-call result cap: each external function truncates what it returns
     into the sandbox at 16 KiB, well under sleipnir's 60 KB `read_file`
@@ -125,26 +128,26 @@ laptop-local worker, are the second data point.
     returns too much has not summarised, which is its one job.
   Exceeding any budget is an error result that lists the inner calls
   already made with their truncated results, so the model continues from
-  them rather than starting over. The numbers are starting points; C0's
-  measurements say where they move.
+  them rather than starting over. The numbers are starting points; the
+  worker-only measurements say where they move.
 - **The prompt.** One paragraph: when to write a program (several reads
   whose later steps depend on earlier results), when not to (a single call,
   anything that writes), and that it is a Python subset with no imports
   beyond the standard library Monty provides. Pydantic AI's code-mode prompt
   is the starting point.
 - **Parallelism.** Monty supports `asyncio.gather` over external functions.
-  C0 runs them concurrently in the worker, which is free. C1 has to think
-  about it (below).
+  The worker-only step runs them concurrently in the worker, which is free.
+  Pause-to-core has to think about it (below).
 
 Deliverable: `code_mode()` in the SDK, the prompt paragraph, and the four
 numbers above from a week of Mimir and sleipnir use.
 
 ---
 
-## C1. Snapshot to core: inner calls become orchestrator calls
+## Step two, pause to core: inner calls become orchestrator calls
 
 This is the part nobody else has, and the part that only makes sense once
-C0 shows the turn reduction is real.
+the worker-only step shows the turn reduction is real.
 
 The worker runs the program until it hits a host call. Instead of resolving
 it, the worker returns to core: "the program is paused at a call to
@@ -158,7 +161,7 @@ What this buys:
 
 - **Idempotency is back where it belongs.** Inner side-effecting calls get
   core keys, so `write_file` and `bash` inside a program are as safe as they
-  are outside it. The C0 read-only restriction lifts.
+  are outside it. The read-only restriction lifts.
 - **The log is complete.** Every inner call is a `tool_call` and
   `tool_result` pair, inspectable in nornsctl and the dashboard, with the
   same shape as today.
@@ -213,7 +216,7 @@ beyond recognising the pair.
 ### What the snapshot is, and is not
 
 - **Opaque content.** Core stores it, forwards it, never decodes it. The
-  C0 memory budget bounds it at the source: a 4 MiB heap cannot produce a
+  worker-only memory budget bounds it at the source: a 4 MiB heap cannot produce a
   snapshot much over 4 MiB, and typical is single-digit KB. Core still
   enforces its own cap, 1 MiB, as a backstop against a worker with the
   budget misconfigured; a program whose state exceeds it fails its
@@ -233,13 +236,13 @@ beyond recognising the pair.
   done are in the log under their keys, but a rerun is a new `run_code`
   call with a new id, so its inner calls get new keys and run again. That
   is at-least-once, the same guarantee as everywhere else.
-- **Mounts and host objects do not travel.** C1 uses neither: every tool is
+- **Mounts and host objects do not travel.** Pause-to-core uses neither: every tool is
   a plain external function returning plain values.
 
 ### Parallel inner calls
 
 `asyncio.gather` over several host calls produces a `FutureSnapshot` with
-several pending calls. C1 handles it the same way a multi-tool model turn
+several pending calls. Pause-to-core handles it the same way a multi-tool model turn
 is handled: dispatch all pending inner calls at once, collect all results,
 resume once with `{call_id: result, ...}`. Restored future snapshots
 cannot use `resume_auto`, so the worker resolves them explicitly; that is
@@ -263,8 +266,9 @@ sequential first, batch second.
 
 ## Not building
 
-- **Worker-minted idempotency keys.** C0 avoids the question by being
-  read-only; C1 answers it by returning keys to core. Nothing in between.
+- **Worker-minted idempotency keys.** The worker-only step avoids the
+  question by being read-only; pause-to-core answers it by returning keys
+  to core. Nothing in between.
 - **A general nested-event kind.** `code_paused` is specific to code mode.
   A second tool that needs to pause mid-execution is the signal to
   generalise, the same rule as the policy hook.
@@ -281,8 +285,8 @@ sequential first, batch second.
 ## Open questions
 
 - Does the model write programs that fit the subset often enough? Monty's
-  own claim is that LLM-written code adapts to the error message. C0
-  measures it.
+  own claim is that LLM-written code adapts to the error message. The
+  worker-only step measures it.
 - Step numbering for inner calls: same step with sub-ids (above), or a new
   step per inner call? Same step keeps `max_steps` meaning model turns,
   which is what sleipnir's users set it for.
