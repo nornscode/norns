@@ -33,7 +33,7 @@ lib/norns/
   gards/            — Gard + GardPort schemas; Gards context (worker affinity)
   hooks/            — Hook schema, Signature verification; Hooks context (webhook ingress)
   triggers/         — Trigger schema + context (cron schedules that start runs)
-  workers/          — WorkerRegistry, TaskQueue, ResumeAgents, TriggerScheduler
+  workers/          — WorkerRegistry, TaskQueue, ResumeAgents, TriggerScheduler, ServerlessWorker(s) + Wake (wake-on-demand workers)
   tools/            — Tool struct (no handler), Builtins, Catalog, Idempotency
 
 lib/norns_web/
@@ -41,7 +41,7 @@ lib/norns_web/
   router.ex         — API routes (authed + public hook ingest) + LiveView routes
   plugs/            — Auth (API bearer token), SessionAuth (browser cookies)
   cache_body_reader.ex — caches raw request body for hook signature verification
-  controllers/      — Agent, Run, Conversation, Trigger, Hook, HookIngest, Gard, Tool, Telemetry
+  controllers/      — Agent, Run, Conversation, Trigger, Hook, HookIngest, Gard, Tool, Worker, ServerlessWorker, Telemetry
   channels/         — AgentSocket/Channel (streaming), WorkerSocket/Channel (task dispatch)
   live/             — AgentsLive, AgentLive, RunLive, ToolsLive, GardsLive, TelemetryLive, SetupLive
   components/       — Layouts (root + app)
@@ -97,4 +97,4 @@ When debugging a failing run, start with `nornsctl runs show <id>` to check the 
 
 ## Design docs
 
-`docs/` holds the plans and decisions. Start with `docs/roadmap.md` (sequencing) and `docs/decision-log.md` (what's built and why). `docs/plan-agent-builder.md` is the current product direction; `docs/gards.md` is the worker-affinity design.
+`docs/` holds the plans and decisions. Start with `docs/roadmap.md` (sequencing) and `docs/decision-log.md` (what's built and why). `docs/plan-agent-builder.md` is the current product direction; `docs/gards.md` is the worker-affinity design; `docs/serverless-workers.md` is the wake-on-demand worker contract.

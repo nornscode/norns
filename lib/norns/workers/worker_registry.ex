@@ -2,6 +2,13 @@ defmodule Norns.Workers.WorkerRegistry do
   @moduledoc """
   Tracks connected workers and their capabilities. Dispatches LLM tasks
   and tool tasks to workers, routes results back to waiting agent processes.
+
+  Also holds the declarations of serverless workers (`Norns.Workers.ServerlessWorker`):
+  workers that are asleep until woken. Their declared tools are advertised
+  alongside connected workers' tools, and a task that finds no connected
+  worker is queued as usual and then wakes the sleeping worker that
+  declared it. The woken worker joins the channel like any other, and the
+  queue flushes to it on register.
   """
 
   use GenServer
@@ -9,12 +16,18 @@ defmodule Norns.Workers.WorkerRegistry do
   require Logger
 
   alias Norns.Tools.Tool
+  alias Norns.Workers.{ServerlessWorker, TaskQueue, Wake}
 
   # Total tries for one tool call, across every worker that takes it. A task
   # that outlives three of them is more likely to be the reason they died
   # than a victim of it.
   @max_tool_attempts 3
-  alias Norns.Workers.TaskQueue
+
+  # A woken worker gets this long to connect before the queue is checked and
+  # it is woken again. Long enough for a cold start, short enough that a
+  # dropped wake does not cost the task much of its 5-minute queue life.
+  # Overridable (`:norns, :wake_cooldown_ms`) so tests need not wait.
+  defp wake_cooldown_ms, do: Application.get_env(:norns, :wake_cooldown_ms, 30_000)
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -59,6 +72,20 @@ defmodule Norns.Workers.WorkerRegistry do
   """
   def drain_worker(tenant_id, worker_id) do
     GenServer.cast(__MODULE__, {:drain, tenant_id, worker_id})
+  end
+
+  @doc """
+  Declare a serverless worker: what it offers and where to wake it. Its
+  tools are advertised from now on, and tasks for them wake it. Re-declaring
+  the same worker replaces the declaration.
+  """
+  def register_serverless_worker(%ServerlessWorker{} = worker) do
+    GenServer.call(__MODULE__, {:register_serverless, worker})
+  end
+
+  @doc "Withdraw a serverless declaration. A connected incarnation is untouched."
+  def unregister_serverless_worker(tenant_id, worker_id) do
+    GenServer.cast(__MODULE__, {:unregister_serverless, tenant_id, worker_id})
   end
 
   @doc "Kick every worker claiming `gard_id` — used when the gard is destroyed."
@@ -122,10 +149,23 @@ defmodule Norns.Workers.WorkerRegistry do
   def init(_opts) do
     state = %{
       workers: %{},
-      pending: %{}
+      pending: %{},
+      # {tenant_id, worker_id} => %{worker: %ServerlessWorker{}, last_wake_at: monotonic ms | nil}
+      serverless: %{}
     }
 
     {:ok, state}
+  end
+
+  @impl true
+  def handle_call({:register_serverless, worker}, _from, state) do
+    key = {worker.tenant_id, worker.worker_id}
+    entry = %{worker: worker, last_wake_at: get_in(state.serverless, [key, :last_wake_at])}
+    state = put_in(state.serverless[key], entry)
+
+    # Work may already be waiting for what this worker declares — a task
+    # dispatched before the declaration, or one left over from a boot.
+    {:reply, :ok, wake_if_queued(state, key)}
   end
 
   @impl true
@@ -197,10 +237,27 @@ defmodule Norns.Workers.WorkerRegistry do
     # Only return tools from tenant-specific workers, not the default worker.
     # Strict gard equality (nil == nil): without it, a gard-bound run would be
     # offered tools from other gards that dispatch would then fail to reach.
-    tools =
+    connected =
       state.workers
       |> Enum.filter(fn {{tid, _}, w} -> tid == tenant_id and w.gard == gard end)
       |> Enum.flat_map(fn {_, worker} -> worker.tools end)
+
+    # A sleeping worker's declared tools are as real as a connected one's:
+    # a call to one wakes it. Serverless workers have no gard, so they only
+    # serve no-gard runs. Dedup by name so a worker that is awake right now
+    # does not list its tools twice.
+    declared =
+      if gard == nil do
+        state.serverless
+        |> Enum.filter(fn {{tid, _}, _} -> tid == tenant_id end)
+        |> Enum.flat_map(fn {_, %{worker: w}} -> w.tools end)
+      else
+        []
+      end
+
+    tools =
+      (connected ++ declared)
+      |> Enum.uniq_by(&tool_name/1)
       |> Enum.map(fn tool_def ->
         %Tool{
           name: tool_name(tool_def),
@@ -218,13 +275,14 @@ defmodule Norns.Workers.WorkerRegistry do
     workers =
       state.workers
       |> Enum.filter(fn {{tid, _}, w} -> tid == tenant_id and Process.alive?(w.channel_pid) end)
-      |> Enum.map(fn {{_tid, worker_id}, w} ->
+      |> Enum.map(fn {{_tid, worker_id} = key, w} ->
         %{
           worker_id: worker_id,
           capabilities: w.capabilities,
           tool_count: length(w.tools),
           gard: w.gard,
-          draining: w.draining
+          draining: w.draining,
+          serverless: Map.has_key?(state.serverless, key)
         }
       end)
 
@@ -235,7 +293,10 @@ defmodule Norns.Workers.WorkerRegistry do
     available =
       Enum.any?(state.workers, fn {{tid, _}, w} ->
         (tid == tenant_id or tid == :default) and :llm in w.capabilities
-      end)
+      end) or
+        Enum.any?(state.serverless, fn {{tid, _}, %{worker: w}} ->
+          tid == tenant_id and "llm" in w.capabilities
+        end)
 
     {:reply, available, state}
   end
@@ -259,7 +320,7 @@ defmodule Norns.Workers.WorkerRegistry do
         {:reply, {:ok, task_id}, state}
 
       nil ->
-        # No LLM worker available — queue it
+        # No LLM worker available — queue it, and wake one that could take it
         task_id = generate_task_id()
 
         TaskQueue.enqueue(tenant_id, %{
@@ -270,7 +331,7 @@ defmodule Norns.Workers.WorkerRegistry do
           gard: gard
         })
 
-        {:reply, {:ok, task_id}, state}
+        {:reply, {:ok, task_id}, wake_for(state, tenant_id, gard, "__llm__")}
     end
   end
 
@@ -316,6 +377,10 @@ defmodule Norns.Workers.WorkerRegistry do
         # has already been replaced by a reconnect — don't evict the new worker.
         {:noreply, state}
     end
+  end
+
+  def handle_cast({:unregister_serverless, tenant_id, worker_id}, state) do
+    {:noreply, %{state | serverless: Map.delete(state.serverless, {tenant_id, worker_id})}}
   end
 
   def handle_cast({:drain, tenant_id, worker_id}, state) do
@@ -384,7 +449,72 @@ defmodule Norns.Workers.WorkerRegistry do
     end
   end
 
+  # The cooldown after a wake has passed. If the worker still is not here and
+  # work is still queued for it, wake it again; the queue's own stale sweep
+  # is what ends this if the worker never comes.
+  def handle_info({:rewake, key}, state) do
+    {:noreply, wake_if_queued(state, key)}
+  end
+
   # -- Helpers --
+
+  # A task found no connected worker and was queued. Wake a sleeping worker
+  # that declared the tool (or `"__llm__"` capability) for this tenant, if
+  # one exists, is not already connected, and was not woken moments ago.
+  defp wake_for(state, tenant_id, gard, tool_name) do
+    state.serverless
+    |> Enum.filter(fn {{tid, _}, %{worker: w}} ->
+      tid == tenant_id and gard == nil and serves?(w, tool_name)
+    end)
+    |> Enum.reduce(state, fn {key, _}, acc -> maybe_wake(acc, key) end)
+  end
+
+  # Wake `key` if anything in its tenant's queue is for it.
+  defp wake_if_queued(state, key) do
+    case state.serverless[key] do
+      nil ->
+        state
+
+      %{worker: w} ->
+        {tenant_id, _} = key
+
+        queued? =
+          tenant_id
+          |> TaskQueue.peek()
+          |> Enum.any?(fn task -> Map.get(task, :gard) == nil and serves?(w, task.tool_name) end)
+
+        if queued?, do: maybe_wake(state, key), else: state
+    end
+  end
+
+  defp maybe_wake(state, key) do
+    %{worker: w, last_wake_at: last} = state.serverless[key]
+    now = System.monotonic_time(:millisecond)
+
+    cond do
+      connected?(state, key) ->
+        state
+
+      last != nil and now - last < wake_cooldown_ms() ->
+        state
+
+      true ->
+        Logger.info("Waking serverless worker #{w.worker_id} (tenant #{w.tenant_id})")
+        Wake.wake_async(w)
+        Process.send_after(self(), {:rewake, key}, wake_cooldown_ms())
+        put_in(state.serverless[key].last_wake_at, now)
+    end
+  end
+
+  defp connected?(state, key) do
+    case state.workers[key] do
+      nil -> false
+      worker -> dispatchable?(worker)
+    end
+  end
+
+  defp serves?(%ServerlessWorker{} = w, "__llm__"), do: "llm" in w.capabilities
+  defp serves?(%ServerlessWorker{} = w, tool_name), do: tool_name in ServerlessWorker.tool_names(w)
 
   # Put a tool task on a worker, or in the queue if none can take it.
   #
@@ -420,7 +550,7 @@ defmodule Norns.Workers.WorkerRegistry do
 
       nil ->
         TaskQueue.enqueue(task.tenant_id, task)
-        state
+        wake_for(state, task.tenant_id, task.gard, task.tool_name)
     end
   end
 

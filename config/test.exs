@@ -20,4 +20,9 @@ config :norns, NornsWeb.Endpoint,
   secret_key_base: "test-only-secret-key-base-that-is-at-least-64-bytes-long-for-phoenix",
   server: false
 
+# Wakes for serverless workers go to a Req.Test plug instead of the network,
+# and the re-wake cooldown is short enough to observe in a test.
+config :norns, :wake_req_options, plug: {Req.Test, Norns.Workers.Wake}
+config :norns, :wake_cooldown_ms, 150
+
 config :logger, level: :warning

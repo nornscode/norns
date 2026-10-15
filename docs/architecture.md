@@ -22,6 +22,8 @@ Workers connect via `/worker` WebSocket, register their tools and LLM capability
 
 If a worker disconnects, the tasks it held are re-dispatched, and anything with nowhere to go is queued and flushed when a worker registers.
 
+A worker can also be asleep until it is needed. A **serverless worker** declares its tools and a wake URL up front (`POST /api/v1/serverless_workers`); a task with no connected worker queues as usual and Norns POSTs a signed wake to that URL, the platform starts the worker, and it connects like any other. See `serverless-workers.md`.
+
 ## Agent States
 
 Each agent is a GenServer managed by a DynamicSupervisor:

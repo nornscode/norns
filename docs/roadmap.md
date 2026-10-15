@@ -325,6 +325,11 @@ compiler and the learning loop stay with the cloud builder.
 
 ## Alongside, when convenient
 
+- **Serverless workers — core shipped (2026-10-15)** (`serverless-workers.md`).
+  A worker declares its tools and a wake URL; a task with no connected
+  worker wakes it, and it connects as usual. Still open: the SDK-side wake
+  handler (Python ASGI/Lambda entry, Elixir Plug) with an idle timeout, and
+  a `nornsctl serverless-workers` surface.
 - **Slack connector template/example.** The most demo-able thing Norns could
   have: conversations keyed by thread, `ask_human` relayed into the channel,
   durability visible in a channel people actually use. The outbound half

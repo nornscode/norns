@@ -31,6 +31,11 @@ defmodule Norns.Workers.TaskQueue do
     GenServer.call(__MODULE__, {:flush, tenant_id, tool_name, opts})
   end
 
+  @doc "Everything queued for a tenant, left in place."
+  def peek(tenant_id) do
+    GenServer.call(__MODULE__, {:peek, tenant_id})
+  end
+
   # -- Callbacks --
 
   @impl true
@@ -48,6 +53,10 @@ defmodule Norns.Workers.TaskQueue do
   end
 
   @impl true
+  def handle_call({:peek, tenant_id}, _from, state) do
+    {:reply, Map.get(state.queues, tenant_id, []), state}
+  end
+
   def handle_call({:flush, tenant_id, tool_name, opts}, _from, state) do
     queue = Map.get(state.queues, tenant_id, [])
 
