@@ -407,6 +407,9 @@ Carried forward, deliberately unscheduled:
   `lessons-absurd-production.md`. Promoted to a cloud-launch prerequisite —
   see Cloud readiness above.
 - **Two-phase step API.** Prototype only if a concrete workflow needs it.
+  Code mode is that workflow (`plan-code-mode.md`): first a worker-only
+  `run_code` tool in the SDK, then a step where the program pauses at each
+  inner tool call and hands the call to core.
 - **Fan-out / descendant budget.** `max_depth` bounds recursion, not cost; a
   real spend ceiling is a different mechanism.
 
