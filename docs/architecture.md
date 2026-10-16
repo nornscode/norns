@@ -24,6 +24,8 @@ If a worker disconnects, the tasks it held are re-dispatched, and anything with 
 
 A worker can also be asleep until it is needed. A **serverless worker** declares its tools and a wake URL up front (`POST /api/v1/serverless_workers`); a task with no connected worker queues as usual and Norns POSTs a signed wake to that URL, the platform starts the worker, and it connects like any other. See `serverless-workers.md`.
 
+The other direction is a **run webhook** (`POST /api/v1/run_webhooks`): a URL Norns POSTs a signed event to when a run parks on a question, completes, or fails, so a client that relays those moments need not poll for them. See `run-webhooks.md`.
+
 ## Agent States
 
 Each agent is a GenServer managed by a DynamicSupervisor:

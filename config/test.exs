@@ -24,5 +24,7 @@ config :norns, NornsWeb.Endpoint,
 # and the re-wake cooldown is short enough to observe in a test.
 config :norns, :wake_req_options, plug: {Req.Test, Norns.Workers.Wake}
 config :norns, :wake_cooldown_ms, 150
+# Run webhook deliveries likewise (see Norns.RunWebhookStub).
+config :norns, :run_webhook_req_options, plug: {Req.Test, Norns.Runs.RunWebhooks}
 
 config :logger, level: :warning

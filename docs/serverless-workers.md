@@ -107,6 +107,15 @@ comes. Connection-level failures (refused, reset, DNS) are retried with
 backoff inside a single wake, since a cold start can look like one. A slow
 response is not a failure.
 
+## The other half
+
+A wake brings a worker up to serve a tool call. It says nothing when a run
+parks on `ask_human`, completes, or fails, because none of those is a tool
+call — so a channel that relays questions and outputs would still have to
+poll, and a process that polls never sleeps. Run webhooks
+(`run-webhooks.md`) are the same signed POST pointed at those three
+moments. A deployment with both is asleep end to end.
+
 ## What a worker SDK needs
 
 An HTTP handler for the wake, which verifies the signature and then runs the

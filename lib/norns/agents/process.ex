@@ -1466,6 +1466,10 @@ defmodule Norns.Agents.Process do
       |> Map.put(:run_id, state.run && state.run.id)
 
     Phoenix.PubSub.broadcast(Norns.PubSub, "agent:#{state.agent_id}", {event, payload})
+
+    # Run webhooks hear the same moments the channel does, from the same
+    # call, so there is no second account of what a run is doing.
+    Norns.Runs.RunWebhooks.notify(state.tenant_id, state.run, event, payload)
   end
 
   # Each task says what it is, set where it was dispatched. This used to be a

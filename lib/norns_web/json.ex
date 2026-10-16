@@ -77,6 +77,19 @@ defmodule NornsWeb.JSON do
     if Keyword.get(opts, :secret, false), do: Map.put(base, :secret, worker.secret), else: base
   end
 
+  def run_webhook(webhook, opts \\ []) do
+    base = %{
+      id: webhook.id,
+      url: webhook.url,
+      events: webhook.events,
+      enabled: webhook.enabled,
+      inserted_at: webhook.inserted_at,
+      updated_at: webhook.updated_at
+    }
+
+    if Keyword.get(opts, :secret, false), do: Map.put(base, :secret, webhook.secret), else: base
+  end
+
   def gard_port(port) do
     %{
       id: port.id,

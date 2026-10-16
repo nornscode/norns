@@ -62,6 +62,12 @@ defmodule NornsWeb.Router do
       post "/wake", ServerlessWorkerController, :wake
     end
 
+    # Outbound: run state changes POSTed to a URL. Distinct from /hooks,
+    # which is inbound.
+    resources "/run_webhooks", RunWebhookController, only: [:create, :index, :show, :update, :delete] do
+      post "/test", RunWebhookController, :test
+    end
+
     resources "/triggers", TriggerController, only: [:create, :index, :show, :update, :delete] do
       post "/fire", TriggerController, :fire
     end
