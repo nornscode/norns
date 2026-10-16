@@ -99,7 +99,8 @@ defmodule Norns.Workers.WorkerRegistry do
   end
 
   @doc """
-  Workers currently connected for a tenant, as `%{worker_id:, capabilities:, tool_count:}`.
+  Workers currently connected for a tenant, as
+  `%{worker_id:, capabilities:, tools:, tool_count:, gard:, draining:, serverless:, connected_at:}`.
 
   Lets a caller tell "no tools because nothing is connected" apart from "no
   tools because none were registered" — different problems with different fixes.
@@ -186,7 +187,8 @@ defmodule Norns.Workers.WorkerRegistry do
       monitor_ref: ref,
       tenant_id: tenant_id,
       gard: gard,
-      draining: false
+      draining: false,
+      connected_at: DateTime.utc_now()
     }
 
     state = put_in(state.workers[key], worker)
@@ -279,10 +281,12 @@ defmodule Norns.Workers.WorkerRegistry do
         %{
           worker_id: worker_id,
           capabilities: w.capabilities,
+          tools: Enum.map(w.tools, &tool_name/1),
           tool_count: length(w.tools),
           gard: w.gard,
           draining: w.draining,
-          serverless: Map.has_key?(state.serverless, key)
+          serverless: Map.has_key?(state.serverless, key),
+          connected_at: w.connected_at
         }
       end)
 
