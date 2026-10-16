@@ -36,6 +36,15 @@ defmodule Norns.Workers.TaskQueue do
     GenServer.call(__MODULE__, {:peek, tenant_id})
   end
 
+  @doc """
+  Forget every task `from_pid` is waiting on. An agent process that cancels
+  its run calls this, so a tool call queued for a worker that is not here
+  yet is not carried out when the worker arrives. Returns how many went.
+  """
+  def drop(tenant_id, from_pid) do
+    GenServer.call(__MODULE__, {:drop, tenant_id, from_pid})
+  end
+
   # -- Callbacks --
 
   @impl true
@@ -68,8 +77,22 @@ defmodule Norns.Workers.TaskQueue do
 
     {matching, remaining} = Enum.split_with(queue, matcher)
     state = put_in(state.queues[tenant_id], remaining)
-    {:reply, matching, state}
+
+    # A task whose owner is gone (the run crashed, or was cancelled with no
+    # process to purge the queue) has nobody to answer to; a worker would
+    # only carry out its side effect for a result that is thrown away.
+    {:reply, Enum.filter(matching, &owner_alive?/1), state}
   end
+
+  def handle_call({:drop, tenant_id, from_pid}, _from, state) do
+    queue = Map.get(state.queues, tenant_id, [])
+    {dropped, remaining} = Enum.split_with(queue, &(Map.get(&1, :from_pid) == from_pid))
+    state = put_in(state.queues[tenant_id], remaining)
+    {:reply, length(dropped), state}
+  end
+
+  defp owner_alive?(%{from_pid: pid}) when is_pid(pid), do: Process.alive?(pid)
+  defp owner_alive?(_task), do: true
 
   @impl true
   def handle_info(:sweep_stale, state) do

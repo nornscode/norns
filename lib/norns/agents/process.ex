@@ -221,6 +221,10 @@ defmodule Norns.Agents.Process do
         pending_compaction: nil
     }
 
+    # A tool call still queued for a worker that is not here would otherwise
+    # be carried out when the worker arrives, for a result nobody wants.
+    Norns.Workers.TaskQueue.drop(state.tenant_id, self())
+
     {:reply, :ok, complete_with_error(state, Norns.Runs.Cancel.error(), "terminal")}
   end
 
@@ -1370,6 +1374,8 @@ defmodule Norns.Agents.Process do
   end
 
   defp complete_with_error(state, %Errors.Error{} = error, retry_decision) do
+    state = settle_open_tool_calls(state, error.message)
+
     payload =
       Errors.to_metadata(error)
       |> Map.put("retry_decision", retry_decision)
@@ -1392,6 +1398,52 @@ defmodule Norns.Agents.Process do
   defp finish_run(state) do
     %{state | status: :idle, retry_count: 0}
   end
+
+  # A run that fails mid-step (cancelled, a tool task timed out) would persist
+  # the assistant's tool calls with nothing after them, and the provider
+  # refuses that history on the conversation's next turn: every tool_use
+  # needs its tool_result. Settle them before the failure is written: the
+  # results already in hand, and an error result for each call still open.
+  defp settle_open_tool_calls(state, reason) do
+    case open_tool_calls(state.messages) do
+      [] ->
+        state
+
+      open ->
+        in_hand = results_in_hand(state)
+
+        results =
+          Enum.map(open, fn tc ->
+            Map.get(in_hand, tc["id"]) ||
+              make_tool_result(state, tc, tc["name"], reason, true, %{"kind" => "unanswered", "data" => %{}})
+          end)
+
+        %{state | messages: state.messages ++ results}
+    end
+  end
+
+  # The last assistant turn's tool calls that no tool message after it answers.
+  defp open_tool_calls(messages) do
+    {after_assistant, from_assistant} =
+      messages |> Enum.reverse() |> Enum.split_while(&(&1.role != "assistant"))
+
+    case from_assistant do
+      [%{tool_calls: calls} | _] when is_list(calls) and calls != [] ->
+        answered = for %{role: "tool"} = m <- after_assistant, into: MapSet.new(), do: m[:tool_call_id]
+        Enum.reject(calls, &MapSet.member?(answered, &1["id"]))
+
+      _ ->
+        []
+    end
+  end
+
+  defp results_in_hand(%{status: :awaiting_tools, pending_tool_tasks: %{results: results}}) when is_map(results),
+    do: results
+
+  defp results_in_hand(%{status: :waiting, pending_human: %{pending_results: results}}) when is_list(results),
+    do: Map.new(results, &{&1.tool_call_id, &1})
+
+  defp results_in_hand(_state), do: %{}
 
   defp maybe_checkpoint(state, context) do
     should_checkpoint =

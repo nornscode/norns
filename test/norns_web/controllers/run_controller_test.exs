@@ -324,6 +324,16 @@ defmodule NornsWeb.RunControllerTest do
       assert run.failure_metadata["error_class"] == "policy"
       assert Enum.any?(Norns.Runs.list_events(run_id), &(&1.event_type == "run_failed"))
 
+      # The history the next turn is built on pairs the open ask_human call
+      # with a result; without one the provider refuses the whole conversation.
+      conversation = Norns.Conversations.get_conversation_by_agent_key(agent.id, "cancel-test")
+      [%{"role" => "assistant", "tool_calls" => [%{"id" => "call_ask"}]}, settled] = Enum.take(conversation.messages, -2)
+
+      assert %{"role" => "tool", "tool_call_id" => "call_ask", "name" => "ask_human", "is_error" => true,
+               "content" => "Cancelled by user", "kind" => "unanswered"} = settled
+
+      assert Enum.any?(Norns.Runs.list_events(run_id), &(&1.event_type == "tool_result" and &1.payload["tool_call_id"] == "call_ask"))
+
       # The process is idle, not dead: the next message starts a new run.
       Norns.TestWorker.LLM.set_responses([%{content: [%{"type" => "text", "text" => "Again."}], stop_reason: "end_turn"}])
       {:ok, next_id} = Norns.Agents.Registry.send_message(tenant.id, agent.id, "again", conversation_key: "cancel-test")
@@ -354,6 +364,9 @@ defmodule NornsWeb.RunControllerTest do
       assert Process.alive?(pid)
       assert %{status: :idle} = Norns.Agents.Process.get_state(pid)
       assert Norns.Runs.get_run!(run_id).status == "failed"
+
+      conversation = Norns.Conversations.get_conversation_by_agent_key(agent.id, "cancel-wait")
+      assert %{"role" => "tool", "tool_call_id" => "call_wait", "is_error" => true} = List.last(conversation.messages)
     end
 
     test "fails an orphaned running run directly", %{conn: conn, tenant: tenant, agent: agent} do
