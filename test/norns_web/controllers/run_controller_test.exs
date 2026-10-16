@@ -289,6 +289,115 @@ defmodule NornsWeb.RunControllerTest do
     end
   end
 
+  describe "POST /api/v1/runs/:id/cancel" do
+    defp park_on_question(tenant, agent, key) do
+      Norns.TestWorker.LLM.set_responses([
+        %{
+          content: [
+            %{"type" => "tool_use", "id" => "call_ask", "name" => "ask_human", "input" => %{"question" => "Proceed?"}}
+          ],
+          stop_reason: "tool_use"
+        },
+        %{content: [%{"type" => "text", "text" => "Done."}], stop_reason: "end_turn"}
+      ])
+
+      Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{agent.id}")
+      {:ok, run_id} = Norns.Agents.Registry.send_message(tenant.id, agent.id, "do the thing", conversation_key: key)
+      assert_receive {:waiting_for_user, %{question: "Proceed?"}}, 5000
+      run_id
+    end
+
+    test "fails a parked run as cancelled and leaves the conversation usable",
+         %{conn: conn, tenant: tenant, agent: agent} do
+      run_id = park_on_question(tenant, agent, "cancel-test")
+
+      conn = post(conn, "/api/v1/runs/#{run_id}/cancel")
+
+      assert %{"status" => "cancelled", "run_id" => ^run_id, "data" => %{"status" => "failed"}} =
+               json_response(conn, 200)
+
+      assert_receive {:error, %{run_id: ^run_id, error: "Cancelled by user"}}, 5000
+
+      run = Norns.Runs.get_run!(run_id)
+      assert run.status == "failed"
+      assert run.failure_metadata["error_code"] == "cancelled"
+      assert run.failure_metadata["error_class"] == "policy"
+      assert Enum.any?(Norns.Runs.list_events(run_id), &(&1.event_type == "run_failed"))
+
+      # The process is idle, not dead: the next message starts a new run.
+      Norns.TestWorker.LLM.set_responses([%{content: [%{"type" => "text", "text" => "Again."}], stop_reason: "end_turn"}])
+      {:ok, next_id} = Norns.Agents.Registry.send_message(tenant.id, agent.id, "again", conversation_key: "cancel-test")
+      assert next_id != run_id
+      assert_receive {:completed, %{run_id: ^next_id, output: "Again."}}, 5000
+    end
+
+    test "cancels a run sleeping on wait without a stale timer firing later",
+         %{conn: conn, tenant: tenant, agent: agent} do
+      Norns.TestWorker.LLM.set_responses([
+        %{
+          content: [%{"type" => "tool_use", "id" => "call_wait", "name" => "wait", "input" => %{"seconds" => 1}}],
+          stop_reason: "tool_use"
+        },
+        %{content: [%{"type" => "text", "text" => "Woke."}], stop_reason: "end_turn"}
+      ])
+
+      Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{agent.id}")
+      {:ok, run_id} = Norns.Agents.Registry.send_message(tenant.id, agent.id, "nap", conversation_key: "cancel-wait")
+      assert_receive {:waiting_timer, %{run_id: ^run_id}}, 5000
+
+      assert %{"status" => "cancelled"} = json_response(post(conn, "/api/v1/runs/#{run_id}/cancel"), 200)
+      assert_receive {:error, %{run_id: ^run_id}}, 5000
+
+      # Past when the timer would have fired: the process is still alive and idle.
+      Process.sleep(1500)
+      {:ok, pid} = Norns.Agents.Registry.lookup(tenant.id, agent.id, "cancel-wait")
+      assert Process.alive?(pid)
+      assert %{status: :idle} = Norns.Agents.Process.get_state(pid)
+      assert Norns.Runs.get_run!(run_id).status == "failed"
+    end
+
+    test "fails an orphaned running run directly", %{conn: conn, tenant: tenant, agent: agent} do
+      {:ok, run} =
+        Norns.Runs.create_run(%{
+          agent_id: agent.id, tenant_id: tenant.id, trigger_type: "message",
+          input: %{"user_message" => "hello"}, status: "running"
+        })
+
+      Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{agent.id}")
+      assert %{"status" => "cancelled", "data" => %{"status" => "failed"}} =
+               json_response(post(conn, "/api/v1/runs/#{run.id}/cancel"), 200)
+
+      run_id = run.id
+      assert_receive {:error, %{run_id: ^run_id, error: "Cancelled by user"}}, 1000
+      assert Norns.Runs.get_run!(run_id).failure_metadata["error_code"] == "cancelled"
+      assert [%{event_type: "run_failed"}] = Norns.Runs.list_events(run_id)
+    end
+
+    test "rejects a run that has already finished", %{conn: conn, tenant: tenant, agent: agent} do
+      {:ok, run} =
+        Norns.Runs.create_run(%{
+          agent_id: agent.id, tenant_id: tenant.id, trigger_type: "message",
+          input: %{"user_message" => "hello"}, status: "completed"
+        })
+
+      assert %{"error" => "run has already finished"} = json_response(post(conn, "/api/v1/runs/#{run.id}/cancel"), 409)
+    end
+
+    test "returns 404 for another tenant's run", %{conn: conn} do
+      other_tenant = create_tenant()
+      other_agent = create_agent(other_tenant)
+
+      {:ok, run} =
+        Norns.Runs.create_run(%{
+          agent_id: other_agent.id, tenant_id: other_tenant.id, trigger_type: "message",
+          input: %{"user_message" => "hello"}, status: "running"
+        })
+
+      assert json_response(post(conn, "/api/v1/runs/#{run.id}/cancel"), 404)
+      assert Norns.Runs.get_run!(run.id).status == "running"
+    end
+  end
+
   describe "GET /api/v1/runs/:id/events" do
     test "returns event log", %{conn: conn, tenant: tenant, agent: agent} do
       {:ok, run} =

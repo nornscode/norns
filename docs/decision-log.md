@@ -324,6 +324,7 @@ worker is the reference core tests against, and it is test support.
 ### Human in the loop
 - Built-in `ask_human` parks the run durably in `:waiting`; `POST /runs/:id/reply` (or `reply_to_human`) resumes it.
 - `waiting_for_user` event + broadcast lets any surface (dashboard, connector, client SDK `wait=True`) relay the question and the answer.
+- `POST /runs/:id/cancel` (decided 2026-10-16) stops a run from outside: the owning process fails it with `error_code: cancelled` through the same path as any other failure, so the broadcast and the run webhook fire, and then goes idle, keeping the conversation. The dashboard button used to terminate every process of the agent and write the failure by hand, which fired no webhook; it now calls the same `Norns.Runs.Cancel`. A dispatched task is not recalled: workers own execution, and the stale result is dropped on return.
 
 ### Subagent allowlists
 - `Norns.Agents.SubagentPolicy` — per-agent authorization for `launch_agent` / `list_agents`, with audit events. Defaults open; existing agents unaffected.

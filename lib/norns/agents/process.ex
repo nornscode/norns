@@ -62,6 +62,18 @@ defmodule Norns.Agents.Process do
     GenServer.call(pid, {:reply_to_human, answer}, 10_000)
   end
 
+  @doc """
+  Stop the run under way, if it is `run_id`. The run fails with the policy
+  code `cancelled`, the usual failure broadcast goes out (dashboard, agent
+  channel, run webhooks), and the process goes idle for its next message.
+  A task already with a worker finishes there; its result arrives as a stale
+  `task_result` and is dropped. `{:error, :not_running}` when idle or on
+  another run.
+  """
+  def cancel(pid, run_id) do
+    GenServer.call(pid, {:cancel, run_id}, 10_000)
+  end
+
   # -- Callbacks --
 
   @impl true
@@ -191,6 +203,29 @@ defmodule Norns.Agents.Process do
 
   def handle_call({:reply_to_human, _answer}, _from, state) do
     {:reply, {:error, :not_waiting}, state}
+  end
+
+  def handle_call({:cancel, run_id}, _from, %{run: %{id: run_id}, status: status} = state)
+      when status != :idle do
+    # The wait timer and the task timeout share `task_timer`; a stale
+    # `timer_complete` has no clause outside :waiting_timer, so it must go.
+    cancel_timer(state.task_timer)
+
+    state = %{
+      state
+      | pending_llm_task: nil,
+        pending_tool_tasks: nil,
+        task_timer: nil,
+        pending_human: nil,
+        pending_subagents: %{},
+        pending_compaction: nil
+    }
+
+    {:reply, :ok, complete_with_error(state, Norns.Runs.Cancel.error(), "terminal")}
+  end
+
+  def handle_call({:cancel, _run_id}, _from, state) do
+    {:reply, {:error, :not_running}, state}
   end
 
   @impl true

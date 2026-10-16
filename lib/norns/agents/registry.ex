@@ -66,6 +66,21 @@ defmodule Norns.Agents.Registry do
     end
   end
 
+  @doc """
+  Cancel a run through the process that holds it (`Norns.Runs.Cancel` is the
+  caller; it handles a run with no process). `{:error, :not_running}` when
+  no process is registered for the run's conversation.
+  """
+  def cancel_run(tenant_id, run) do
+    with {:ok, key} <- conversation_key_for(run),
+         {:ok, pid} <- lookup(tenant_id, run.agent_id, key) do
+      AgentProcess.cancel(pid, run.id)
+    else
+      :error -> {:error, :not_running}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp conversation_key_for(%{conversation_id: nil}), do: {:ok, "default"}
 
   defp conversation_key_for(%{conversation_id: id}) do

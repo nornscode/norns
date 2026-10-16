@@ -73,6 +73,28 @@ defmodule NornsWeb.RunController do
   end
 
   @doc """
+  Stop a run under way. It fails with error code `cancelled`; the agent's
+  conversation stays and takes the next message. Idempotent in effect: a
+  run that already ended answers 409.
+  """
+  def cancel(conn, %{"id" => id}) do
+    tenant = conn.assigns.current_tenant
+
+    with {:ok, run} <- fetch_run(id, tenant.id) do
+      case Norns.Runs.Cancel.cancel(run) do
+        {:ok, run} ->
+          json(conn, %{status: "cancelled", run_id: run.id, data: NornsWeb.JSON.run(run)})
+
+        {:error, :finished} ->
+          conn |> put_status(409) |> json(%{error: "run has already finished"})
+
+        {:error, reason} ->
+          conn |> put_status(500) |> json(%{error: inspect(reason)})
+      end
+    end
+  end
+
+  @doc """
   Fork a run from a step: a new run on the parent's history up to that step,
   in a fresh conversation, optionally with a new user message and a
   system_prompt or model override (which creates a variant agent).

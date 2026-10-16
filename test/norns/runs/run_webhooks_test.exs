@@ -171,4 +171,33 @@ defmodule Norns.Runs.RunWebhooksTest do
     assert_receive {:run_webhook, %{event: "run.completed", body: body}}, 5000
     assert %{"run_id" => ^run_id, "output" => "Done."} = Jason.decode!(body)
   end
+
+  test "a cancelled run is delivered as run.failed, with or without a process", %{
+    tenant: tenant,
+    agent: agent,
+    run: orphan
+  } do
+    create(tenant)
+
+    Norns.TestWorker.LLM.set_responses([
+      %{
+        content: [%{"type" => "tool_use", "id" => "toolu_ask", "name" => "ask_human", "input" => %{"question" => "Proceed?"}}],
+        stop_reason: "tool_use"
+      }
+    ])
+
+    {:ok, run_id} =
+      Norns.Agents.Registry.send_message(tenant.id, agent.id, "do the thing", conversation_key: "cancel-webhook")
+
+    assert_receive {:run_webhook, %{event: "run.waiting"}}, 5000
+
+    assert {:ok, %{status: "failed"}} = Norns.Runs.Cancel.cancel(Norns.Runs.get_run!(run_id))
+    assert_receive {:run_webhook, %{event: "run.failed", body: body}}, 5000
+    assert %{"run_id" => ^run_id, "error" => "Cancelled by user", "status" => "failed"} = Jason.decode!(body)
+
+    orphan_id = orphan.id
+    assert {:ok, %{status: "failed"}} = Norns.Runs.Cancel.cancel(orphan)
+    assert_receive {:run_webhook, %{event: "run.failed", body: body}}, 5000
+    assert %{"run_id" => ^orphan_id, "error" => "Cancelled by user", "trigger_type" => "schedule"} = Jason.decode!(body)
+  end
 end
