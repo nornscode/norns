@@ -60,7 +60,8 @@ defmodule NornsWeb do
     quote do
       use Phoenix.VerifiedRoutes,
         endpoint: NornsWeb.Endpoint,
-        router: NornsWeb.Router
+        router: NornsWeb.Router,
+        statics: NornsWeb.static_paths()
     end
   end
 
