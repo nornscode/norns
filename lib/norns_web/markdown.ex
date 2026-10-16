@@ -28,25 +28,19 @@ defmodule NornsWeb.Markdown do
   def to_html(nil), do: Phoenix.HTML.raw("")
 
   def to_html(text) when is_binary(text) do
-    html =
-      case Earmark.as_html(text, earmark_options()) do
-        {:ok, html, _messages} -> html
-        {:error, html, _messages} -> html
-      end
-
-    html
+    text
+    |> MDEx.to_html!(mdex_options())
     |> Scrubber.scrub(NornsWeb.Markdown.Scrubber)
     |> Phoenix.HTML.raw()
   end
 
-  defp earmark_options do
-    %Earmark.Options{
-      gfm: true,
-      breaks: true,
-      smartypants: false,
-      pure_links: true,
-      compact_output: true
-    }
+  # `unsafe: false` makes MDEx drop raw HTML in the source outright, so the
+  # scrubber below only ever sees markup MDEx generated itself.
+  defp mdex_options do
+    [
+      extension: [autolink: true, table: true, strikethrough: true],
+      render: [hardbreaks: true, unsafe: false]
+    ]
   end
 end
 
