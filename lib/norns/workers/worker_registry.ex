@@ -88,6 +88,19 @@ defmodule Norns.Workers.WorkerRegistry do
     GenServer.cast(__MODULE__, {:unregister_serverless, tenant_id, worker_id})
   end
 
+  @doc """
+  Every serverless worker declared for a tenant, awake or not, as
+  `%{worker_id:, capabilities:, tools:, tool_count:, awake:, last_woken_at:}`.
+
+  The complement of `connected_workers/1`: a declared worker that is asleep
+  holds no connection, so it appears only here. `awake` says whether a
+  dispatchable incarnation is connected right now; `last_woken_at` is when
+  this node last sent it a wake, or nil if it never has.
+  """
+  def serverless_workers(tenant_id) do
+    GenServer.call(__MODULE__, {:serverless_workers, tenant_id})
+  end
+
   @doc "Kick every worker claiming `gard_id` — used when the gard is destroyed."
   def kick_gard_workers(tenant_id, gard_id) do
     GenServer.cast(__MODULE__, {:kick_gard_workers, tenant_id, gard_id})
@@ -161,7 +174,16 @@ defmodule Norns.Workers.WorkerRegistry do
   @impl true
   def handle_call({:register_serverless, worker}, _from, state) do
     key = {worker.tenant_id, worker.worker_id}
-    entry = %{worker: worker, last_wake_at: get_in(state.serverless, [key, :last_wake_at])}
+    # A re-declaration (edit, boot replay) keeps the wake bookkeeping: the
+    # cooldown still applies, and "last woken" is still true. On a fresh
+    # boot there is no previous entry, so the row's persisted value seeds it.
+    previous = Map.get(state.serverless, key, %{})
+
+    entry = %{
+      worker: worker,
+      last_wake_at: previous[:last_wake_at],
+      last_woken_at: previous[:last_woken_at] || worker.last_woken_at
+    }
     state = put_in(state.serverless[key], entry)
 
     # Work may already be waiting for what this worker declares — a task
@@ -287,6 +309,24 @@ defmodule Norns.Workers.WorkerRegistry do
           draining: w.draining,
           serverless: Map.has_key?(state.serverless, key),
           connected_at: w.connected_at
+        }
+      end)
+
+    {:reply, workers, state}
+  end
+
+  def handle_call({:serverless_workers, tenant_id}, _from, state) do
+    workers =
+      state.serverless
+      |> Enum.filter(fn {{tid, _}, _} -> tid == tenant_id end)
+      |> Enum.map(fn {key, %{worker: w, last_woken_at: woken}} ->
+        %{
+          worker_id: w.worker_id,
+          capabilities: Enum.map(w.capabilities, &String.to_existing_atom/1),
+          tools: ServerlessWorker.tool_names(w),
+          tool_count: length(w.tools),
+          awake: connected?(state, key),
+          last_woken_at: woken
         }
       end)
 
@@ -506,8 +546,33 @@ defmodule Norns.Workers.WorkerRegistry do
         Logger.info("Waking serverless worker #{w.worker_id} (tenant #{w.tenant_id})")
         Wake.wake_async(w)
         Process.send_after(self(), {:rewake, key}, wake_cooldown_ms())
-        put_in(state.serverless[key].last_wake_at, now)
+
+        # Monotonic for the cooldown, wall clock for whoever asks when. The
+        # wall-clock time is also written to the row so it outlives a restart.
+        woken_at = DateTime.utc_now()
+        persist_woken_at(w, woken_at)
+
+        update_in(state.serverless[key], fn entry ->
+          %{entry | last_wake_at: now, last_woken_at: woken_at}
+        end)
     end
+  end
+
+  # Best-effort, off the registry process, like mark_gard_disconnected: the
+  # registry holds every worker connection and must not die on a database
+  # hiccup. The in-memory copy is already updated; this is the durable one.
+  defp persist_woken_at(%ServerlessWorker{} = w, at) do
+    Task.start(fn ->
+      try do
+        Norns.Workers.ServerlessWorkers.mark_woken(w.tenant_id, w.worker_id, at)
+      rescue
+        e -> Logger.warning("failed to record wake of #{w.worker_id}: #{Exception.message(e)}")
+      catch
+        :exit, reason -> Logger.warning("failed to record wake of #{w.worker_id}: #{inspect(reason)}")
+      end
+    end)
+
+    :ok
   end
 
   defp connected?(state, key) do

@@ -69,6 +69,7 @@ defmodule NornsWeb.JSON do
       capabilities: worker.capabilities,
       enabled: worker.enabled,
       awake: Keyword.get(opts, :awake, false),
+      last_woken_at: Keyword.get(opts, :last_woken_at),
       inserted_at: worker.inserted_at,
       updated_at: worker.updated_at
     }

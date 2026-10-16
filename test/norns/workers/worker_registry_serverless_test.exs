@@ -53,6 +53,22 @@ defmodule Norns.Workers.WorkerRegistryServerlessTest do
     assert [] = WorkerRegistry.available_tools(tenant)
   end
 
+  test "serverless_workers/1 reports the declaration, whether it is awake, and when it was woken",
+       %{tenant: tenant, wid: wid} do
+    assert [%{worker_id: ^wid, awake: false, last_woken_at: nil, tools: ["sl_search"], tool_count: 1} = entry] =
+             WorkerRegistry.serverless_workers(tenant)
+
+    assert Enum.sort(entry.capabilities) == [:llm, :tools]
+
+    {:ok, _} = WorkerRegistry.dispatch_task(tenant, "sl_search", %{}, from_pid: self())
+    assert_receive {:wake, %{worker_id: ^wid}}, 1_000
+
+    assert [%{awake: false, last_woken_at: %DateTime{}}] = WorkerRegistry.serverless_workers(tenant)
+
+    :ok = WorkerRegistry.register_worker(tenant, wid, self(), [@tool])
+    assert [%{awake: true, last_woken_at: %DateTime{}}] = WorkerRegistry.serverless_workers(tenant)
+  end
+
   test "a tool task with no connected worker queues, wakes the declarer, and flushes when it joins",
        %{worker: worker, tenant: tenant, wid: wid} do
     {:ok, task_id} =

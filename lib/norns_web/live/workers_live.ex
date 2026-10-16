@@ -22,7 +22,7 @@ defmodule NornsWeb.WorkersLive do
         {:ok, assign(socket, tenant: tenant, current_tenant: tenant) |> load_workers()}
 
       :error ->
-        {:ok, assign(socket, tenant: nil, current_tenant: nil, workers: [])}
+        {:ok, assign(socket, tenant: nil, current_tenant: nil, workers: [], asleep: [])}
     end
   end
 
@@ -42,7 +42,16 @@ defmodule NornsWeb.WorkersLive do
       |> WorkerRegistry.connected_workers()
       |> Enum.sort_by(& &1.worker_id)
 
-    assign(socket, workers: workers)
+    # Declared serverless workers that are not connected. An awake one is
+    # already in `workers` with its `serverless` badge; listing it twice
+    # would suggest two of it.
+    asleep =
+      tenant.id
+      |> WorkerRegistry.serverless_workers()
+      |> Enum.reject(& &1.awake)
+      |> Enum.sort_by(& &1.worker_id)
+
+    assign(socket, workers: workers, asleep: asleep)
   end
 
   @impl true
@@ -60,7 +69,7 @@ defmodule NornsWeb.WorkersLive do
       </div>
 
       <%= if @workers == [] do %>
-        <p class="text-xs text-gray-500 dark:text-gray-600">
+        <p class="text-xs text-gray-500 dark:text-gray-600 mb-8">
           No workers connected. A worker registers over the <code class="text-gray-600 dark:text-gray-400">/worker</code>
           socket and shows up here while its connection is open.
         </p>
@@ -86,19 +95,59 @@ defmodule NornsWeb.WorkersLive do
                 </span>
               </div>
 
-              <div class="mt-2 text-xs text-gray-600 dark:text-gray-400 pl-6">
-                <%= if worker.tools == [] do %>
-                  no tools
-                <% else %>
-                  <%= worker.tool_count %> <%= if worker.tool_count == 1, do: "tool", else: "tools" %>:
-                  <%= Enum.join(worker.tools, ", ") %>
+              <.tool_list worker={worker} />
+            </div>
+          <% end %>
+        </div>
+      <% end %>
+
+      <%= if @asleep != [] do %>
+        <h2 class="text-sm font-bold text-gray-600 dark:text-gray-400 mt-8 mb-2">Asleep</h2>
+        <p class="text-xs text-gray-500 dark:text-gray-600 mb-3">
+          Declared serverless workers with no connection right now. Their tools are still offered to agents;
+          a call to one sends a wake.
+        </p>
+        <div class="space-y-2">
+          <%= for worker <- @asleep do %>
+            <div id={"asleep-#{worker.worker_id}"} class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded px-4 py-3">
+              <div class="flex items-center gap-3">
+                <span class="text-gray-400 dark:text-gray-600">●</span>
+                <span class="text-sm text-gray-900 dark:text-white"><%= worker.worker_id %></span>
+                <span class="text-xs text-gray-500">asleep</span>
+                <%= for cap <- worker.capabilities do %>
+                  <span class="text-xs px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400"><%= cap %></span>
                 <% end %>
+                <span class="text-xs px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-400">serverless</span>
+                <span class="text-xs text-gray-500 ml-auto">
+                  <%= if worker.last_woken_at do %>
+                    last woken <.local_time id={"asleep-#{worker.worker_id}-at"} at={worker.last_woken_at} format="time" />
+                  <% else %>
+                    never woken
+                  <% end %>
+                </span>
               </div>
+
+              <.tool_list worker={worker} />
             </div>
           <% end %>
         </div>
       <% end %>
     <% end %>
+    """
+  end
+
+  attr :worker, :map, required: true
+
+  defp tool_list(assigns) do
+    ~H"""
+    <div class="mt-2 text-xs text-gray-600 dark:text-gray-400 pl-6">
+      <%= if @worker.tools == [] do %>
+        no tools
+      <% else %>
+        <%= @worker.tool_count %> <%= if @worker.tool_count == 1, do: "tool", else: "tools" %>:
+        <%= Enum.join(@worker.tools, ", ") %>
+      <% end %>
+    </div>
     """
   end
 

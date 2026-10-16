@@ -807,6 +807,11 @@ components:
           items:
             type: string
             enum: [llm, tools]
+        tools:
+          type: array
+          items:
+            type: string
+          description: Names of the tools this worker registered.
         tool_count:
           type: integer
         gard:
@@ -817,6 +822,9 @@ components:
         serverless:
           type: boolean
           description: This connection is the woken incarnation of a declared serverless worker.
+        connected_at:
+          type: string
+          format: date-time
 
     ServerlessWorker:
       type: object
@@ -843,6 +851,11 @@ components:
         awake:
           type: boolean
           description: An incarnation is connected right now.
+        last_woken_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When this node last sent the worker a wake; null if never.
         inserted_at:
           type: string
           format: date-time
