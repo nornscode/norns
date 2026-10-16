@@ -48,7 +48,9 @@ X-Norns-Signature: t=1760572800,v1=<hex hmac-sha256>
 ```
 
 `run.completed` carries `output` in place of the question; `run.failed`
-carries `error`. The envelope fields are the ones `GET /runs/:id` returns,
+carries `error`. A run stopped through `POST /runs/:id/cancel` (or the
+dashboard) is a `run.failed` with `error: "Cancelled by user"`; the run's
+`failure_metadata.error_code` is `cancelled`. The envelope fields are the ones `GET /runs/:id` returns,
 so a receiver that wants more can fetch the run. The signature is the
 Stripe scheme over `"<t>.<raw body>"` under the secret — the same one
 `Norns.Workers.HttpSignature` produces for wakes and `Norns.Hooks.Signature`

@@ -375,6 +375,47 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /runs/{id}/cancel:
+    post:
+      operationId: cancelRun
+      summary: Stop a run that is under way
+      description: >-
+        The run fails with `error_code: cancelled` and the agent's
+        conversation takes its next message as usual. Subscribed run
+        webhooks receive `run.failed` with `error: "Cancelled by user"`.
+        A task already dispatched to a worker runs to completion there;
+        its result is dropped.
+      tags: [Runs]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Cancelled; the run as it now stands
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: cancelled
+                  run_id:
+                    type: integer
+                  data:
+                    $ref: "#/components/schemas/Run"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Run has already finished
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /runs/{id}/events:
     get:
       operationId: listRunEvents

@@ -189,41 +189,20 @@ defmodule NornsWeb.RunLive do
   @impl true
   def handle_event("cancel", _params, socket) do
     run = socket.assigns.run
-    tenant = socket.assigns.tenant
 
-    # Stop all agent processes for this agent (any conversation key)
-    Registry.select(Norns.AgentRegistry, [
-      {{{tenant.id, run.agent_id, :_}, :"$1", :_}, [], [:"$1"]}
-    ])
-    |> Enum.each(&DynamicSupervisor.terminate_child(Norns.AgentSupervisor, &1))
+    case Norns.Runs.Cancel.cancel(run) do
+      {:ok, updated_run} ->
+        {:noreply,
+         socket
+         |> assign_run(updated_run, Norns.Runs.list_events(run.id))
+         |> put_flash(:info, "Run cancelled")}
 
-    # Mark the run as failed
-    Norns.Runs.append_event(run, %{
-      event_type: "run_failed",
-      payload: %{
-        "error" => "Cancelled by user",
-        "error_class" => "policy",
-        "error_code" => "cancelled",
-        "retry_decision" => "terminal",
-        "schema_version" => 1
-      }
-    })
+      {:error, :finished} ->
+        {:noreply, put_flash(socket, :error, "Run has already finished")}
 
-    {:ok, updated_run} = Norns.Runs.update_run(run, %{
-      status: "failed",
-      failure_metadata: %{
-        "error_class" => "policy",
-        "error_code" => "cancelled",
-        "retry_decision" => "terminal"
-      }
-    })
-
-    events = Norns.Runs.list_events(run.id)
-
-    {:noreply,
-     socket
-     |> assign_run(updated_run, events)
-     |> put_flash(:info, "Run cancelled")}
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Could not cancel: #{inspect(reason)}")}
+    end
   end
 
   def handle_event("fork", %{"step" => step}, socket) do
