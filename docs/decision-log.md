@@ -360,6 +360,12 @@ worker is the reference core tests against, and it is test support.
 - `message_path` extracts the run message from the payload (default: the whole payload as pretty JSON); `conversation_key_path` keys persistent history per sender, namespaced `hook_{id}_` so hook-derived keys can't collide with client keys.
 - Busy conversations return 409 — webhook providers retry non-2xx, which is the desired backoff for free.
 
+### Serverless workers wake, then connect (decided 2026-10-15)
+- A serverless worker is an ordinary worker with a wake URL in front of it. Its tools and capabilities are declared in Postgres (`serverless_workers`, `POST /api/v1/serverless_workers`) so the registry can advertise them while nothing is connected. A task with no connected worker queues as before, and Norns POSTs a signed wake (`{"type":"wake"}`, Stripe-style HMAC) to the declaring worker; it connects over `/worker` and the queue flushes to it on join. See `serverless-workers.md`.
+- Rejected: an HTTP task transport (POST the task, read the result from the response). It would have been a second protocol — a result callback for anything longer than the platform's request cap, its own timeout and retry semantics, and no `drain`, ports or streaming. Waking the worker reuses everything that exists.
+- The worker holds the wake request open while it serves: on Fly, Cloud Run and Lambda an instance lives as long as it has an inbound request, and the outbound WebSocket does not count. Norns holds its side for up to an hour and ignores the response.
+- One wake per worker per 30 s cooldown, re-sent while work is still queued and the worker still absent; the queue's stale sweep bounds it. Serverless workers have no gard, same rule as connectors.
+
 ### Sub-agent crash recovery
 - A resumed parent reattaches to its in-flight child by run id instead of relaunching it — a pending `launch_agent` is a reference to work already underway, not a request.
 - Subscribe-before-read closes the completion race; `run_id` rides on every agent broadcast; a parent resumed alone restarts its own orphaned child.

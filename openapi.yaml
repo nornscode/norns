@@ -433,6 +433,148 @@ paths:
                     items:
                       $ref: "#/components/schemas/Worker"
 
+  /serverless_workers:
+    get:
+      operationId: listServerlessWorkers
+      summary: List serverless workers
+      description: >-
+        Workers declared with a wake URL instead of a standing connection.
+        Their declared tools are offered to agents while they sleep; a task
+        for one wakes it. See docs/serverless-workers.md for the wake
+        contract. `awake` says whether an incarnation is connected now.
+      tags: [Workers]
+      responses:
+        "200":
+          description: Serverless workers for this tenant
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ServerlessWorker"
+    post:
+      operationId: createServerlessWorker
+      summary: Declare a serverless worker
+      description: >-
+        The response carries the signing `secret` — this is the only time
+        it is shown. Give it to the worker; every wake is signed with it.
+      tags: [Workers]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [worker_id, wake_url]
+              properties:
+                worker_id:
+                  type: string
+                  description: The id the worker joins the channel with.
+                wake_url:
+                  type: string
+                  format: uri
+                tools:
+                  type: array
+                  items:
+                    type: object
+                    required: [name, description, input_schema]
+                capabilities:
+                  type: array
+                  items:
+                    type: string
+                    enum: [llm, tools]
+                  default: [tools]
+                enabled:
+                  type: boolean
+                  default: true
+      responses:
+        "201":
+          description: Created, with the one-time secret
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    allOf:
+                      - $ref: "#/components/schemas/ServerlessWorker"
+                      - type: object
+                        properties:
+                          secret:
+                            type: string
+        "422":
+          description: Validation error
+
+  /serverless_workers/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      operationId: getServerlessWorker
+      summary: Get a serverless worker
+      tags: [Workers]
+      responses:
+        "200":
+          description: The worker
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ServerlessWorker"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateServerlessWorker
+      summary: Update a serverless worker
+      description: >-
+        `enabled: false` withdraws its tools without deleting the record.
+        `worker_id` and `secret` cannot be changed.
+      tags: [Workers]
+      responses:
+        "200":
+          description: The updated worker
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Validation error
+    delete:
+      operationId: deleteServerlessWorker
+      summary: Delete a serverless worker
+      tags: [Workers]
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /serverless_workers/{id}/wake:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: wakeServerlessWorker
+      summary: Send a wake now
+      description: >-
+        Outside dispatch, for checking a deployment end to end: the worker
+        should appear in `GET /workers` shortly after.
+      tags: [Workers]
+      responses:
+        "202":
+          description: Wake sent
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -672,3 +814,38 @@ components:
           nullable: true
         draining:
           type: boolean
+        serverless:
+          type: boolean
+          description: This connection is the woken incarnation of a declared serverless worker.
+
+    ServerlessWorker:
+      type: object
+      description: A worker declared with a wake URL. See docs/serverless-workers.md.
+      properties:
+        id:
+          type: integer
+        worker_id:
+          type: string
+        wake_url:
+          type: string
+          format: uri
+        tools:
+          type: array
+          items:
+            type: object
+        capabilities:
+          type: array
+          items:
+            type: string
+            enum: [llm, tools]
+        enabled:
+          type: boolean
+        awake:
+          type: boolean
+          description: An incarnation is connected right now.
+        inserted_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time

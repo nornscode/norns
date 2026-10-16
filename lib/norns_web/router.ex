@@ -57,6 +57,10 @@ defmodule NornsWeb.Router do
     get "/tools", ToolController, :index
     get "/workers", WorkerController, :index
 
+    resources "/serverless_workers", ServerlessWorkerController, only: [:create, :index, :show, :update, :delete] do
+      post "/wake", ServerlessWorkerController, :wake
+    end
+
     resources "/triggers", TriggerController, only: [:create, :index, :show, :update, :delete] do
       post "/fire", TriggerController, :fire
     end

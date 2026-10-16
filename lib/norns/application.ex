@@ -17,6 +17,7 @@ defmodule Norns.Application do
       {DynamicSupervisor, name: Norns.AgentSupervisor, strategy: :one_for_one},
       Norns.Workers.WorkerRegistry,
       Norns.Workers.TaskQueue,
+      {Task.Supervisor, name: Norns.TaskSupervisor},
       NornsWeb.Telemetry,
       NornsWeb.Endpoint
     ]
@@ -27,6 +28,9 @@ defmodule Norns.Application do
     case result do
       {:ok, _pid} ->
         maybe_create_default_tenant()
+        # Declarations before resumption: a resumed run's first task should
+        # find the sleeping worker that serves it and wake it.
+        Norns.Workers.ServerlessWorkers.load_all()
         Norns.Workers.ResumeAgents.resume_orphans()
         result
 

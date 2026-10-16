@@ -59,6 +59,23 @@ defmodule NornsWeb.JSON do
     }
   end
 
+  # `secret: true` only on create — it is shown once.
+  def serverless_worker(worker, opts \\ []) do
+    base = %{
+      id: worker.id,
+      worker_id: worker.worker_id,
+      wake_url: worker.wake_url,
+      tools: worker.tools,
+      capabilities: worker.capabilities,
+      enabled: worker.enabled,
+      awake: Keyword.get(opts, :awake, false),
+      inserted_at: worker.inserted_at,
+      updated_at: worker.updated_at
+    }
+
+    if Keyword.get(opts, :secret, false), do: Map.put(base, :secret, worker.secret), else: base
+  end
+
   def gard_port(port) do
     %{
       id: port.id,
