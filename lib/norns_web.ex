@@ -51,6 +51,7 @@ defmodule NornsWeb do
     quote do
       import Phoenix.LiveView.Helpers, warn: false
       import NornsWeb.Time
+      import NornsWeb.Markdown, only: [markdown: 1]
       unquote(verified_routes())
     end
   end

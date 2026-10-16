@@ -110,7 +110,7 @@ defmodule NornsWeb.RunLive do
     <%= if @run.output do %>
       <div class="mb-6">
         <h2 class="text-sm font-bold text-gray-600 dark:text-gray-400 mb-2">Output</h2>
-        <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-4 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap"><%= @run.output %></div>
+        <.markdown text={@run.output} class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-4 text-sm text-gray-700 dark:text-gray-300" />
       </div>
     <% end %>
 
@@ -166,10 +166,18 @@ defmodule NornsWeb.RunLive do
                 <summary class="text-xs text-gray-500 dark:text-gray-600 cursor-pointer hover:text-gray-700 dark:hover:text-gray-400">
                   <span class="whitespace-pre-wrap"><%= header %></span><span class="group-open:hidden whitespace-pre-wrap"><%= if header != "", do: "\n" %><%= truncate_preview(body, 200) %><span class="text-gray-400 dark:text-gray-700">...</span></span>
                 </summary>
-                <div class="text-xs text-gray-500 dark:text-gray-600 whitespace-pre-wrap mt-1"><%= body %></div>
+                <%= if prose_event?(event.event_type) do %>
+                  <.markdown text={body} class="text-xs text-gray-500 dark:text-gray-600 mt-1" />
+                <% else %>
+                  <div class="text-xs text-gray-500 dark:text-gray-600 whitespace-pre-wrap mt-1"><%= body %></div>
+                <% end %>
               </details>
             <% else %>
-              <div class="mt-1 ml-9 text-xs text-gray-500 dark:text-gray-600 whitespace-pre-wrap"><%= detail %></div>
+              <%= if prose_event?(event.event_type) do %>
+                <.markdown text={detail} class="mt-1 ml-9 text-xs text-gray-500 dark:text-gray-600" />
+              <% else %>
+                <div class="mt-1 ml-9 text-xs text-gray-500 dark:text-gray-600 whitespace-pre-wrap"><%= detail %></div>
+              <% end %>
             <% end %>
           <% end %>
         </div>
@@ -362,10 +370,10 @@ defmodule NornsWeb.RunLive do
         _ -> parts
       end
 
-    # Text content
+    # Text content; the <details> wrapper handles long replies
     parts =
       case payload["content"] do
-        c when is_binary(c) and c != "" -> [String.slice(c, 0, 500) | parts]
+        c when is_binary(c) and c != "" -> [c | parts]
         _ -> parts
       end
 
@@ -392,6 +400,11 @@ defmodule NornsWeb.RunLive do
   defp event_detail(%{event_type: "waiting_for_user", payload: %{"question" => q}}), do: q
   defp event_detail(%{event_type: "user_response", payload: %{"content" => c}}), do: Content.to_text(c)
   defp event_detail(_), do: nil
+
+  # Events whose body is prose from the model or the user, so it renders as
+  # markdown. Tool arguments and results stay preformatted.
+  defp prose_event?(type),
+    do: type in ~w(llm_response run_completed agent_completed waiting_for_user user_response)
 
   # Truncate to `limit` chars, then trim back to the last word boundary so
   # the preview doesn't cut a word in half.

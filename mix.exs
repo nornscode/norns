@@ -27,10 +27,12 @@ defmodule Norns.MixProject do
   defp deps do
     [
       {:bandit, "~> 1.5"},
+      {:earmark, "~> 1.4"},
       {:ecto_sql, "~> 3.11"},
       {:floki, ">= 0.30.0"},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:gettext, "~> 0.24"},
+      {:html_sanitize_ex, "~> 1.4"},
       {:jason, "~> 1.4"},
 
       {:oban, "~> 2.17"},

@@ -20,3 +20,53 @@ body {
 .animate-pulse-dot {
   animation: pulse-dot 1.5s ease-in-out infinite;
 }
+
+/* Sanitized markdown (NornsWeb.Markdown). Preflight strips element defaults,
+   so give the allowed tags enough shape to read as prose. */
+.markdown { overflow-wrap: anywhere; }
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown p, .markdown ul, .markdown ol, .markdown pre,
+.markdown blockquote, .markdown table { margin: 0.6em 0; }
+.markdown h1, .markdown h2, .markdown h3,
+.markdown h4, .markdown h5, .markdown h6 { font-weight: 700; margin: 1.1em 0 0.4em; }
+.markdown h1 { font-size: 1.25em; }
+.markdown h2 { font-size: 1.15em; }
+.markdown h3 { font-size: 1.05em; }
+.markdown ul { list-style: disc; padding-left: 1.5em; }
+.markdown ol { list-style: decimal; padding-left: 1.5em; }
+.markdown li + li { margin-top: 0.2em; }
+.markdown li > p { margin: 0; }
+.markdown strong, .markdown b { font-weight: 700; }
+.markdown em, .markdown i { font-style: italic; }
+.markdown a { text-decoration: underline; text-underline-offset: 2px; }
+.markdown code {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  border-radius: 3px;
+  padding: 0.1em 0.3em;
+}
+.markdown pre {
+  background: color-mix(in srgb, currentColor 7%, transparent);
+  border-radius: 4px;
+  padding: 0.75em;
+  overflow-x: auto;
+  white-space: pre;
+}
+.markdown pre code { background: none; padding: 0; }
+.markdown blockquote {
+  border-left: 2px solid color-mix(in srgb, currentColor 35%, transparent);
+  padding-left: 0.75em;
+  opacity: 0.85;
+}
+.markdown hr {
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+  margin: 1em 0;
+}
+.markdown table { border-collapse: collapse; }
+.markdown th, .markdown td {
+  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+  padding: 0.2em 0.5em;
+  text-align: left;
+}
+.markdown th { font-weight: 700; }
