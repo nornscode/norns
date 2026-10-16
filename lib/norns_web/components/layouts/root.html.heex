@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="csrf-token" content={get_csrf_token()} />
     <title>Norns</title>
-    <link rel="stylesheet" href="/assets/app.css" />
+    <link rel="stylesheet" href={~p"/assets/app.css"} />
     <script>
       if (localStorage.getItem("theme") === "dark") {
         document.documentElement.classList.add("dark");
@@ -14,9 +14,9 @@
   </head>
   <body class="bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-200 min-h-screen">
     <%= @inner_content %>
-    <script src="/assets/phoenix.min.js">
+    <script src={~p"/assets/phoenix.min.js"}>
     </script>
-    <script src="/assets/phoenix_live_view.min.js">
+    <script src={~p"/assets/phoenix_live_view.min.js"}>
     </script>
     <script>
       let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content");
