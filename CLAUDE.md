@@ -62,7 +62,7 @@ nornsctl runs events <id> [--json]            # Full event log for a run
 nornsctl runs retry <id>                      # Retry a failed run
 nornsctl triggers list [--agent <id>]         # List cron triggers
 nornsctl triggers fire <id>                   # Fire a trigger now, outside its schedule
-nornsctl workers list                         # Connected workers: capabilities, tools, gard, draining
+nornsctl workers list                         # Connected and asleep workers: capabilities, tools, gard, status
 nornsctl gards list                           # List gards (worker execution contexts)
 nornsctl gards create [--name N]              # Create a gard, prints its claim token once
 nornsctl hooks list                           # List inbound webhooks

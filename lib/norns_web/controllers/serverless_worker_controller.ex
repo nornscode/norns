@@ -5,12 +5,12 @@ defmodule NornsWeb.ServerlessWorkerController do
 
   def index(conn, _params) do
     tenant = conn.assigns.current_tenant
-    awake = awake_ids(tenant.id)
+    live = live_state(tenant.id)
 
     data =
       tenant.id
       |> ServerlessWorkers.list_serverless_workers()
-      |> Enum.map(&NornsWeb.JSON.serverless_worker(&1, awake: &1.worker_id in awake))
+      |> Enum.map(&NornsWeb.JSON.serverless_worker(&1, live[&1.worker_id] || []))
 
     json(conn, %{data: data})
   end
@@ -37,7 +37,7 @@ defmodule NornsWeb.ServerlessWorkerController do
     with {:ok, worker} <- fetch(tenant.id, id) do
       json(conn, %{
         data:
-          NornsWeb.JSON.serverless_worker(worker, awake: worker.worker_id in awake_ids(tenant.id))
+          NornsWeb.JSON.serverless_worker(worker, live_state(tenant.id)[worker.worker_id] || [])
       })
     end
   end
@@ -53,7 +53,7 @@ defmodule NornsWeb.ServerlessWorkerController do
           json(conn, %{
             data:
               NornsWeb.JSON.serverless_worker(worker,
-                awake: worker.worker_id in awake_ids(tenant.id)
+                live_state(tenant.id)[worker.worker_id] || []
               )
           })
 
@@ -83,8 +83,12 @@ defmodule NornsWeb.ServerlessWorkerController do
     end
   end
 
-  defp awake_ids(tenant_id) do
-    tenant_id |> WorkerRegistry.connected_workers() |> MapSet.new(& &1.worker_id)
+  # What the registry knows about each declaration right now: whether an
+  # incarnation is connected, and when this node last woke it.
+  defp live_state(tenant_id) do
+    tenant_id
+    |> WorkerRegistry.serverless_workers()
+    |> Map.new(fn w -> {w.worker_id, [awake: w.awake, last_woken_at: w.last_woken_at]} end)
   end
 
   defp fetch(tenant_id, id) do

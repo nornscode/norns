@@ -44,6 +44,20 @@ defmodule Norns.Workers.ServerlessWorkers do
     |> tap_ok(&WorkerRegistry.unregister_serverless_worker(&1.tenant_id, &1.worker_id))
   end
 
+  @doc """
+  Record that the registry woke this worker at `at`.
+
+  The registry keeps its own copy for the page and the API; this one is so
+  the fact survives a restart. Idempotent and quiet: a missing row (deleted
+  while the wake was in flight) updates nothing.
+  """
+  def mark_woken(tenant_id, worker_id, %DateTime{} = at) do
+    from(w in ServerlessWorker, where: w.tenant_id == ^tenant_id and w.worker_id == ^worker_id)
+    |> Repo.update_all(set: [last_woken_at: at])
+
+    :ok
+  end
+
   @doc "Register every enabled serverless worker. Called on boot; safe to repeat."
   def load_all do
     ServerlessWorker

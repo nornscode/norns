@@ -59,8 +59,12 @@ knows the connection it just accepted is the worker it woke.
 `GET`, `PATCH` (`enabled: false` withdraws the tools without deleting the
 record), `DELETE`, and `POST /api/v1/serverless_workers/:id/wake` to send a
 wake by hand and check a deployment end to end. `awake` on each record says
-whether an incarnation is connected right now; `GET /api/v1/workers` marks
-such a connection `serverless: true`.
+whether an incarnation is connected right now, and `last_woken_at` when this
+node last sent it a wake; `GET /api/v1/workers` marks such a connection
+`serverless: true`. The dashboard's Workers page and `nornsctl workers list`
+show the same thing: a connected incarnation sits in the connected list with
+a `serverless` badge, and a declaration with no connection is listed as
+asleep, with its declared tools and last wake.
 
 Serverless workers have no gard. A function that may start anywhere has no
 filesystem to be affine to, so their tools serve no-gard runs only — the

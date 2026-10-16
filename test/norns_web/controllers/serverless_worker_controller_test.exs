@@ -120,6 +120,10 @@ defmodule NornsWeb.ServerlessWorkerControllerTest do
 
   test "awake reflects a connected incarnation", %{conn: conn, tenant: tenant} do
     data = create(conn)
+    # Declared, never woken, nothing connected.
+    assert %{"awake" => false, "last_woken_at" => nil} =
+             json_response(get(conn, "/api/v1/serverless_workers/#{data["id"]}"), 200)["data"]
+
     :ok = WorkerRegistry.register_worker(tenant.id, data["worker_id"], self(), [@tool])
 
     assert json_response(get(conn, "/api/v1/serverless_workers/#{data["id"]}"), 200)["data"][

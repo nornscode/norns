@@ -73,6 +73,49 @@ defmodule NornsWeb.WorkersLiveTest do
     assert render_click(view, "refresh") =~ "late-worker"
   end
 
+  describe "serverless workers" do
+    defp declare(tenant, worker_id, opts) do
+      worker = %Norns.Workers.ServerlessWorker{
+        tenant_id: tenant.id,
+        worker_id: worker_id,
+        wake_url: "http://worker.test/wake",
+        secret: "s",
+        tools: Keyword.get(opts, :tools, []),
+        capabilities: Keyword.get(opts, :capabilities, ["tools"]),
+        enabled: true
+      }
+
+      :ok = WorkerRegistry.register_serverless_worker(worker)
+      on_exit(fn -> WorkerRegistry.unregister_serverless_worker(tenant.id, worker_id) end)
+    end
+
+    test "a declared worker with no connection is listed as asleep", %{conn: conn, tenant: tenant} do
+      declare(tenant, "search-fn", tools: [tool_def("web_search")], capabilities: ["llm", "tools"])
+
+      {:ok, _view, html} = live(conn, "/workers")
+
+      assert html =~ "Asleep"
+      assert html =~ "search-fn"
+      assert html =~ "never woken"
+      assert html =~ "1 tool"
+      assert html =~ "web_search"
+      # Nothing is connected, so the connected list is still empty.
+      assert html =~ "No workers connected"
+    end
+
+    test "an awake serverless worker is listed once, as connected", %{conn: conn, tenant: tenant} do
+      declare(tenant, "search-fn", tools: [tool_def("web_search")])
+      register_worker(tenant, "search-fn", tools: [tool_def("web_search")])
+
+      {:ok, _view, html} = live(conn, "/workers")
+
+      refute html =~ "Asleep"
+      assert html =~ "serverless"
+      assert html =~ ~s(id="worker-search-fn")
+      refute html =~ ~s(id="asleep-search-fn")
+    end
+  end
+
   test "does not list another tenant's workers", %{conn: conn} do
     other = create_tenant()
     register_worker(other, "other-worker")

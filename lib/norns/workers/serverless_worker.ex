@@ -36,6 +36,8 @@ defmodule Norns.Workers.ServerlessWorker do
     field :tools, {:array, :map}, default: []
     field :capabilities, {:array, :string}, default: ["tools"]
     field :enabled, :boolean, default: true
+    # Set by the registry when it wakes the worker, never by the client.
+    field :last_woken_at, :utc_datetime_usec
 
     belongs_to :tenant, Norns.Tenants.Tenant
 
