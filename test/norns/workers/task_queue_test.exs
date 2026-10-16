@@ -42,4 +42,31 @@ defmodule Norns.Workers.TaskQueueTest do
       assert [%{task_id: "fresh-1"}] = TaskQueue.flush(:sweep_tenant_fresh, "__llm__")
     end
   end
+
+  # A cancelled run's tool call must not be carried out by the worker that
+  # arrives after the cancel; a crashed run's must not either.
+  describe "a task whose owner no longer wants it" do
+    test "drop forgets everything a process was waiting on, and nothing else" do
+      other = spawn(fn -> Process.sleep(:infinity) end)
+
+      TaskQueue.enqueue(:drop_tenant, %{task_id: "mine-1", tool_name: "mac_imessage_send", input: %{}, from_pid: self()})
+      TaskQueue.enqueue(:drop_tenant, %{task_id: "mine-2", tool_name: "__llm__", input: %{}, from_pid: self()})
+      TaskQueue.enqueue(:drop_tenant, %{task_id: "theirs", tool_name: "mac_imessage_send", input: %{}, from_pid: other})
+
+      assert TaskQueue.drop(:drop_tenant, self()) == 2
+      assert [%{task_id: "theirs"}] = TaskQueue.flush(:drop_tenant, "mac_imessage_send")
+      assert [] = TaskQueue.flush(:drop_tenant, "__llm__")
+    end
+
+    test "flush does not hand out a task whose owner is dead" do
+      {dead, ref} = spawn_monitor(fn -> :ok end)
+      assert_receive {:DOWN, ^ref, :process, ^dead, _}
+
+      TaskQueue.enqueue(:dead_tenant, %{task_id: "orphan", tool_name: "mac_things_add", input: %{}, from_pid: dead})
+      TaskQueue.enqueue(:dead_tenant, %{task_id: "live", tool_name: "mac_things_add", input: %{}, from_pid: self()})
+
+      assert [%{task_id: "live"}] = TaskQueue.flush(:dead_tenant, "mac_things_add")
+      assert [] = TaskQueue.peek(:dead_tenant)
+    end
+  end
 end
