@@ -575,6 +575,156 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /run_webhooks:
+    get:
+      operationId: listRunWebhooks
+      summary: List run webhooks
+      description: >-
+        URLs Norns POSTs a signed event to when a run parks on a question,
+        completes, or fails. See docs/run-webhooks.md for the delivery
+        contract.
+      tags: [Runs]
+      responses:
+        "200":
+          description: Run webhooks for this tenant
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RunWebhook"
+    post:
+      operationId: createRunWebhook
+      summary: Create a run webhook
+      description: >-
+        The response carries the signing `secret` — this is the only time
+        it is shown. Give it to the receiver; every delivery is signed
+        with it.
+      tags: [Runs]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                events:
+                  type: array
+                  items:
+                    type: string
+                    enum: [run.waiting, run.completed, run.failed]
+                  default: [run.waiting, run.completed, run.failed]
+                enabled:
+                  type: boolean
+                  default: true
+      responses:
+        "201":
+          description: Created, with the one-time secret
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    allOf:
+                      - $ref: "#/components/schemas/RunWebhook"
+                      - type: object
+                        properties:
+                          secret:
+                            type: string
+        "422":
+          description: Validation error
+
+  /run_webhooks/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      operationId: getRunWebhook
+      summary: Get a run webhook
+      tags: [Runs]
+      responses:
+        "200":
+          description: The run webhook
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: "#/components/schemas/RunWebhook"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateRunWebhook
+      summary: Update a run webhook
+      description: Change the URL or events, or set `enabled` false to silence it without deleting it.
+      tags: [Runs]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+                  format: uri
+                events:
+                  type: array
+                  items:
+                    type: string
+                    enum: [run.waiting, run.completed, run.failed]
+                enabled:
+                  type: boolean
+      responses:
+        "200":
+          description: Updated
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Validation error
+    delete:
+      operationId: deleteRunWebhook
+      summary: Delete a run webhook
+      tags: [Runs]
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /run_webhooks/{id}/test:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: testRunWebhook
+      summary: Deliver a sample event now
+      description: >-
+        Synchronous, for checking a receiver end to end. Sends a
+        `run.test` event and reports what the receiver answered.
+      tags: [Runs]
+      responses:
+        "200":
+          description: Delivered; the receiver answered 2xx
+        "502":
+          description: The receiver rejected it or was unreachable; the body says which
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -817,6 +967,29 @@ components:
         serverless:
           type: boolean
           description: This connection is the woken incarnation of a declared serverless worker.
+
+    RunWebhook:
+      type: object
+      description: A URL that hears about run state changes. See docs/run-webhooks.md.
+      properties:
+        id:
+          type: integer
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            type: string
+            enum: [run.waiting, run.completed, run.failed]
+        enabled:
+          type: boolean
+        inserted_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
 
     ServerlessWorker:
       type: object

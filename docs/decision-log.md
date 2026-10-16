@@ -366,6 +366,12 @@ worker is the reference core tests against, and it is test support.
 - The worker holds the wake request open while it serves: on Fly, Cloud Run and Lambda an instance lives as long as it has an inbound request, and the outbound WebSocket does not count. Norns holds its side for up to an hour and ignores the response.
 - One wake per worker per 30 s cooldown, re-sent while work is still queued and the worker still absent; the queue's stale sweep bounds it. Serverless workers have no gard, same rule as connectors.
 
+### Run webhooks push the three moments a poller waits for (decided 2026-10-16)
+- A run parking on `ask_human`, completing, or failing had no outbound signal, so a chat channel relaying questions and outputs had to poll `GET /runs` and therefore stay awake. `run_webhooks` (`POST /api/v1/run_webhooks`) are a tenant-scoped URL plus a subset of `run.waiting`, `run.completed`, `run.failed`; Norns POSTs a signed event at each, Stripe-style HMAC under a once-shown secret. See `run-webhooks.md`.
+- Fed from the agent process's single `broadcast/3`, the same call the dashboard and agent channel hear, so there is no second account of what a run is doing.
+- Fire-and-forget in a supervised task: no delivery log, no replay. A receiver that misses one reconciles from `GET /runs` on its next wake. Adding a log before a receiver needs it would be speculation.
+- The wake and the webhook are the two halves of a fully sleeping deployment: the wake brings a worker up to serve a tool call, the webhook brings a channel up to relay a state change. Fulla is the first deployment with both halves asleep.
+
 ### Sub-agent crash recovery
 - A resumed parent reattaches to its in-flight child by run id instead of relaunching it — a pending `launch_agent` is a reference to work already underway, not a request.
 - Subscribe-before-read closes the completion race; `run_id` rides on every agent broadcast; a parent resumed alone restarts its own orphaned child.
