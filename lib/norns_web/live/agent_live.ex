@@ -57,7 +57,7 @@ defmodule NornsWeb.AgentLive do
     <%!-- Agent info --%>
     <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-4 mb-4">
       <div class="text-xs text-gray-500 mb-1">System Prompt</div>
-      <div class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap"><%= @agent.system_prompt %></div>
+      <.markdown text={@agent.system_prompt} class="text-sm text-gray-700 dark:text-gray-300" />
     </div>
 
     <div class="flex items-center gap-6 text-sm mb-6 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded px-4 py-2">
