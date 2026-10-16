@@ -24,6 +24,7 @@ defmodule NornsWeb.Router do
     live "/agents/:id", AgentLive
     live "/runs/:id", RunLive
     live "/tools", ToolsLive
+    live "/workers", WorkersLive
     live "/gards", GardsLive
     live "/telemetry", TelemetryLive
   end

@@ -476,4 +476,5 @@ LiveView UI at `/`:
 - Agent detail with config editing, message input, live event stream
 - Run detail with event timeline, failure inspector, retry/cancel buttons
 - Tools view showing worker-provided tools
+- Workers view: every worker connected to this node, with capabilities, tools, gard, and whether it is draining
 - Tenant setup on first visit
