@@ -165,7 +165,12 @@ defmodule Norns.Workers.WorkerRegistry do
       workers: %{},
       pending: %{},
       # {tenant_id, worker_id} => %{worker: %ServerlessWorker{}, last_wake_at: monotonic ms | nil}
-      serverless: %{}
+      serverless: %{},
+      # {tenant_id, tool_name} => how many tasks for that tool the tenant has
+      # dispatched. Drives round-robin selection among the workers that take
+      # it, so a fleet shares the load instead of the first-registered
+      # worker taking everything.
+      rotation: %{}
     }
 
     {:ok, state}
@@ -346,8 +351,8 @@ defmodule Norns.Workers.WorkerRegistry do
   end
 
   def handle_call({:dispatch_llm, tenant_id, task, from_pid, gard}, _from, state) do
-    worker =
-      find_worker(state, tenant_id, fn w ->
+    {worker, state} =
+      pick_worker(state, tenant_id, "__llm__", fn w ->
         :llm in w.capabilities and w.gard == gard and dispatchable?(w)
       end)
 
@@ -596,11 +601,11 @@ defmodule Norns.Workers.WorkerRegistry do
   # Strict gard equality (nil == nil, "a" == "a"): no-gard runs never grab a
   # gard-bound worker (stolen dispatch), gard runs never fall through to a
   # no-gard worker (filesystem state leakage). The :default-tenant fallback
-  # in find_worker only ever holds no-gard workers, so it can only fire when
+  # in pick_worker only ever holds no-gard workers, so it can only fire when
   # gard is nil — a gard-bound run never falls back to a generic worker.
   defp place_tool_task(state, task) do
-    worker =
-      find_worker(state, task.tenant_id, fn w ->
+    {worker, state} =
+      pick_worker(state, task.tenant_id, task.tool_name, fn w ->
         dispatchable?(w) and w.gard == task.gard and
           Enum.any?(w.tools, &(tool_name(&1) == task.tool_name))
       end)
@@ -722,9 +727,35 @@ defmodule Norns.Workers.WorkerRegistry do
   # announced it is shutting down. In-flight tasks are unaffected either way.
   defp dispatchable?(worker), do: Process.alive?(worker.channel_pid) and not worker.draining
 
-  defp find_worker(state, tenant_id, matcher) do
-    Enum.find(state.workers, fn {{tid, _}, worker} -> tid == tenant_id and matcher.(worker) end) ||
-      Enum.find(state.workers, fn {{tid, _}, worker} -> tid == :default and matcher.(worker) end)
+  # Pick a worker for one task, rotating through every worker that matches
+  # so consecutive tasks for the same tool land on different workers. The
+  # tenant's own workers are preferred; the `:default` pool is only
+  # consulted when the tenant has none that match. Candidates are ordered by
+  # key so the rotation is stable across calls, and the cursor advances
+  # only on a hit so an idle period does not skew the next pick.
+  defp pick_worker(state, tenant_id, tool_name, matcher) do
+    candidates =
+      matching_workers(state, tenant_id, matcher)
+      |> case do
+        [] -> matching_workers(state, :default, matcher)
+        own -> own
+      end
+
+    case candidates do
+      [] ->
+        {nil, state}
+
+      _ ->
+        cursor = Map.get(state.rotation, {tenant_id, tool_name}, 0)
+        picked = Enum.at(candidates, rem(cursor, length(candidates)))
+        {picked, put_in(state.rotation[{tenant_id, tool_name}], cursor + 1)}
+    end
+  end
+
+  defp matching_workers(state, tenant_id, matcher) do
+    state.workers
+    |> Enum.filter(fn {{tid, _}, worker} -> tid == tenant_id and matcher.(worker) end)
+    |> Enum.sort_by(fn {key, _} -> key end)
   end
 
   defp push_to_worker(channel_pid, message) do
