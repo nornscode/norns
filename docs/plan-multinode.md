@@ -101,11 +101,18 @@ forwards (below). The local `Registry` still dedupes within a node, so
 `{:already_started, pid}` keeps its current meaning.
 
 **Renew.** `Norns.Agents.Process` renews every `ttl / 3` (ttl 30 s to
-start). A renewal that fails, returns no row, or times out means the lease
-is gone: the process logs it and exits with `:lease_lost`, without writing
-another event. Whatever it was doing is re-dispatched by resume on the
-owner, which is the same recovery path a crash takes today. Release on
-normal terminate.
+start) with `UPDATE ... SET lease_until = now() + $ttl WHERE ... AND node =
+$node RETURNING lease_until`. The process keeps the monotonic time of its
+last *confirmed* renewal and treats the lease as held until that time plus
+the ttl, by its own clock. A renewal that errors or times out is retried on
+the next tick and changes nothing: Postgres not answering says nothing
+about ownership, and a 20-second database stall must not restart every
+agent on every node and redo their in-flight LLM calls. Two things end the
+lease: the renewal returns no row (another node won it) or the locally
+tracked expiry passes with no confirmed renewal. Either way the process
+logs it and exits with `:lease_lost` without writing another event;
+whatever it was doing is re-dispatched by resume on the new owner, the
+same recovery path a crash takes today. Release on normal terminate.
 
 **Forwarding.** `Registry.send_message/4`, `reply`, `cancel` and anything
 else that reaches a process by key look up the local `Registry` first,
@@ -119,10 +126,11 @@ cron (every minute) on every node, not only at boot. Each node races for
 the lease; exactly one wins per conversation. Boot-time resume stays as
 the first tick.
 
-**Tests.** The one that matters: two processes race for one key and
+**Tests.** The ones that matter: two processes race for one key and
 exactly one starts; a process whose lease is stolen exits with
-`:lease_lost` and appends nothing; resume picks up a run whose lease
-expired. Phase 4 adds the two-node version.
+`:lease_lost` and appends nothing; a process whose renewals fail for less
+than the ttl keeps running and appends nothing twice; resume picks up a
+run whose lease expired. Phase 4 adds the two-node version.
 
 ---
 
