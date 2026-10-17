@@ -19,7 +19,7 @@ defmodule Norns.Workers.WorkerRegistryDeltaTest do
 
   setup do
     on_exit(fn ->
-      for id <- ["caching", "plain"], do: WorkerRegistry.unregister_worker(@tenant, id)
+      for id <- ["caching", "plain", "other"], do: WorkerRegistry.unregister_worker(@tenant, id)
     end)
 
     :ok
@@ -54,6 +54,34 @@ defmodule Norns.Workers.WorkerRegistryDeltaTest do
 
     assert_receive {:llm_task, %{task_id: ^task_id, messages: [_, _]} = task}
     refute Map.has_key?(task, :messages_delta)
+  end
+
+  test "a run stays on the worker holding its history instead of rotating away" do
+    :ok =
+      WorkerRegistry.register_worker(@tenant, "caching", self(), [],
+        capabilities: [:llm],
+        features: [:message_cache]
+      )
+
+    other = spawn(fn -> Process.sleep(:infinity) end)
+
+    :ok =
+      WorkerRegistry.register_worker(@tenant, "other", other, [],
+        capabilities: [:llm],
+        features: [:message_cache]
+      )
+
+    # Three steps in a row with a delta built for this connection: round-robin
+    # alone would send some of them to the other worker as full lists.
+    for _ <- 1..3 do
+      {:ok, task_id, %{worker: pid}} =
+        WorkerRegistry.dispatch_llm_task(@tenant, @task, from_pid: self(), delta: {self(), @delta})
+
+      assert pid == self()
+      assert_receive {:llm_task, %{task_id: ^task_id, messages_delta: @delta}}
+    end
+
+    Process.exit(other, :kill)
   end
 
   test "a worker without the feature gets the full list and is reported as not caching" do

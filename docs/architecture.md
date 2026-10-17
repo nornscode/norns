@@ -105,10 +105,13 @@ for each run, and while the same connection serves a run, later tasks carry
 the `base_count` messages held, drop the first `drop`, then append. A
 delta against a base the worker no longer holds is answered with
 `{"status": "error", "error": "message_cache_miss"}`, and core resends the
-whole list at the same step without counting a retry. Compaction tasks
-always carry their messages and leave the cache alone. A worker without
-the feature gets the full list every step. `Norns.Agents.HistoryDelta` is
-the protocol and its reference implementation.
+whole list at the same step without counting a retry. Dispatch rotates
+through a tenant's matching workers, but a run whose last step went to a
+worker that still holds its history stays there while that worker
+matches, so the delta applies in a fleet too. Compaction tasks always
+carry their messages and leave the cache alone. A worker without the
+feature gets the full list every step. `Norns.Agents.HistoryDelta` is the
+protocol and its reference implementation.
 
 `usage` is `input_tokens` and `output_tokens`, plus `cache_read_tokens` and
 `cache_write_tokens` when the provider reports them; both cache counts are
