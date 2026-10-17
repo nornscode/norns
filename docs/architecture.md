@@ -77,21 +77,41 @@ Workers join `"worker:lobby"` with their registration:
 {
   "worker_id": "my-worker",
   "tools": [{"name": "search", "description": "...", "input_schema": {...}}],
-  "capabilities": ["llm", "tools"]
+  "capabilities": ["llm", "tools"],
+  "features": ["message_cache"]
 }
 ```
+
+`features` are optional protocol extras the worker supports; names a core
+does not know are ignored, so a newer SDK joins an older core.
 
 Task dispatch uses a provider-neutral format. The worker translates to/from whatever LLM provider it uses (Anthropic, OpenAI, etc).
 
 | Direction | Event | Payload |
 |-----------|-------|---------|
-| Server → Worker | `llm_task` | model, system_prompt, summary, date, messages, tools, context_policy; `purpose: "compact"` for a summarisation call |
+| Server → Worker | `llm_task` | model, system_prompt, summary, date, messages (or messages_delta), tools, context_policy; `purpose: "compact"` for a summarisation call |
 | Worker → Server | `tool_result` | task_id, status, content/tool_calls, finish_reason, usage, model, final_output |
 | Server → Worker | `tool_task` | task_id, tool_name, input |
 | Worker → Server | `tool_result` | task_id, status, result/error |
 | Worker → Server | `register_port` | internal_port, name, protocol, url (gard workers only) |
 | Worker → Server | `drain` | — : stop dispatching to me; I will finish my in-flight tasks, then leave |
 | Server → Worker | `gard_destroyed` | — : the gard this worker claimed is gone; the channel closes |
+
+**History on the wire.** The message list is most of an `llm_task`, and
+most of it is what the same worker saw one step earlier. A worker that
+joined with `features: ["message_cache"]` keeps the list it was last sent
+for each run, and while the same connection serves a run, later tasks carry
+`messages_delta: {base_count, drop, append}` in place of `messages`: of
+the `base_count` messages held, drop the first `drop`, then append. A
+delta against a base the worker no longer holds is answered with
+`{"status": "error", "error": "message_cache_miss"}`, and core resends the
+whole list at the same step without counting a retry. Dispatch rotates
+through a tenant's matching workers, but a run whose last step went to a
+worker that still holds its history stays there while that worker
+matches, so the delta applies in a fleet too. Compaction tasks always
+carry their messages and leave the cache alone. A worker without the
+feature gets the full list every step. `Norns.Agents.HistoryDelta` is the
+protocol and its reference implementation.
 
 `usage` is `input_tokens` and `output_tokens`, plus `cache_read_tokens` and
 `cache_write_tokens` when the provider reports them; both cache counts are
@@ -173,6 +193,16 @@ called something it was never given, or was given tools and ignored them.
 Names only — full schemas would bloat every row for no analytical gain. The
 field is optional, so events written before it existed still validate.
 
+`llm_request` carries `messages` only on a run's first request: that is the
+history the run started from, and replay and fork read it back from there.
+Later requests record `message_count`; what they add is already in the log
+as `llm_response` and `tool_result`. `checkpoint_saved` is likewise a
+marker — step, `message_count`, and the compaction summary — since the
+history at that point is the opening history plus the events before it.
+Both used to copy the whole list, which made a run's storage grow with the
+square of its length (2026-10-16). Logs written before still replay: a
+checkpoint that carries `messages` is honoured as a snapshot.
+
 ### Sub-agent authorization
 
 `launch_agent` and `list_agents` are authorized server-side, in the built-in
@@ -247,9 +277,9 @@ expected.
 verdict, counters, per-tool usage, a collapsed timeline, and detected signals.
 
 It exists because the event log doesn't scale as a *reading* surface. A
-200-step run holds several megabytes of events — `llm_request` carries the
-entire message array on every step — so anything trying to reason about a run
-either drowns or has to page through it. The summary stays a few kilobytes
+200-step run holds hundreds of events with full tool results in them, so
+anything trying to reason about a run either drowns or has to page through
+it. The summary stays a few kilobytes
 regardless: consecutive steps calling the same tool with the same result class
 collapse into one entry carrying a count and a sequence range, and the middle
 of a long timeline elides to a single marker. Nothing is discarded; every
@@ -373,9 +403,9 @@ the next launch from that session will look for it, with its history.
 starts a new run from the parent's history as it stood after `step`
 (`Norns.Runs.Fork`). The history is replayed from the log the way resume
 replays it, starting from what the run's first `llm_request` carried (a
-conversation's row has moved on since), through the last checkpoint at or
-before the step and the events after it, so any step is forkable whatever
-the checkpoint policy. A step that ended with unanswered tool calls loses
+conversation's row has moved on since) and folding the events up to the
+step, so any step is forkable whatever the checkpoint policy. A step that
+ended with unanswered tool calls loses
 that assistant turn. The messages and the compaction summary become the
 fork's first `checkpoint_saved`, and the process resumes from it like any
 other run. A fork is a task-mode run (`trigger_type: "fork"`,
@@ -418,9 +448,9 @@ What this does not close, and cannot: the record is written after the tool handl
 
 ### Checkpoint / Restore
 
-- `checkpoint_saved` snapshots messages, step, and the compaction summary if there is one
+- `checkpoint_saved` marks a durable point: step, message count, and the compaction summary if there is one
 - `context_compacted` records a compaction: how many leading messages were folded, how many kept, and the summary as content. Replay drops the prefix and carries the summary
-- Replay restores from the latest checkpoint, then replays subsequent events
+- Replay starts from the run's opening history (its first `llm_request`) and folds the events in order. A checkpoint that carries `messages` — a fork's opening one, or one written before checkpoints became markers — is used as the starting point instead
 - Pending tool calls with no result trigger re-dispatch on resume
 - Proven by the replay conformance test suite
 

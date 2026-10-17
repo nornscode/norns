@@ -31,7 +31,7 @@ defmodule Norns.Workers.WorkerRegistryDrainTest do
 
     # New work queues instead of reaching the draining worker — tools and LLM alike.
     {:ok, queued_tool} = WorkerRegistry.dispatch_task(@tenant, "drain_tool", %{}, from_pid: self(), gard: @gard)
-    {:ok, queued_llm} = WorkerRegistry.dispatch_llm_task(@tenant, %{messages: []}, from_pid: self(), gard: @gard)
+    {:ok, queued_llm, _} = WorkerRegistry.dispatch_llm_task(@tenant, %{messages: []}, from_pid: self(), gard: @gard)
     refute_receive {:push_tool_task, %{task_id: ^queued_tool}}, 50
     refute_receive {:llm_task, %{task_id: ^queued_llm}}, 50
 

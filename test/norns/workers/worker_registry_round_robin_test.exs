@@ -51,7 +51,7 @@ defmodule Norns.Workers.WorkerRegistryRoundRobinTest do
     register(["llm-a", "llm-b"], capabilities: [:llm])
 
     for _ <- 1..4 do
-      {:ok, _} = WorkerRegistry.dispatch_llm_task(@tenant, %{messages: []}, from_pid: self())
+      {:ok, _, _} = WorkerRegistry.dispatch_llm_task(@tenant, %{messages: []}, from_pid: self())
     end
 
     assert collect(:llm_task, 4) |> Enum.frequencies() == %{"llm-a" => 2, "llm-b" => 2}

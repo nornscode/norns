@@ -190,6 +190,40 @@ alone (a fourth language to draw text).
 - Agent is never blocked — always responds to status queries, stop, messages.
 - TaskQueue holds tasks when no worker is connected, flushes on reconnect.
 
+### Linear storage, delta dispatch (decided 2026-10-16)
+
+A run's storage and its traffic both grew with the square of its length.
+Every `llm_request` wrote the whole message list into Postgres, and so did
+every `checkpoint_saved`, by default on every tool call; every `llm_task`
+carried the whole list to a worker that had seen all but the last two
+messages one step earlier. None of it was a design choice anyone would
+defend. Replay read the messages from the *first* request only, and
+loaded every event of the run before it even looked for a checkpoint, so
+the snapshots saved no read — only an in-memory fold.
+
+Three changes, no new state-machine path. `llm_request` carries `messages`
+on a run's first request (the opening history, which the conversation row
+cannot stand in for: it moves on after the run and at compaction) and the
+count after that. `checkpoint_saved` is a marker — step, count, summary —
+and replay folds from the opening history; a checkpoint that does carry
+`messages` (a fork's opening one, or any written before this) is still
+honoured as a snapshot, so old logs replay unchanged. On the wire, a
+worker that joins with `features: ["message_cache"]` keeps the list it was
+last sent per run, and while the same connection serves the run core sends
+`messages_delta: {base_count, drop, append}` instead (`HistoryDelta`). The
+only invalidation is the worker's: a delta against a base it does not hold
+gets `message_cache_miss` back and core resends in full at the same step,
+no retry counted. Core never has to know why a worker forgot.
+
+Rejected: moving the loop into the worker (saves the most bytes, costs the
+thesis — see § Slowing down); and having the registry alone decide when a
+delta is safe, since eviction is the worker's business and a miss protocol
+is cheaper than being right about another process's memory.
+
+What remains quadratic: nothing in the log. The conversation row is
+rewritten whole at compaction and run end, which is O(n) per run, not per
+step. A `context_policy` bounds n besides.
+
 ### Idempotency reaches the worker (decided 2026-09-13)
 
 The keys had been computed since gards landed and nothing had ever read
@@ -445,6 +479,14 @@ that.
   instance is held at one machine (`fly scale count 1`, boot-time guard in
   `Norns.Application`). `nornscode/norns#17` is the one time this bit,
   from an unclustered multi-machine Fly setup.
+
+### A content-blind core
+- Core already routes on the envelope and stores content without reading it
+  (`Norns.Runtime.Content`, the opaque-content suite). What a hosted core
+  that *cannot* read content would take, who would buy it, and what still
+  touches plaintext (webhook ingress, the dashboard, the def's prompt) is
+  in `plan-opaque-core.md` (2026-10-16). Documented, not scheduled: it
+  only matters when someone other than the tenant runs core.
 
 ### Policy enforcement
 - Pre-dispatch hook point in the orchestrator (not built, architecture supports it).

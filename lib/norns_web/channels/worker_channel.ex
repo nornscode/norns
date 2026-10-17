@@ -13,6 +13,7 @@ defmodule NornsWeb.WorkerChannel do
          {:ok, gard_id} <- claim_gard(tenant_id, params),
          :ok <- WorkerRegistry.register_worker(tenant_id, params["worker_id"], self(), params["tools"],
            capabilities: capabilities,
+           features: parse_features(Map.get(params, "features")),
            gard: gard_id
          ) do
       socket =
@@ -127,6 +128,17 @@ defmodule NornsWeb.WorkerChannel do
   end
 
   defp parse_capabilities(_other), do: {:error, %{reason: "invalid_registration", code: "invalid_capabilities"}}
+
+  # Protocol features the worker supports beyond what it serves. Names this
+  # core does not know are ignored rather than refused, so a newer SDK still
+  # joins an older core and just gets the plain protocol.
+  @features %{"message_cache" => :message_cache}
+
+  defp parse_features(features) when is_list(features) do
+    features |> Enum.map(&Map.get(@features, &1)) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+  end
+
+  defp parse_features(_other), do: []
 
   defp claim_gard(_tenant_id, %{"gard" => nil}), do: {:ok, nil}
 

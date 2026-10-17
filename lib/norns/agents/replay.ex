@@ -5,9 +5,15 @@ defmodule Norns.Agents.Replay do
   This is the half of durability you only see when something goes wrong: a
   process dies, the node restarts, a fork needs the history as it stood
   fifteen steps ago. In every case the answer comes from the same fold —
-  start at the last checkpoint (or the run's opening history), apply the
-  events after it in order, and end with the messages, the step, the
-  compaction summary, and whatever tool calls were left unanswered.
+  start from the run's opening history (what its first `llm_request`
+  carried), apply the events in order, and end with the messages, the step,
+  the compaction summary, and whatever tool calls were left unanswered.
+
+  A `checkpoint_saved` is a marker in that fold, not a snapshot: it carries
+  the step, the count, and the summary, and the history at that point is
+  what the fold has built. A checkpoint that does carry `messages` — a
+  fork's opening one, or one written before checkpoints became markers — is
+  honoured as the latest point the fold can start from instead.
 
   It reads the envelope only. A message's content is carried through the
   fold untouched, which is why a replay works the same on a log full of
@@ -30,8 +36,8 @@ defmodule Norns.Agents.Replay do
       {:error, :no_events}
     else
       base_state = restore_conversation_for_run(base_state, run)
-      initial_messages = initial_messages_for_replay(base_state, run)
-      {messages, step, resume_action, summary} = replay_from_events(initial_messages, base_state[:summary], events)
+      {initial_messages, initial_summary} = opening_history(events, base_state, run)
+      {messages, step, resume_action, summary} = replay_from_events(initial_messages, initial_summary, events)
       {input_tokens, output_tokens} = sum_token_usage(events)
 
       {:ok,
@@ -67,22 +73,28 @@ defmodule Norns.Agents.Replay do
         end
       end)
 
-    # What the run started from is what its first LLM request carried: a
-    # conversation's history moves on after the run, so it cannot be read
-    # back from the conversation row.
     {initial_messages, initial_summary} =
-      case Enum.find(all_events, &(&1.event_type == "llm_request")) do
-        %{payload: %{"messages" => msgs} = payload} when is_list(msgs) ->
-          {Messages.normalize(msgs), payload["summary"]}
-
-        _ ->
-          base = restore_conversation_for_run(%{conversation: nil, messages: [], summary: nil}, run)
-          {initial_messages_for_replay(base, run), base.summary}
-      end
+      opening_history(all_events, %{conversation: nil, messages: [], summary: nil}, run)
 
     {messages, _step, resume_action, summary} = replay_from_events(initial_messages, initial_summary, events)
 
     %{messages: messages, summary: summary, pending_tools?: match?({:resume_tools, _}, resume_action)}
+  end
+
+  # What the run started from is what its first LLM request carried. The
+  # conversation row cannot stand in for it: the row moves on after the run,
+  # and during one it moves on at compaction, so a resume that started from
+  # the row would drop the folded prefix twice. The row is the fallback only
+  # for a run that died before its first request was logged.
+  defp opening_history(events, base_state, run) do
+    case Enum.find(events, &(&1.event_type == "llm_request")) do
+      %{payload: %{"messages" => msgs} = payload} when is_list(msgs) ->
+        {Messages.normalize(msgs), payload["summary"]}
+
+      _ ->
+        base = restore_conversation_for_run(base_state, run)
+        {initial_messages_for_replay(base, run), base.summary}
+    end
   end
 
   defp restore_conversation_for_run(state, run) do
@@ -109,20 +121,25 @@ defmodule Norns.Agents.Replay do
   end
 
   defp replay_from_events(initial_messages, initial_summary, events) do
-    checkpoint =
-      events
-      |> Enum.reverse()
-      |> Enum.find(fn event -> event.event_type in ["checkpoint_saved", "checkpoint"] end)
+    snapshot = events |> Enum.reverse() |> Enum.find(&snapshot?/1)
 
-    case checkpoint do
+    case snapshot do
       %{payload: %{"messages" => messages, "step" => step} = payload} ->
-        post_checkpoint = Enum.drop_while(events, fn event -> event.sequence <= checkpoint.sequence end)
-        replay_events_onto(Messages.normalize(messages), step, [], payload["summary"] || initial_summary, post_checkpoint)
+        post_snapshot = Enum.drop_while(events, fn event -> event.sequence <= snapshot.sequence end)
+        replay_events_onto(Messages.normalize(messages), step, [], payload["summary"] || initial_summary, post_snapshot)
 
       nil ->
         replay_events_onto(initial_messages, 0, [], initial_summary, events)
     end
   end
+
+  # A checkpoint that carries the history: a fork's opening one, or one
+  # written before checkpoints became markers.
+  defp snapshot?(%{event_type: type, payload: %{"messages" => messages}})
+       when type in ["checkpoint_saved", "checkpoint"] and is_list(messages),
+       do: true
+
+  defp snapshot?(_event), do: false
 
   defp replay_events_onto(messages, step, pending_tool_calls, summary, events) do
     {msgs, current_step, pending_calls, summary} =
@@ -179,7 +196,14 @@ defmodule Norns.Agents.Replay do
             {msgs, current_step, pending_calls, summary}
 
           type when type in ["checkpoint_saved", "checkpoint"] ->
-            {Messages.normalize(event.payload["messages"]), event.payload["step"], [], event.payload["summary"] || summary}
+            case event.payload do
+              %{"messages" => messages} when is_list(messages) ->
+                {Messages.normalize(messages), event.payload["step"], [], event.payload["summary"] || summary}
+
+              # A marker: the history is what the fold has built so far.
+              _ ->
+                {msgs, event.payload["step"] || current_step, pending_calls, event.payload["summary"] || summary}
+            end
 
           _ ->
             {msgs, current_step, pending_calls, summary}
@@ -210,10 +234,10 @@ defmodule Norns.Agents.Replay do
   # Tag the pending launch with the run it already started, so resume reattaches
   # to that child instead of spawning a second one.
   #
-  # Under the default `:on_tool_call` checkpoint policy the call is already
-  # pending, carried over from the `llm_response` that requested it — appending
-  # here as well is what used to dispatch the launch twice. Under `:every_step`
-  # a checkpoint lands between the response and the launch and clears the
+  # The call is normally already pending, carried over from the `llm_response`
+  # that requested it — appending here as well is what used to dispatch the
+  # launch twice. A snapshot checkpoint (a fork's, or a pre-marker one under
+  # `:every_step`) landing between the response and the launch clears the
   # pending list, so there we do have to synthesize the call back. The
   # arguments are lost in that case, but a reattach doesn't need them.
   defp track_subagent_launch(pending_calls, payload) do

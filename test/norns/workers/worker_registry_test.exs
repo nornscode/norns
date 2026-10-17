@@ -198,7 +198,7 @@ defmodule Norns.Workers.WorkerRegistryTest do
     test "a lost LLM call is reported to the agent rather than left in flight" do
       :ok = WorkerRegistry.register_worker(1, "llm-crash", self(), [], capabilities: [:llm])
 
-      {:ok, task_id} =
+      {:ok, task_id, _} =
         WorkerRegistry.dispatch_llm_task(1, %{"messages" => [], "model" => "test"}, from_pid: self())
 
       assert_receive {:llm_task, %{task_id: ^task_id}}, 1_000

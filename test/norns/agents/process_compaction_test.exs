@@ -68,16 +68,20 @@ defmodule Norns.Agents.ProcessCompactionTest do
       assert %{"input_tokens" => 10, "output_tokens" => 20} = compacted.payload["usage"]
       assert compacted.payload["model"] == agent.model
 
-      # A checkpoint right after it carries the summary.
+      # A checkpoint right after it carries the summary — and, being a
+      # marker, the count rather than the messages.
       checkpoint = run_id |> events("checkpoint_saved") |> Enum.find(&(&1.sequence > compacted.sequence))
       assert checkpoint.payload["summary"] == "SUMMARY: searched a"
-      assert length(checkpoint.payload["messages"]) == 2
+      assert checkpoint.payload["message_count"] == 2
+      refute Map.has_key?(checkpoint.payload, "messages")
 
-      # The next LLM request goes out on the kept tail plus the summary.
-      [_first, second] = events(run_id, "llm_request")
+      # The next LLM request goes out on the kept tail plus the summary. Only
+      # the first request logs its messages (the opening history).
+      [first, second] = events(run_id, "llm_request")
+      assert [%{"role" => "user"}] = first.payload["messages"]
       assert second.payload["summary"] == "SUMMARY: searched a"
       assert second.payload["message_count"] == 2
-      assert [%{"role" => "assistant"}, %{"role" => "tool"}] = second.payload["messages"]
+      refute Map.has_key?(second.payload, "messages")
 
       # The worker wrote the prose: the compaction call carried the def's prompt
       # and the folded history plus an instruction; the following call carried
@@ -172,6 +176,64 @@ defmodule Norns.Agents.ProcessCompactionTest do
         summary: nil,
         test_pid: nil
       }
+    end
+
+    test "a marker checkpoint leaves the fold alone: the history is what the events built", %{tenant: tenant, agent: agent} do
+      {:ok, run} =
+        Runs.create_run(%{agent_id: agent.id, tenant_id: tenant.id, trigger_type: "message", input: %{"user_message" => "go"}, status: "running"})
+
+      append!(run, "run_started", %{})
+      append!(run, "llm_request", %{"step" => 1, "message_count" => 1, "messages" => [%{"role" => "user", "content" => "go"}]})
+      append!(run, "llm_response", %{"content" => "", "tool_calls" => [%{"id" => "c1", "name" => "web_search", "arguments" => %{}}], "finish_reason" => "tool_call", "usage" => %{}, "step" => 1})
+      append!(run, "tool_call", %{"tool_call_id" => "c1", "name" => "web_search", "arguments" => %{}, "step" => 1})
+      append!(run, "tool_result", %{"tool_call_id" => "c1", "name" => "web_search", "content" => "r1", "is_error" => false, "step" => 1})
+      append!(run, "checkpoint_saved", %{"step" => 1, "message_count" => 3})
+      append!(run, "llm_request", %{"step" => 2, "message_count" => 3})
+      append!(run, "llm_response", %{"content" => "", "tool_calls" => [%{"id" => "c2", "name" => "web_search", "arguments" => %{}}], "finish_reason" => "tool_call", "usage" => %{}, "step" => 2})
+      append!(run, "tool_call", %{"tool_call_id" => "c2", "name" => "web_search", "arguments" => %{}, "step" => 2})
+
+      {:ok, rebuilt} = Replay.rebuild_state(run.id, base_state(tenant, agent))
+
+      assert [%{role: "user", content: "go"}, %{role: "assistant"}, %{role: "tool", content: "r1"}, %{role: "assistant"}] =
+               rebuilt.messages
+
+      assert rebuilt.step == 2
+      assert {:resume_tools, [%{"id" => "c2"}]} = rebuilt.resume_action
+    end
+
+    test "resume starts from the opening history the first request carried, not the conversation row", %{tenant: tenant, agent: agent} do
+      # Compaction persisted the kept tail to the row mid-run; replaying from
+      # the row would drop the folded prefix a second time.
+      {:ok, conversation} = Conversations.find_or_create_conversation(agent.id, tenant.id, "moved-on")
+
+      {:ok, conversation} =
+        Conversations.update_conversation(conversation, %{messages: [%{"role" => "tool", "content" => "r1"}], summary: "S1"})
+
+      {:ok, run} =
+        Runs.create_run(%{
+          agent_id: agent.id,
+          tenant_id: tenant.id,
+          conversation_id: conversation.id,
+          trigger_type: "message",
+          input: %{"user_message" => "go"},
+          status: "running"
+        })
+
+      append!(run, "run_started", %{})
+      append!(run, "llm_request", %{"step" => 1, "message_count" => 1, "messages" => [%{"role" => "user", "content" => "go"}]})
+      append!(run, "llm_response", %{"content" => "", "tool_calls" => [%{"id" => "c1", "name" => "web_search", "arguments" => %{}}], "finish_reason" => "tool_call", "usage" => %{"input_tokens" => 100, "output_tokens" => 1}, "step" => 1})
+      append!(run, "tool_call", %{"tool_call_id" => "c1", "name" => "web_search", "arguments" => %{}, "step" => 1})
+      append!(run, "tool_result", %{"tool_call_id" => "c1", "name" => "web_search", "content" => "r1", "is_error" => false, "step" => 1})
+      append!(run, "context_compacted", %{"step" => 1, "dropped" => 2, "kept" => 1, "summary" => "S1", "usage" => %{}})
+      append!(run, "checkpoint_saved", %{"step" => 1, "message_count" => 1, "summary" => "S1"})
+      append!(run, "llm_response", %{"content" => "", "tool_calls" => [%{"id" => "c2", "name" => "web_search", "arguments" => %{}}], "finish_reason" => "tool_call", "usage" => %{}, "step" => 2})
+      append!(run, "tool_call", %{"tool_call_id" => "c2", "name" => "web_search", "arguments" => %{}, "step" => 2})
+
+      {:ok, rebuilt} = Replay.rebuild_state(run.id, base_state(tenant, agent))
+
+      assert rebuilt.summary == "S1"
+      assert [%{role: "tool", content: "r1"}, %{role: "assistant"}] = rebuilt.messages
+      assert {:resume_tools, [%{"id" => "c2"}]} = rebuilt.resume_action
     end
 
     test "a context_compacted event drops the folded prefix and restores the summary", %{tenant: tenant, agent: agent} do

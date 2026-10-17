@@ -91,7 +91,7 @@ defmodule Norns.Workers.WorkerRegistryGardTest do
           gard: 42
         )
 
-      {:ok, _} = WorkerRegistry.dispatch_llm_task(tid, %{model: "m"}, from_pid: self())
+      {:ok, _, _} = WorkerRegistry.dispatch_llm_task(tid, %{model: "m"}, from_pid: self())
       refute_receive {:llm_task, _}, 100
 
       WorkerRegistry.unregister_worker(tid, "garded-llm")
@@ -102,7 +102,7 @@ defmodule Norns.Workers.WorkerRegistryGardTest do
 
       :ok = WorkerRegistry.register_worker(tid, "plain-llm", self(), [], capabilities: [:llm])
 
-      {:ok, _} = WorkerRegistry.dispatch_llm_task(tid, %{model: "m"}, from_pid: self(), gard: 42)
+      {:ok, _, _} = WorkerRegistry.dispatch_llm_task(tid, %{model: "m"}, from_pid: self(), gard: 42)
       refute_receive {:llm_task, _}, 100
 
       :ok =
@@ -111,7 +111,7 @@ defmodule Norns.Workers.WorkerRegistryGardTest do
           gard: 42
         )
 
-      {:ok, task_id} = WorkerRegistry.dispatch_llm_task(tid, %{model: "m"}, from_pid: self(), gard: 42)
+      {:ok, task_id, _} = WorkerRegistry.dispatch_llm_task(tid, %{model: "m"}, from_pid: self(), gard: 42)
       assert_receive {:llm_task, %{task_id: ^task_id}}, 500
 
       WorkerRegistry.unregister_worker(tid, "plain-llm")
@@ -123,7 +123,7 @@ defmodule Norns.Workers.WorkerRegistryGardTest do
       # :default-tenant test worker absorbs them before they ever queue.
       tid = tenant_id()
 
-      {:ok, gard_task} = WorkerRegistry.dispatch_llm_task(tid, %{model: "m"}, from_pid: self(), gard: 42)
+      {:ok, gard_task, _} = WorkerRegistry.dispatch_llm_task(tid, %{model: "m"}, from_pid: self(), gard: 42)
 
       :ok = WorkerRegistry.register_worker(tid, "plain-llm", self(), [], capabilities: [:llm])
       refute_receive {:llm_task, _}, 100
