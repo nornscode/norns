@@ -9,7 +9,7 @@ defmodule Norns.Agents.Process do
   require Logger
 
   alias Norns.{Agents, Conversations, Runs}
-  alias Norns.Agents.{AgentDef, Messages, Replay, SubagentConversation, SubagentPolicy, ToolPolicy}
+  alias Norns.Agents.{AgentDef, HistoryDelta, Messages, Replay, SubagentConversation, SubagentPolicy, ToolPolicy}
   alias Norns.Runtime.{Content, ErrorPolicy, Errors, Events}
   alias Norns.Workers.WorkerRegistry
   alias Norns.Tools.{Catalog, Idempotency, Tool}
@@ -120,6 +120,10 @@ defmodule Norns.Agents.Process do
       pending_human: nil,
       gard_id: nil,
       resume_action: nil,
+      # The LLM worker connection that holds this run's history, and the
+      # list it was last sent, so the next step can send the change only
+      # (HistoryDelta). nil until a caching worker has served the run.
+      llm_cache: nil,
       test_pid: Keyword.get(opts, :test_pid),
       input_tokens: 0,
       output_tokens: 0,
@@ -907,8 +911,15 @@ defmodule Norns.Agents.Process do
 
         handle_llm_response(state, response)
 
+      # The worker no longer holds the history the delta was built on. Not a
+      # model failure: resend the whole list at the same step, no retry
+      # counted, no event — the request already logged stands.
+      {:error, "message_cache_miss"} ->
+        Logger.info("LLM worker lost the history cache for run #{state.run.id}; resending in full")
+        {:noreply, %{state | llm_cache: nil, step: state.step - 1}, {:continue, :llm_loop}}
+
       {:error, reason} ->
-        handle_llm_error(state, reason)
+        handle_llm_error(%{state | llm_cache: nil}, reason)
     end
   end
 
@@ -1115,19 +1126,24 @@ defmodule Norns.Agents.Process do
     system_prompt = state.agent_def.system_prompt
     summary = conversation_summary(state)
 
-    append(state.run, Events.llm_request(%{
-      "step" => state.step,
-      "message_count" => length(messages_for_llm),
-      "messages" => messages_for_llm,
-      "system_prompt" => system_prompt,
-      "summary" => summary,
-      "model" => state.agent_def.model,
-      # Names only. Enough to tell later whether the model called something it
-      # was never offered, or was offered tools and ignored them — neither of
-      # which is recoverable from the log without this. Full schemas would
-      # bloat every row for no analytical gain.
-      "tools" => Enum.map(all_tools, & &1.name)
-    }))
+    append(
+      state.run,
+      Events.llm_request(
+        %{
+          "step" => state.step,
+          "message_count" => length(messages_for_llm),
+          "system_prompt" => system_prompt,
+          "summary" => summary,
+          "model" => state.agent_def.model,
+          # Names only. Enough to tell later whether the model called something it
+          # was never offered, or was offered tools and ignored them — neither of
+          # which is recoverable from the log without this. Full schemas would
+          # bloat every row for no analytical gain.
+          "tools" => Enum.map(all_tools, & &1.name)
+        }
+        |> put_opening_history(state, messages_for_llm)
+      )
+    )
 
     # Dispatch LLM call to worker — non-blocking, neutral format
     llm_task = %{
@@ -1147,15 +1163,51 @@ defmodule Norns.Agents.Process do
       step: state.step
     }
 
-    {:ok, task_id} =
+    {:ok, task_id, dispatched} =
       WorkerRegistry.dispatch_llm_task(state.tenant_id, llm_task,
         from_pid: self(),
-        gard: state.gard_id
+        gard: state.gard_id,
+        delta: history_delta(state, messages_for_llm)
       )
 
     timer = Process.send_after(self(), {:task_timeout, task_id}, @task_timeout_ms)
-    {:noreply, %{state | status: :awaiting_llm, pending_llm_task: task_id, task_timer: timer}}
+
+    {:noreply,
+     %{
+       state
+       | status: :awaiting_llm,
+         pending_llm_task: task_id,
+         task_timer: timer,
+         llm_cache: remember_sent(dispatched, messages_for_llm)
+     }}
   end
+
+  # The history a run started from is what its first request carried; replay
+  # and fork read it back from there (`Replay`). Later requests record the
+  # count only: what they add is already in the log as `llm_response` and
+  # `tool_result`, and copying the whole list on every step grew a run's
+  # storage with the square of its length.
+  defp put_opening_history(payload, %{step: 1}, messages), do: Map.put(payload, "messages", messages)
+  defp put_opening_history(payload, _state, _messages), do: payload
+
+  # The history is the bulk of the task over the wire, and almost all of it
+  # is what the worker saw last step. A worker that keeps it gets the change
+  # instead, as long as the same connection serves the run (`HistoryDelta`).
+  # Another worker, a reconnect, or a cache the worker dropped all fall back
+  # to the full list — the last by the worker saying so.
+  defp history_delta(%{llm_cache: %{worker: worker, messages: previous}}, next) do
+    case HistoryDelta.compute(previous, next) do
+      {:delta, delta} -> {worker, delta}
+      :full -> nil
+    end
+  end
+
+  defp history_delta(_state, _next), do: nil
+
+  defp remember_sent(%{worker: worker, caches?: true}, messages) when is_pid(worker),
+    do: %{worker: worker, messages: messages}
+
+  defp remember_sent(_dispatched, _messages), do: nil
 
   # -- Compaction --
   #
@@ -1188,7 +1240,9 @@ defmodule Norns.Agents.Process do
       step: state.step
     }
 
-    {:ok, task_id} =
+    # Always the full prefix, never a delta: it is a slice to summarise, not
+    # the history, and the worker leaves its cache alone for it.
+    {:ok, task_id, _dispatched} =
       WorkerRegistry.dispatch_llm_task(state.tenant_id, task, from_pid: self(), gard: state.gard_id)
 
     timer = Process.send_after(self(), {:task_timeout, task_id}, @task_timeout_ms)
@@ -1211,10 +1265,12 @@ defmodule Norns.Agents.Process do
 
     state = %{state | messages: kept, summary: summary, last_input_tokens: nil}
 
-    # A checkpoint right away, whatever the policy: the message base changed.
+    # A checkpoint right away, whatever the policy, so the summary is in the
+    # log twice: here and on `context_compacted`. A marker like every other
+    # checkpoint — replay drops the prefix from the event, not from a copy.
     append(state.run, Events.checkpoint_saved(%{
-      "messages" => kept,
       "step" => state.step,
+      "message_count" => length(kept),
       "summary" => summary
     }))
 
@@ -1396,7 +1452,7 @@ defmodule Norns.Agents.Process do
   end
 
   defp finish_run(state) do
-    %{state | status: :idle, retry_count: 0}
+    %{state | status: :idle, retry_count: 0, llm_cache: nil}
   end
 
   # A run that fails mid-step (cancelled, a tool task timed out) would persist
@@ -1456,10 +1512,17 @@ defmodule Norns.Agents.Process do
     if should_checkpoint do
       maybe_invoke_test_hook(state, :before_checkpoint_write, %{context: context, step: state.step})
 
+      # A marker, not a snapshot. The history at this point is the opening
+      # history plus the events before it, which is how replay rebuilds it
+      # (`Replay`); a copy of the whole list here grew a run's storage with
+      # the square of its length and saved no read, since replay loads every
+      # event of the run regardless. The summary rides along so a resume
+      # after compaction finds it even if `context_compacted` is the event
+      # that did not land.
       append(
         state.run,
         Events.checkpoint_saved(
-          %{"messages" => state.messages, "step" => state.step}
+          %{"step" => state.step, "message_count" => length(state.messages)}
           |> Messages.maybe_put("summary", state.summary)
         )
       )

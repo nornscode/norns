@@ -56,7 +56,7 @@ defmodule NornsWeb.WorkerChannelTest do
           "capabilities" => ["llm"]
         })
 
-      {:ok, task_id} =
+      {:ok, task_id, _} =
         WorkerRegistry.dispatch_llm_task(tenant.id, %{
           model: "claude-sonnet-4-20250514",
           system_prompt: "You are helpful.",
@@ -99,7 +99,7 @@ defmodule NornsWeb.WorkerChannelTest do
         })
 
       for agent <- agents do
-        {:ok, llm_task_id} =
+        {:ok, llm_task_id, _} =
           WorkerRegistry.dispatch_llm_task(
             tenant.id,
             %{model: "m", system_prompt: "p", messages: [], agent_id: agent.id, run_id: 1, step: 1},
@@ -178,7 +178,7 @@ defmodule NornsWeb.WorkerChannelTest do
           "capabilities" => ["llm"]
         })
 
-      {:ok, task_id} =
+      {:ok, task_id, _} =
         WorkerRegistry.dispatch_llm_task(tenant.id, %{
           model: "claude-sonnet-4-20250514",
           system_prompt: "You are helpful.",

@@ -271,7 +271,8 @@ weeks of delay to tenant self-serve, which nobody external is waiting on.
   the dashboard, Elixir SDK. Waits for P2a so both modes can be shown
   honestly: "end-to-end encrypted" when every worker is tenant-run,
   "encrypted at rest with your key" when the LLM worker runs in the
-  cloud. About two weeks.
+  cloud. About two weeks. `plan-opaque-core.md` (2026-10-16) is the
+  current reading of what it would take and who it is for.
 
 **Order from here (v6.5):** P0 audit → H1–H4 → D0–D5 → tenant self-serve →
 P2a → E1–E4 → Slack connector image → chains phase 1. D0–D5 moved ahead of

@@ -487,22 +487,22 @@ defmodule Norns.Agents.ProcessTest do
 
       # Step 3's request is built from a 5-message history (user, assistant+tool_use,
       # tool_result, assistant+tool_use, tool_result) with context_window=1 — a naive
-      # tail-slice would start on the second tool_result and orphan it.
+      # tail-slice would start on the second tool_result and orphan it. The window
+      # backs up to the pair, so two messages go out, not one.
       third_request = Enum.at(llm_requests, 2)
-      messages = third_request.payload["messages"]
+      assert third_request.payload["message_count"] == 2
 
-      refute hd(messages)["role"] == "tool"
+      # Only the first request logs its messages; what the model saw on step 3
+      # is what the worker was sent, in the provider's shape.
+      [_, _, third_call] = LLM.calls()
+      [first | _] = third_call.messages
+      assert (first["role"] || first[:role]) == "assistant"
 
-      tool_use_ids =
-        messages
-        |> Enum.flat_map(&(&1["tool_calls"] || []))
-        |> Enum.map(& &1["id"])
+      blocks = Enum.flat_map(third_call.messages, fn msg -> List.wrap(msg["content"] || msg[:content]) end)
+      tool_use_ids = for %{"type" => "tool_use"} = block <- blocks, do: block["id"]
+      tool_result_ids = for %{"type" => "tool_result"} = block <- blocks, do: block["tool_use_id"]
 
-      tool_result_ids =
-        messages
-        |> Enum.filter(&(&1["role"] == "tool"))
-        |> Enum.map(& &1["tool_call_id"])
-
+      assert tool_result_ids == ["call_2"]
       assert Enum.all?(tool_result_ids, &(&1 in tool_use_ids))
     end
   end

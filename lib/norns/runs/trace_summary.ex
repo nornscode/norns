@@ -8,11 +8,11 @@ defmodule Norns.Runs.TraceSummary do
   dashboard. It is kept deliberately, against that plan, rather than being
   surface someone forgot to remove.
 
-  Raw event logs don't work for that: a long run holds hundreds of events and
-  `llm_request` carries the entire message array, so fetching one is both
-  enormous and mostly noise. A summary
-  has to stay roughly the same size whether the run took five steps or five
-  hundred, or it's useless on exactly the runs worth summarizing.
+  Raw event logs don't work for that: a long run holds hundreds of events,
+  full tool results among them, so fetching one is both large and mostly
+  noise. A summary has to stay roughly the same size whether the run took
+  five steps or five hundred, or it's useless on exactly the runs worth
+  summarizing.
 
   Three rules shape the output:
 
@@ -59,9 +59,10 @@ defmodule Norns.Runs.TraceSummary do
     end
   end
 
-  # Scalar projection. Never selects `payload` wholesale — `llm_request` and
-  # `checkpoint_saved` both carry full message arrays, and pulling those to
-  # count events would load megabytes to produce a handful of integers.
+  # Scalar projection. Never selects `payload` wholesale — a run's first
+  # `llm_request` carries its opening history and tool results carry their
+  # content, and pulling those to count events would load megabytes to
+  # produce a handful of integers.
   defp scan(run_id) do
     from(e in RunEvent,
       where: e.run_id == ^run_id,

@@ -31,6 +31,7 @@ defmodule Norns.TestWorker do
     tenant = Keyword.get(opts, :tenant, :default)
     worker_id = Keyword.get(opts, :worker_id, "test-worker")
     capabilities = Keyword.get(opts, :capabilities, [:llm, :tools])
+    features = Keyword.get(opts, :features, [])
     gard = Keyword.get(opts, :gard)
 
     tool_defs = Enum.map(tools, &Tool.to_def/1)
@@ -41,10 +42,20 @@ defmodule Norns.TestWorker do
       self(),
       tool_defs,
       capabilities: capabilities,
+      features: features,
       gard: gard
     )
 
-    {:ok, %{tools: tools, completed: %{}}}
+    # `observer` gets a copy of every llm_task as it arrived, so a test can
+    # see whether core sent the history or the change.
+    {:ok,
+     %{
+       tools: tools,
+       completed: %{},
+       caches?: :message_cache in features,
+       history: %{},
+       observer: Keyword.get(opts, :observer)
+     }}
   end
 
   @impl true
@@ -86,16 +97,55 @@ defmodule Norns.TestWorker do
     {:noreply, %{state | completed: Map.put(state.completed, key, result)}}
   end
 
+  # With `features: [:message_cache]` this worker keeps the history it was
+  # last sent for each run, and core may send the change instead of the list
+  # (`messages_delta`; the protocol is `Norns.Agents.HistoryDelta`). A delta
+  # on a base this worker does not hold is answered with `message_cache_miss`
+  # and core resends in full. A compaction task's messages are a prefix to
+  # summarise, not the history, so they leave the cache alone.
   def handle_info({:llm_task, task}, state) do
-    Task.start(fn ->
-      result = execute_llm(task)
-      WorkerRegistry.deliver_result(task.task_id, result)
-    end)
+    if state.observer, do: send(state.observer, {:llm_task, task})
 
-    {:noreply, state}
+    case resolve_history(task, state) do
+      {:ok, task, history} ->
+        Task.start(fn ->
+          result = execute_llm(task)
+          WorkerRegistry.deliver_result(task.task_id, result)
+        end)
+
+        {:noreply, %{state | history: history}}
+
+      :miss ->
+        WorkerRegistry.deliver_result(task.task_id, %{"status" => "error", "error" => "message_cache_miss"})
+        {:noreply, state}
+    end
   end
 
+  # What a worker that evicted its cache looks like to core.
+  def handle_info(:forget_history, state), do: {:noreply, %{state | history: %{}}}
+
   def handle_info(_msg, state), do: {:noreply, state}
+
+  defp resolve_history(task, %{caches?: false, history: history}), do: {:ok, task, history}
+
+  defp resolve_history(%{purpose: "compact"} = task, %{history: history}), do: {:ok, task, history}
+
+  defp resolve_history(%{messages_delta: %{base_count: n, drop: d, append: append}} = task, %{history: history}) do
+    case Map.get(history, task.run_id) do
+      previous when is_list(previous) and length(previous) == n ->
+        messages = Enum.drop(previous, d) ++ append
+        {:ok, Map.put(task, :messages, messages), Map.put(history, task.run_id, messages)}
+
+      _ ->
+        :miss
+    end
+  end
+
+  defp resolve_history(%{messages: messages, run_id: run_id} = task, %{history: history}),
+    do: {:ok, task, Map.put(history, run_id, messages)}
+
+  # Registry tests push bare tasks with neither.
+  defp resolve_history(task, %{history: history}), do: {:ok, task, history}
 
   defp execute_llm(task) do
     # The worker owns the provider key. The orchestrator never sends one.

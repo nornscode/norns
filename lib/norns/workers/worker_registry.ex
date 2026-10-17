@@ -35,11 +35,22 @@ defmodule Norns.Workers.WorkerRegistry do
 
   # -- Public API --
 
-  @doc "Register a worker with its tool definitions, capabilities, and optional gard."
+  @doc """
+  Register a worker with its tool definitions, capabilities, and optional gard.
+
+  `features` are protocol options the worker supports beyond what it can
+  serve; today only `:message_cache` (it keeps the history it was last sent
+  per run, so LLM tasks can carry the change instead of the list).
+  """
   def register_worker(tenant_id, worker_id, channel_pid, tools, opts \\ []) do
     capabilities = Keyword.get(opts, :capabilities, [:tools])
     gard = Keyword.get(opts, :gard)
-    GenServer.call(__MODULE__, {:register, tenant_id, worker_id, channel_pid, tools, capabilities, gard})
+    features = Keyword.get(opts, :features, [])
+
+    GenServer.call(
+      __MODULE__,
+      {:register, tenant_id, worker_id, channel_pid, tools, capabilities, gard, features}
+    )
   end
 
   @doc """
@@ -129,11 +140,20 @@ defmodule Norns.Workers.WorkerRegistry do
   worker's LLM credentials are not — a gard deployment's API key must
   not silently serve other runs, and a lone gard worker half-serving a
   plain run (LLM works, tools hang) is worse than queueing it whole.
+
+  `delta: {channel_pid, delta}` offers the change since the last task in
+  place of `task.messages`; it is used only if the worker chosen is that
+  connection and it caches history (`Norns.Agents.HistoryDelta`).
+
+  Returns `{:ok, task_id, %{worker: pid | nil, caches?: boolean}}`: which
+  connection took the task (nil when queued) and whether it keeps history,
+  so the caller knows what to offer next time.
   """
   def dispatch_llm_task(tenant_id, task, opts \\ []) do
     from_pid = Keyword.get(opts, :from_pid, self())
     gard = Keyword.get(opts, :gard)
-    GenServer.call(__MODULE__, {:dispatch_llm, tenant_id, task, from_pid, gard})
+    delta = Keyword.get(opts, :delta)
+    GenServer.call(__MODULE__, {:dispatch_llm, tenant_id, task, from_pid, gard, delta})
   end
 
   @doc "Dispatch a tool task to a connected worker."
@@ -192,7 +212,7 @@ defmodule Norns.Workers.WorkerRegistry do
   end
 
   @impl true
-  def handle_call({:register, tenant_id, worker_id, channel_pid, tools, capabilities, gard}, _from, state) do
+  def handle_call({:register, tenant_id, worker_id, channel_pid, tools, capabilities, gard, features}, _from, state) do
     key = {tenant_id, worker_id}
 
     # A registration under a key that already holds a worker means a reconnect
@@ -206,6 +226,7 @@ defmodule Norns.Workers.WorkerRegistry do
       channel_pid: channel_pid,
       tools: tools,
       capabilities: capabilities,
+      features: features,
       monitor_ref: ref,
       tenant_id: tenant_id,
       gard: gard,
@@ -345,7 +366,7 @@ defmodule Norns.Workers.WorkerRegistry do
     {:reply, available, state}
   end
 
-  def handle_call({:dispatch_llm, tenant_id, task, from_pid, gard}, _from, state) do
+  def handle_call({:dispatch_llm, tenant_id, task, from_pid, gard, delta}, _from, state) do
     worker =
       find_worker(state, tenant_id, fn w ->
         :llm in w.capabilities and w.gard == gard and dispatchable?(w)
@@ -354,14 +375,14 @@ defmodule Norns.Workers.WorkerRegistry do
     case worker do
       {key, w} ->
         task_id = generate_task_id()
-        full_task = Map.put(task, :task_id, task_id)
+        payload = task |> Map.put(:task_id, task_id) |> with_delta(delta, w)
 
-        push_to_worker(w.channel_pid, {:llm_task, full_task})
+        push_to_worker(w.channel_pid, {:llm_task, payload})
 
         pending = %{from_pid: from_pid, tenant_id: tenant_id, type: :llm, worker_key: key}
         state = put_in(state.pending[task_id], pending)
 
-        {:reply, {:ok, task_id}, state}
+        {:reply, {:ok, task_id, %{worker: w.channel_pid, caches?: caches_history?(w)}}, state}
 
       nil ->
         # No LLM worker available — queue it, and wake one that could take it
@@ -375,7 +396,7 @@ defmodule Norns.Workers.WorkerRegistry do
           gard: gard
         })
 
-        {:reply, {:ok, task_id}, wake_for(state, tenant_id, gard, "__llm__")}
+        {:reply, {:ok, task_id, %{worker: nil, caches?: false}}, wake_for(state, tenant_id, gard, "__llm__")}
     end
   end
 
@@ -717,6 +738,18 @@ defmodule Norns.Workers.WorkerRegistry do
     |> Map.get(:input, %{})
     |> Map.put(:task_id, task.task_id)
   end
+
+  defp caches_history?(worker), do: :message_cache in Map.get(worker, :features, [])
+
+  # The delta was computed against what one connection holds; it replaces
+  # the history only on that connection. Anyone else gets the list.
+  defp with_delta(task, {pid, delta}, %{channel_pid: pid} = worker) do
+    if caches_history?(worker),
+      do: task |> Map.delete(:messages) |> Map.put(:messages_delta, delta),
+      else: task
+  end
+
+  defp with_delta(task, _delta, _worker), do: task
 
   # A worker takes new tasks while its channel is alive and it has not
   # announced it is shutting down. In-flight tasks are unaffected either way.
