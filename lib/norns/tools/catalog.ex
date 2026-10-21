@@ -30,8 +30,10 @@ defmodule Norns.Tools.Catalog do
     * `:extra` — tools handed straight to an agent (its def's own list)
     * `:policy` — a `Norns.Agents.ToolPolicy`; filters `:extra` and worker
       tools, never built-ins, which are orchestrator semantics
-    * `:gard` — worker tools from that gard only, by strict equality, since
-      the list offered to a model must only name tools dispatch can reach
+    * `:gard` — worker tools from that gard plus the no-gard workers', the
+      gard winning a name collision; each carries the gard dispatch will
+      send it to (`Tool.gard`). Without it, no-gard workers' tools only. A
+      list offered to a model must only name tools dispatch can reach
 
   With no options this is the tenant-wide view a tools page wants. With all
   three it is exactly what one agent is offered on its next step — and that
