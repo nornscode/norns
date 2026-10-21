@@ -58,6 +58,9 @@ defmodule NornsWeb.Router do
     get "/tools", ToolController, :index
     get "/workers", WorkerController, :index
 
+    # Scoped keys: a key a gard's worker can hold without holding the tenant.
+    resources "/api_keys", ApiKeyController, only: [:create, :index, :delete], param: "name"
+
     resources "/serverless_workers", ServerlessWorkerController, only: [:create, :index, :show, :update, :delete] do
       post "/wake", ServerlessWorkerController, :wake
     end

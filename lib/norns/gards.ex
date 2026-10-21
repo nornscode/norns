@@ -46,10 +46,10 @@ defmodule Norns.Gards do
   end
 
   @doc """
-  Soft-destroy a gard: status → `destroyed`, ports removed, and the worker
+  Soft-destroy a gard: status → `destroyed`, ports removed, the worker
   currently claiming it kicked (which fails its in-flight tasks through the
-  existing disconnect path). Refuses if the gard has an active run unless
-  `force: true`.
+  existing disconnect path), and every key scoped to it revoked. Refuses if
+  the gard has an active run unless `force: true`.
   """
   def destroy(tenant_id, gard_id, opts \\ []) do
     force = Keyword.get(opts, :force, false)
@@ -65,6 +65,7 @@ defmodule Norns.Gards do
         {1, _} ->
           Repo.delete_all(from p in GardPort, where: p.gard_id == ^gard_id)
           Norns.Workers.WorkerRegistry.kick_gard_workers(tenant_id, gard_id)
+          Norns.Tenants.revoke_gard_keys(tenant_id, gard_id)
           :ok
 
         {0, _} ->

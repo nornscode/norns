@@ -652,7 +652,32 @@ GET    /api/gards/:id/ports                 list ports
 DELETE /api/gards/:id/ports/:port_id        remove a port
 
 POST   /api/runs                            (extended: accepts gard_id)
+
+POST   /api/v1/api_keys                     issue a key scoped to a gard's worker (token returned once)
+GET    /api/v1/api_keys                     list scoped keys (no tokens)
+DELETE /api/v1/api_keys/:name               revoke; a worker joined on it is disconnected
 ```
+
+### Scoped Worker Keys
+
+A worker inside a gard needs a key to join, and whatever runs in the gard
+as the worker's user can read that key from the process environment. A
+tenant key there is a tenant compromise waiting for a prompt injection. So
+the provisioner issues the gard's worker a **scoped key** instead:
+
+```
+POST /api/v1/api_keys   (with a tenant key)
+{"name": "box-7-worker",
+ "scope": {"kind": "worker", "gard_id": 7, "capabilities": ["llm", "tools"]}}
+```
+
+The returned `nrnw_…` token can open `/worker`, join with capabilities no
+wider than listed, claim gard 7 (claim token still required), serve tasks,
+register ports and deliver results. Every REST route answers 403 to it, and
+the agent socket and dashboard do not recognise it. `DELETE
+/api/v1/api_keys/box-7-worker` revokes it and closes the worker's channel;
+destroying gard 7 revokes it too. Tenant keys are unchanged. See
+`decision-log.md` § API keys scoped to a gard worker.
 
 ### Port Registration Validation
 

@@ -216,4 +216,84 @@ defmodule NornsWeb.WorkerChannelTest do
       assert :error = connect(WorkerSocket, %{"token" => "bad"})
     end
   end
+
+  describe "a key scoped to a gard worker" do
+    setup %{tenant: tenant} do
+      {:ok, gard} = Norns.Gards.create_gard(%{tenant_id: tenant.id, name: "box"})
+
+      {:ok, key} =
+        Norns.Tenants.create_api_key(tenant.id, %{
+          name: "box-worker",
+          scope: %{"kind" => "worker", "gard_id" => gard.id, "capabilities" => ["tools"]}
+        })
+
+      {:ok, socket} = connect(WorkerSocket, %{"token" => key.token})
+      %{gard: gard, key: key, scoped_socket: socket}
+    end
+
+    defp join_params(gard, overrides \\ %{}) do
+      Map.merge(
+        %{
+          "worker_id" => "box-worker",
+          "tools" => [%{"name" => "sh", "description" => "shell", "input_schema" => %{}}],
+          "capabilities" => ["tools"],
+          "gard" => gard.id,
+          "claim_token" => gard.claim_token
+        },
+        overrides
+      )
+    end
+
+    test "joins its gard within its capabilities, with the claim token still required",
+         %{scoped_socket: socket, tenant: tenant, gard: gard} do
+      assert {:error, %{code: "gard_claim_failed"}} =
+               subscribe_and_join(socket, WorkerChannel, "worker:lobby", join_params(gard, %{"claim_token" => "wrong"}))
+
+      {:ok, _, _joined} = subscribe_and_join(socket, WorkerChannel, "worker:lobby", join_params(gard))
+
+      assert [%{worker_id: "box-worker", gard: gard_id}] = WorkerRegistry.connected_workers(tenant.id)
+      assert gard_id == gard.id
+
+      {:ok, task_id} = WorkerRegistry.dispatch_task(tenant.id, "sh", %{}, from_pid: self(), gard: gard.id)
+      assert_push "tool_task", %{task_id: ^task_id}, 1_000
+
+      WorkerRegistry.unregister_worker(tenant.id, "box-worker")
+    end
+
+    test "cannot declare a capability the key does not carry", %{scoped_socket: socket, gard: gard} do
+      assert {:error, %{reason: "capabilities_exceed_key_scope", code: "key_scope"}} =
+               subscribe_and_join(socket, WorkerChannel, "worker:lobby", join_params(gard, %{"capabilities" => ["llm", "tools"]}))
+    end
+
+    test "cannot join without its gard or with another one", %{scoped_socket: socket, tenant: tenant, gard: gard} do
+      assert {:error, %{reason: "gard_not_in_key_scope", code: "key_scope"}} =
+               subscribe_and_join(socket, WorkerChannel, "worker:lobby", join_params(gard, %{"gard" => nil, "claim_token" => nil}))
+
+      {:ok, other} = Norns.Gards.create_gard(%{tenant_id: tenant.id, name: "other"})
+
+      assert {:error, %{reason: "gard_not_in_key_scope", code: "key_scope"}} =
+               subscribe_and_join(socket, WorkerChannel, "worker:lobby", join_params(other))
+    end
+
+    test "a revoked key's connection is closed, and a join on it is refused",
+         %{scoped_socket: socket, tenant: tenant, gard: gard} do
+      {:ok, _, joined} = subscribe_and_join(socket, WorkerChannel, "worker:lobby", join_params(gard))
+      ref = Process.monitor(joined.channel_pid)
+
+      :ok = Norns.Tenants.revoke_api_key(tenant.id, "box-worker")
+
+      assert_push "key_revoked", %{}
+      assert_receive {:DOWN, ^ref, :process, _, _}, 1_000
+      Process.sleep(50)
+      assert WorkerRegistry.connected_workers(tenant.id) == []
+
+      # The socket that was open before the revocation cannot join again.
+      assert {:error, %{reason: "key_revoked", code: "key_scope"}} =
+               subscribe_and_join(socket, WorkerChannel, "worker:lobby", join_params(gard))
+    end
+
+    test "does not open the agent socket", %{key: key} do
+      assert :error = connect(NornsWeb.AgentSocket, %{"token" => key.token})
+    end
+  end
 end

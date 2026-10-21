@@ -90,6 +90,15 @@ defmodule NornsWeb.JSON do
     if Keyword.get(opts, :secret, false), do: Map.put(base, :secret, webhook.secret), else: base
   end
 
+  # Never the token: create adds it to this map itself, once.
+  def api_key(key) do
+    %{
+      name: key.name,
+      scope: key.scope,
+      inserted_at: key.inserted_at
+    }
+  end
+
   def gard_port(port) do
     %{
       id: port.id,

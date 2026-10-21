@@ -2,7 +2,8 @@ defmodule NornsWeb.WorkerChannel do
   use NornsWeb, :channel
 
   require Logger
-  alias Norns.Gards
+  alias Norns.{Gards, Tenants}
+  alias Norns.Tenants.ApiKey
   alias Norns.Workers.WorkerRegistry
 
   @impl true
@@ -10,12 +11,15 @@ defmodule NornsWeb.WorkerChannel do
     with :ok <- validate_registration(params),
          {:ok, capabilities} <- parse_capabilities(Map.get(params, "capabilities")),
          tenant_id <- socket.assigns.tenant_id,
+         :ok <- check_key_scope(socket.assigns[:api_key], capabilities, params),
          {:ok, gard_id} <- claim_gard(tenant_id, params),
          :ok <- WorkerRegistry.register_worker(tenant_id, params["worker_id"], self(), params["tools"],
            capabilities: capabilities,
            features: parse_features(Map.get(params, "features")),
            gard: gard_id
          ) do
+      watch_key(socket.assigns[:api_key])
+
       socket =
         socket
         |> assign(:worker_id, params["worker_id"])
@@ -82,6 +86,14 @@ defmodule NornsWeb.WorkerChannel do
     {:stop, :normal, socket}
   end
 
+  # The key this worker joined on was revoked — same exit as a destroyed
+  # gard. A revoked key must not go on serving tasks just because its
+  # connection predates the revocation.
+  def handle_info({:api_key_revoked, _key_id}, socket) do
+    push(socket, "key_revoked", %{})
+    {:stop, :normal, socket}
+  end
+
   @impl true
   def terminate(_reason, socket) do
     if worker_id = socket.assigns[:worker_id] do
@@ -139,6 +151,32 @@ defmodule NornsWeb.WorkerChannel do
   end
 
   defp parse_features(_other), do: []
+
+  # A scoped key joins within its scope or not at all: capabilities no wider
+  # than the key lists, and only the key's gard — with the claim token still
+  # required, since the key says which gard, not that this worker is the one
+  # that may hold it. A join on a key revoked since the socket opened is
+  # refused too; `watch_key/1` covers the connections that are already in.
+  defp check_key_scope(nil, _capabilities, _params), do: :ok
+
+  defp check_key_scope(%ApiKey{} = key, capabilities, params) do
+    cond do
+      not Tenants.api_key_live?(key) ->
+        {:error, %{reason: "key_revoked", code: "key_scope"}}
+
+      not Enum.all?(capabilities, &(&1 in ApiKey.capabilities(key))) ->
+        {:error, %{reason: "capabilities_exceed_key_scope", code: "key_scope"}}
+
+      normalize_gard_id(params["gard"]) != {:ok, ApiKey.gard_id(key)} ->
+        {:error, %{reason: "gard_not_in_key_scope", code: "key_scope"}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp watch_key(nil), do: :ok
+  defp watch_key(%ApiKey{} = key), do: Phoenix.PubSub.subscribe(Norns.PubSub, Tenants.api_key_topic(key))
 
   defp claim_gard(_tenant_id, %{"gard" => nil}), do: {:ok, nil}
 
