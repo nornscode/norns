@@ -345,6 +345,20 @@ defmodule Norns.Agents.Process do
     %{state | agent: agent, agent_def: agent_def}
   end
 
+  # A worker's tool goes to the worker that advertised it. In a gard-bound
+  # run that is the gard's worker for the gard's tools and a no-gard worker
+  # for the tenant-wide ones; the offered list carries the answer. Anything
+  # else — a tool the agent's def handed it directly, or a name no worker is
+  # serving right now (one dropped between offer and dispatch, or before a
+  # resume) — is dispatched on the run's gard, which is the strict choice:
+  # it queues for the gard's worker rather than reaching past it.
+  defp tool_gard(offered, tc, state) do
+    case Enum.find(offered, &(&1.name == tc["name"])) do
+      %Tool{source: {:remote, _}, gard: gard} -> gard
+      _ -> state.gard_id
+    end
+  end
+
   defp idempotency_keys(state, blocks, offered) do
     Map.new(blocks, fn tc ->
       case Enum.find(offered, &(&1.name == tc["name"])) do
@@ -462,7 +476,7 @@ defmodule Norns.Agents.Process do
               from_pid: self(),
               agent_id: state.agent_id,
               run_id: state.run.id,
-              gard: state.gard_id,
+              gard: tool_gard(offered, tc, state),
               idempotency_key: keys |> Map.get(tc["id"], %{}) |> Map.get(:idempotency_key)
             )
 

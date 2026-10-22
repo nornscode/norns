@@ -45,8 +45,10 @@ defmodule Norns.Workers.WorkerRegistryServerlessTest do
              WorkerRegistry.available_tools(tenant)
 
     assert WorkerRegistry.llm_available?(tenant)
-    # Gard-bound runs cannot reach it: it has no filesystem to be affine to.
-    assert [] = WorkerRegistry.available_tools(tenant, gard: 1)
+    # A gard-bound run reaches it like any no-gard worker's tool — it is a
+    # tenant-wide service — and dispatches it on no gard, since a function
+    # that may start anywhere has no filesystem to be affine to.
+    assert [%{name: "sl_search", gard: nil}] = WorkerRegistry.available_tools(tenant, gard: 1)
 
     WorkerRegistry.unregister_serverless_worker(tenant, worker.worker_id)
     Process.sleep(20)

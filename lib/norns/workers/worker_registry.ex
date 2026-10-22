@@ -65,9 +65,14 @@ defmodule Norns.Workers.WorkerRegistry do
   @doc """
   Get all tools from connected workers for a tenant, as %Tool{} structs.
 
-  Gard-filtered with strict equality: without `gard:`, only no-gard workers'
-  tools are returned; with it, only that gard's. The tool list advertised to
-  the LLM must only contain tools dispatch could actually reach.
+  Without `gard:`, the no-gard workers' tools. With it, that gard's workers'
+  tools plus the no-gard workers' tools, the gard winning on a name
+  collision — so `read_file` in a gard still goes to the gard. Each tool is
+  tagged with the gard it will be dispatched to (`Tool.gard`), which is how
+  a gard-bound run can call the tenant-wide service workers' tools without
+  a gard's tools ever being served from outside it. A no-gard caller never
+  sees a gard's tools. The list advertised to the LLM must only contain
+  tools dispatch can actually reach.
   """
   def available_tools(tenant_id, opts \\ []) do
     GenServer.call(__MODULE__, {:available_tools, tenant_id, Keyword.get(opts, :gard)})
@@ -284,39 +289,28 @@ defmodule Norns.Workers.WorkerRegistry do
   end
 
   def handle_call({:available_tools, tenant_id, gard}, _from, state) do
-    # Only return tools from tenant-specific workers, not the default worker.
-    # Strict gard equality (nil == nil): without it, a gard-bound run would be
-    # offered tools from other gards that dispatch would then fail to reach.
-    connected =
-      state.workers
-      |> Enum.filter(fn {{tid, _}, w} -> tid == tenant_id and w.gard == gard end)
-      |> Enum.flat_map(fn {_, worker} -> worker.tools end)
-
-    # A sleeping worker's declared tools are as real as a connected one's:
-    # a call to one wakes it. Serverless workers have no gard, so they only
-    # serve no-gard runs. Dedup by name so a worker that is awake right now
-    # does not list its tools twice.
-    declared =
-      if gard == nil do
-        state.serverless
-        |> Enum.filter(fn {{tid, _}, _} -> tid == tenant_id end)
-        |> Enum.flat_map(fn {_, %{worker: w}} -> w.tools end)
-      else
-        []
-      end
-
+    # The gard's own workers' tools first, so they win the dedup by name;
+    # then the no-gard workers' tools, each tagged nil because that is the
+    # worker dispatch will reach them on. For a no-gard caller the two
+    # halves are the same half.
     tools =
-      (connected ++ declared)
-      |> Enum.uniq_by(&tool_name/1)
-      |> Enum.map(fn tool_def ->
-        %Tool{
-          name: tool_name(tool_def),
-          description: tool_def["description"] || "",
-          input_schema: tool_def["input_schema"] || %{},
-          source: {:remote, tenant_id},
-          side_effect?: tool_def["side_effect"] || false
-        }
+      [gard, nil]
+      |> Enum.uniq()
+      |> Enum.flat_map(fn g ->
+        state
+        |> tool_defs_serving(tenant_id, g)
+        |> Enum.map(fn tool_def ->
+          %Tool{
+            name: tool_name(tool_def),
+            description: tool_def["description"] || "",
+            input_schema: tool_def["input_schema"] || %{},
+            source: {:remote, tenant_id},
+            side_effect?: tool_def["side_effect"] || false,
+            gard: g
+          }
+        end)
       end)
+      |> Enum.uniq_by(& &1.name)
 
     {:reply, tools, state}
   end
@@ -620,10 +614,15 @@ defmodule Norns.Workers.WorkerRegistry do
   # worker recognise a call it already ran.
   #
   # Strict gard equality (nil == nil, "a" == "a"): no-gard runs never grab a
-  # gard-bound worker (stolen dispatch), gard runs never fall through to a
-  # no-gard worker (filesystem state leakage). The :default-tenant fallback
-  # in pick_worker only ever holds no-gard workers, so it can only fire when
-  # gard is nil — a gard-bound run never falls back to a generic worker.
+  # gard-bound worker (stolen dispatch), gard tasks never fall through to a
+  # no-gard worker (filesystem state leakage). `task.gard` is the gard of
+  # the *tool*, not of the run: a gard-bound run calling a no-gard worker's
+  # tool dispatches it with gard nil, decided where the tool was offered
+  # (`available_tools`). Resolving there rather than here is what keeps a
+  # gard's `read_file` from landing on a service worker that happens to
+  # serve the same name while the gard's worker is reconnecting — the task
+  # waits for its gard instead. The :default-tenant fallback in pick_worker
+  # only ever holds no-gard workers, so it can only fire when gard is nil.
   defp place_tool_task(state, task) do
     {worker, state} =
       pick_worker(state, task.tenant_id, task.tool_name, nil, fn w ->
@@ -647,6 +646,30 @@ defmodule Norns.Workers.WorkerRegistry do
         TaskQueue.enqueue(task.tenant_id, task)
         wake_for(state, task.tenant_id, task.gard, task.tool_name)
     end
+  end
+
+  # Tool definitions the workers in `gard` (nil: no gard) serve for a tenant,
+  # one per name. Only tenant-specific workers, not the default worker. A
+  # sleeping worker's declared tools are as real as a connected one's — a
+  # call to one wakes it — and serverless workers have no gard, so they
+  # count on the no-gard side only. Dedup so a worker that is awake right
+  # now does not list its tools twice.
+  defp tool_defs_serving(state, tenant_id, gard) do
+    connected =
+      state.workers
+      |> Enum.filter(fn {{tid, _}, w} -> tid == tenant_id and w.gard == gard end)
+      |> Enum.flat_map(fn {_, worker} -> worker.tools end)
+
+    declared =
+      if gard == nil do
+        state.serverless
+        |> Enum.filter(fn {{tid, _}, _} -> tid == tenant_id end)
+        |> Enum.flat_map(fn {_, %{worker: w}} -> w.tools end)
+      else
+        []
+      end
+
+    Enum.uniq_by(connected ++ declared, &tool_name/1)
   end
 
   # Stop monitoring the previous incarnation registered under `key`, if any.

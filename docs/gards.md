@@ -12,6 +12,17 @@
 > unit is therefore a **deployment** (name + image + secrets + workload
 > shape), and a gard is something only some deployments have.
 
+> **Correction (2026-10-21): a gard is not an island.** "Gard-strict in
+> both directions" held for *runs* until now, so a gard-bound run could not
+> call the no-gard service workers' tools either — the manager agent in
+> Fulla could not live in a box with a shell because its confirm cards,
+> timers and people tools are served from outside any gard. A gard-bound
+> run is now offered its gard's tools **plus** the no-gard workers' tools,
+> the gard winning a name collision; each tool is dispatched to the worker
+> that advertised it. A no-gard run is unchanged and still never reaches a
+> gard's tools, and LLM dispatch stays strict both ways. See § Dispatch
+> Filter.
+
 ## Summary
 
 Norns gains a lightweight **gard registry** that pins tool dispatch to specific workers. Workers optionally declare a gard when they connect. Runs optionally target a gard. When a run targets a gard, all tool calls dispatch only to workers in that gard.
@@ -265,12 +276,28 @@ end
 ```
 
 This means:
-- No-gard runs dispatch **only** to no-gard workers.
-- Gard-bound runs dispatch **only** to workers in that exact gard.
+- No-gard tasks dispatch **only** to no-gard workers.
+- Gard-bound tasks dispatch **only** to workers in that exact gard.
 - A gard-bound worker **never** serves no-gard runs (preventing filesystem state leakage).
 - A no-gard run **never** grabs a gard-bound worker (preventing stolen dispatch).
 
-**Note on `:default` tenant fallback:** `find_worker` (line ~313) falls back to `:default` tenant workers when no tenant-specific match is found. Default-tenant workers have no gard, so the fallback only fires when `gard == nil`. This is correct: gard-bound runs should never fall back to a generic default worker. Comment this in the code.
+**The gard on a task is the tool's, not the run's (2026-10-21).** A
+gard-bound run is offered two kinds of tool: its gard's workers' tools,
+tagged with the gard, and the no-gard workers' tools, tagged nil
+(`WorkerRegistry.available_tools/2`, surfaced as `Tool.gard`). On a name
+collision the gard wins, so `read_file` in a gard still goes to the gard.
+The agent process dispatches each call with the gard of the tool it was
+offered, and the registry stays strict on that. Resolving at offer time
+rather than in the registry is deliberate: if the registry fell through
+from "no gard worker serves this name right now" to a no-gard worker, a
+gard's `read_file` would land on a service worker with the same tool name
+while the gard's worker was reconnecting. With the tag, that task queues
+for its gard instead. A tool name no worker serves at dispatch time (one
+dropped between offer and dispatch, or before a resume) is dispatched on
+the run's gard — the strict choice. A no-gard run is offered no-gard tools
+only; a gard never serves another gard's run.
+
+**Note on `:default` tenant fallback:** `find_worker` (line ~313) falls back to `:default` tenant workers when no tenant-specific match is found. Default-tenant workers have no gard, so the fallback only fires when `gard == nil`. This is correct: gard-bound tasks should never fall back to a generic default worker. Comment this in the code.
 
 **Note on LLM dispatch:** `dispatch_llm_task` does NOT gain a gard filter. LLM workers have nothing to do with filesystem affinity. They process inference requests, not tool calls. Do not "complete the symmetry" — it would break LLM dispatch for gard-bound runs when the LLM worker (correctly) has no gard.
 
