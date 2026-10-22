@@ -483,12 +483,16 @@ that.
   Postgres event log, not from clustering, so one node restarting loses
   no run state. Only the live worker/task view (`WorkerRegistry`,
   `TaskQueue`) is node-local.
-- Multi-node is planned: libcluster for discovery, Horde for the agent
-  registry/supervisor and `WorkerRegistry`, and either a clustered or
-  Postgres-backed `TaskQueue`. Pull requests welcome. Until then the hosted
-  instance is held at one machine (`fly scale count 1`, boot-time guard in
-  `Norns.Application`). `nornscode/norns#17` is the one time this bit,
-  from an unclustered multi-machine Fly setup.
+- Multi-node is planned, in `plan-multinode.md` (2026-10-16): a lease row
+  per conversation in Postgres decides which node runs a process, the
+  task queue and worker connections move to tables, and `dns_cluster`
+  connects the nodes for forwarding. Horde was dropped: a CRDT registry
+  can hold two processes for one key during a partition and reconcile
+  after the duplicate LLM call. Until it lands the hosted instance is held
+  at one machine (`fly scale count 1`, boot-time guard in
+  `Norns.Application`). `nornscode/norns#17` is the one time this bit, from
+  an unclustered multi-machine Fly setup; the 2026-10-16 Fly fleet-wide
+  host reboot is why it is now scheduled.
 
 ### A content-blind core
 - Core already routes on the envelope and stores content without reading it
