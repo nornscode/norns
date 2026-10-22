@@ -9,14 +9,34 @@ defmodule Norns.Workers.WorkerRegistryGardTest do
   defp tool_def(name), do: %{"name" => name, "description" => name, "input_schema" => %{}}
 
   describe "available_tools/2 gard filter" do
-    test "strict equality: no-gard callers see no-gard tools, gard callers see their gard's" do
+    # A gard is not an island: the tenant-wide service workers run with no
+    # gard, and a run whose shell lives in a gard still needs their tools.
+    # The reverse does not hold — a no-gard run never sees a gard's tools.
+    test "a gard caller sees its gard's tools and the no-gard tools, each tagged with its gard" do
       tid = tenant_id()
       :ok = WorkerRegistry.register_worker(tid, "plain", self(), [tool_def("plain_tool")])
       :ok = WorkerRegistry.register_worker(tid, "garded", self(), [tool_def("gard_tool")], gard: 42)
+      :ok = WorkerRegistry.register_worker(tid, "other", self(), [tool_def("other_tool")], gard: 99)
 
-      assert [%{name: "plain_tool"}] = WorkerRegistry.available_tools(tid)
-      assert [%{name: "gard_tool"}] = WorkerRegistry.available_tools(tid, gard: 42)
-      assert [] = WorkerRegistry.available_tools(tid, gard: 99)
+      assert [%{name: "plain_tool", gard: nil}] = WorkerRegistry.available_tools(tid)
+
+      tools = WorkerRegistry.available_tools(tid, gard: 42)
+      assert Enum.map(tools, &{&1.name, &1.gard}) == [{"gard_tool", 42}, {"plain_tool", nil}]
+
+      assert [%{name: "plain_tool", gard: nil}] = WorkerRegistry.available_tools(tid, gard: 7)
+
+      WorkerRegistry.unregister_worker(tid, "plain")
+      WorkerRegistry.unregister_worker(tid, "garded")
+      WorkerRegistry.unregister_worker(tid, "other")
+    end
+
+    test "on a name collision the gard wins, so affinity holds for the gard's own tools" do
+      tid = tenant_id()
+      :ok = WorkerRegistry.register_worker(tid, "plain", self(), [tool_def("read_file")])
+      :ok = WorkerRegistry.register_worker(tid, "garded", self(), [tool_def("read_file")], gard: 42)
+
+      assert [%{name: "read_file", gard: 42}] = WorkerRegistry.available_tools(tid, gard: 42)
+      assert [%{name: "read_file", gard: nil}] = WorkerRegistry.available_tools(tid)
 
       WorkerRegistry.unregister_worker(tid, "plain")
       WorkerRegistry.unregister_worker(tid, "garded")
@@ -24,6 +44,11 @@ defmodule Norns.Workers.WorkerRegistryGardTest do
   end
 
   describe "dispatch_task/4 gard strictness" do
+    # Dispatch stays strict on the task's gard. A gard-bound run reaching a
+    # no-gard tool is the agent process dispatching that call with gard nil,
+    # as the offered list told it to — not the registry reaching past the
+    # gard. That is what keeps a gard's `read_file` off a service worker
+    # with the same tool name while the gard's worker is reconnecting.
     test "a gard-bound task never reaches a no-gard worker (it queues instead)" do
       tid = tenant_id()
       :ok = WorkerRegistry.register_worker(tid, "plain", self(), [tool_def("shared_tool")])

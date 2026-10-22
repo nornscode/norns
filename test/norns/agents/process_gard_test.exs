@@ -44,9 +44,13 @@ defmodule Norns.Agents.ProcessGardTest do
     end
   end
 
-  test "a gard-bound run sees and uses only its gard's tools", %{tenant: tenant, agent: agent, gard: gard} do
+  test "a gard-bound run uses its gard's tools and the no-gard workers' tools, each on its own worker",
+       %{tenant: tenant, agent: agent, gard: gard} do
     # Gard workers are LLM-capable, like a real gard deployment: LLM
     # dispatch is gard-strict, so the gard's own worker serves its runs.
+    # The no-gard worker is a tenant-wide service — Fulla's confirm cards,
+    # timers and people tools — that a run in a gard still needs to reach.
+    # Both serve `read_file`; the gard's copy is the one the run must get.
     start_worker(tenant,
       worker_id: "gard-worker",
       gard: gard.id,
@@ -54,12 +58,19 @@ defmodule Norns.Agents.ProcessGardTest do
       tools: [tool("read_file", "gard file contents")]
     )
 
-    start_worker(tenant, worker_id: "plain-worker", tools: [tool("plain_tool", "plain result")])
+    start_worker(tenant,
+      worker_id: "plain-worker",
+      tools: [tool("read_file", "plain file contents"), tool("send_card", "card sent")]
+    )
+
+    {:ok, other_gard} = Gards.create_gard(%{tenant_id: tenant.id, name: "elsewhere"})
+    start_worker(tenant, worker_id: "other-gard-worker", gard: other_gard.id, tools: [tool("other_tool", "x")])
 
     LLM.set_responses([
       %{
         content: [
-          %{"type" => "tool_use", "id" => "call_1", "name" => "read_file", "input" => %{"path" => "x"}}
+          %{"type" => "tool_use", "id" => "call_1", "name" => "read_file", "input" => %{"path" => "x"}},
+          %{"type" => "tool_use", "id" => "call_2", "name" => "send_card", "input" => %{}}
         ],
         stop_reason: "tool_use"
       },
@@ -80,10 +91,11 @@ defmodule Norns.Agents.ProcessGardTest do
 
     request = Enum.find(events, &(&1.event_type == "llm_request"))
     assert "read_file" in request.payload["tools"]
-    refute "plain_tool" in request.payload["tools"]
+    assert "send_card" in request.payload["tools"]
+    refute "other_tool" in request.payload["tools"]
 
-    result = Enum.find(events, &(&1.event_type == "tool_result"))
-    assert result.payload["content"] == "gard file contents"
+    results = events |> Enum.filter(&(&1.event_type == "tool_result")) |> Map.new(&{&1.payload["name"], &1.payload["content"]})
+    assert results == %{"read_file" => "gard file contents", "send_card" => "card sent"}
   end
 
   test "a no-gard run sees only no-gard tools", %{tenant: tenant, agent: agent, gard: gard} do

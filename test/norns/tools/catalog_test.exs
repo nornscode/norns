@@ -31,15 +31,22 @@ defmodule Norns.Tools.CatalogTest do
     tid = tenant_id()
     :ok = WorkerRegistry.register_worker(tid, "plain", self(), [tool_def("plain_tool")])
     :ok = WorkerRegistry.register_worker(tid, "garded", self(), [tool_def("gard_tool")], gard: 7)
+    :ok = WorkerRegistry.register_worker(tid, "other", self(), [tool_def("other_tool")], gard: 8)
 
+    # A no-gard run reaches no gard's tools.
     assert "plain_tool" in names(Catalog.for_tenant(tid))
     refute "gard_tool" in names(Catalog.for_tenant(tid))
 
-    assert "gard_tool" in names(Catalog.for_tenant(tid, gard: 7))
-    refute "plain_tool" in names(Catalog.for_tenant(tid, gard: 7))
+    # A gard-bound run reaches its gard's tools and the no-gard workers'
+    # (the tenant-wide services), never another gard's.
+    in_gard = Catalog.for_tenant(tid, gard: 7)
+    assert %{gard: 7} = Enum.find(in_gard, &(&1.name == "gard_tool"))
+    assert %{gard: nil} = Enum.find(in_gard, &(&1.name == "plain_tool"))
+    refute "other_tool" in names(in_gard)
 
     WorkerRegistry.unregister_worker(tid, "plain")
     WorkerRegistry.unregister_worker(tid, "garded")
+    WorkerRegistry.unregister_worker(tid, "other")
   end
 
   test "the policy filters the agent's own and the worker's tools, never the built-ins" do

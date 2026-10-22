@@ -10,14 +10,21 @@ defmodule Norns.Tools.Tool do
   """
 
   @enforce_keys [:name, :description, :input_schema]
-  defstruct [:name, :description, :input_schema, source: :local, side_effect?: false]
+  defstruct [:name, :description, :input_schema, source: :local, side_effect?: false, gard: nil]
 
+  @typedoc """
+  `gard` is where a worker tool is dispatched: the gard whose worker serves
+  it, or nil for a tool served by a no-gard worker. A gard-bound run is
+  offered both kinds, and the tag is what keeps each call on the worker that
+  advertised it.
+  """
   @type t :: %__MODULE__{
           name: String.t(),
           description: String.t(),
           input_schema: map(),
           source: :local | :builtin | {:remote, term()},
-          side_effect?: boolean()
+          side_effect?: boolean(),
+          gard: term() | nil
         }
 
   @doc """
