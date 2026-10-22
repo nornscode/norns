@@ -1,5 +1,5 @@
 # Build stage
-FROM elixir:1.18-otp-27-alpine AS build
+FROM hexpm/elixir:1.18.5-erlang-27.3.4.19-alpine-3.24.3 AS build
 
 RUN apk add --no-cache git build-base
 
@@ -28,7 +28,7 @@ RUN mix assets.deploy
 RUN mix release
 
 # Runtime stage
-FROM elixir:1.18-otp-27-alpine AS runtime
+FROM hexpm/elixir:1.18.5-erlang-27.3.4.19-alpine-3.24.3 AS runtime
 
 RUN apk add --no-cache libstdc++ ncurses-libs postgresql-client
 
