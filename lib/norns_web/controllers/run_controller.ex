@@ -4,11 +4,32 @@ defmodule NornsWeb.RunController do
   alias Norns.Runs
   alias Norns.Agents.Registry
 
+  @statuses ["pending", "running", "waiting", "completed", "failed"]
+
   def index(conn, params) do
     tenant = conn.assigns.current_tenant
     limit = params["limit"] && String.to_integer(params["limit"]) || 50
-    runs = Runs.list_runs_for_tenant(tenant.id, limit: limit)
-    json(conn, %{data: Enum.map(runs, &NornsWeb.JSON.run/1)})
+
+    with {:ok, status} <- parse_status(params["status"]),
+         {:ok, agent_id} <- parse_agent_id(params["agent_id"]) do
+      runs = Runs.list_runs_for_tenant(tenant.id, limit: limit, status: status, agent_id: agent_id)
+      json(conn, %{data: Enum.map(runs, &NornsWeb.JSON.run/1)})
+    else
+      {:error, message} -> conn |> put_status(422) |> json(%{error: message})
+    end
+  end
+
+  defp parse_status(nil), do: {:ok, nil}
+  defp parse_status(status) when status in @statuses, do: {:ok, status}
+  defp parse_status(_), do: {:error, "status must be one of: #{Enum.join(@statuses, ", ")}"}
+
+  defp parse_agent_id(nil), do: {:ok, nil}
+
+  defp parse_agent_id(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {parsed, ""} -> {:ok, parsed}
+      _ -> {:error, "agent_id must be an integer"}
+    end
   end
 
   def show(conn, %{"id" => id}) do
