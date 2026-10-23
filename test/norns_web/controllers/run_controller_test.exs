@@ -171,6 +171,35 @@ defmodule NornsWeb.RunControllerTest do
       assert %{"data" => runs} = json_response(conn, 200)
       assert length(runs) == 3
     end
+
+    test "filters by status and agent in the query, not the page", %{conn: conn, tenant: tenant, agent: agent} do
+      other_agent = create_agent(tenant)
+
+      {:ok, parked} = Norns.Runs.create_run(%{agent_id: agent.id, tenant_id: tenant.id, trigger_type: "message", input: %{}, status: "waiting"})
+      {:ok, other_parked} = Norns.Runs.create_run(%{agent_id: other_agent.id, tenant_id: tenant.id, trigger_type: "message", input: %{}, status: "waiting"})
+
+      for _ <- 1..3 do
+        {:ok, _} = Norns.Runs.create_run(%{agent_id: agent.id, tenant_id: tenant.id, trigger_type: "message", input: %{}, status: "completed"})
+      end
+
+      # The waiting runs are the oldest, so a limit this small would never
+      # reach them if the filter applied to the page.
+      assert %{"data" => runs} = json_response(get(conn, "/api/v1/runs?status=waiting&limit=2"), 200)
+      assert Enum.map(runs, & &1["id"]) |> Enum.sort() == Enum.sort([parked.id, other_parked.id])
+
+      assert %{"data" => [%{"id" => id}]} = json_response(get(conn, "/api/v1/runs?status=waiting&agent_id=#{agent.id}"), 200)
+      assert id == parked.id
+
+      assert %{"data" => runs} = json_response(get(conn, "/api/v1/runs?agent_id=#{other_agent.id}"), 200)
+      assert length(runs) == 1
+    end
+
+    test "rejects an unknown status or a non-integer agent_id", %{conn: conn} do
+      assert %{"error" => error} = json_response(get(conn, "/api/v1/runs?status=parked"), 422)
+      assert error =~ "waiting"
+
+      assert %{"error" => "agent_id must be an integer"} = json_response(get(conn, "/api/v1/runs?agent_id=bot"), 422)
+    end
   end
 
   describe "POST /api/v1/runs/:id/retry" do

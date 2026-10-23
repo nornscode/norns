@@ -41,15 +41,27 @@ defmodule Norns.Runs do
     |> Repo.all()
   end
 
+  @doc """
+  The tenant's runs, newest first.
+
+  Options: `:limit` (default 50), `:status` and `:agent_id`, which narrow
+  the query itself. A client looking for the runs parked on `ask_human`
+  asks for `status: "waiting"` rather than scanning the newest N by count.
+  """
   def list_runs_for_tenant(tenant_id, opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)
 
     Run
     |> where([r], r.tenant_id == ^tenant_id)
+    |> maybe_filter(:status, Keyword.get(opts, :status))
+    |> maybe_filter(:agent_id, Keyword.get(opts, :agent_id))
     |> order_by([r], desc: r.inserted_at)
     |> limit(^limit)
     |> Repo.all()
   end
+
+  defp maybe_filter(query, _field, nil), do: query
+  defp maybe_filter(query, field, value), do: where(query, [r], field(r, ^field) == ^value)
 
   def create_run(attrs) do
     %Run{}

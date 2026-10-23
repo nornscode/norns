@@ -291,6 +291,10 @@ paths:
     get:
       operationId: listRuns
       summary: List runs across all agents
+      description: >-
+        Newest first. `status` and `agent_id` narrow the query itself, so a
+        client looking for runs parked on `ask_human` asks for
+        `status=waiting` rather than scanning the newest N.
       tags: [Runs]
       parameters:
         - name: limit
@@ -299,6 +303,17 @@ paths:
           schema:
             type: integer
             default: 50
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending, running, waiting, completed, failed]
+        - name: agent_id
+          in: query
+          required: false
+          schema:
+            type: integer
       responses:
         "200":
           description: List of runs
@@ -311,6 +326,8 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/Run"
+        "422":
+          description: Unknown status, or a non-integer agent_id
 
   /runs/{id}:
     get:
