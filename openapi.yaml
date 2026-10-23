@@ -766,6 +766,88 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api_keys:
+    get:
+      operationId: listApiKeys
+      summary: List scoped keys
+      description: >-
+        Keys issued with a scope, without their tokens. The tenant's own
+        keys are not listed here. See docs/gards.md § Scoped Worker Keys.
+      tags: [Workers]
+      responses:
+        "200":
+          description: Scoped keys for this tenant
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ApiKey"
+    post:
+      operationId: createApiKey
+      summary: Issue a key scoped to a gard's worker
+      description: >-
+        The response carries the `token` (`nrnw_...`) — this is the only time
+        it is shown. The key can open the worker socket, join with
+        capabilities no wider than its scope, claim only its gard (claim
+        token still required), serve tasks and deliver results. Every REST
+        route answers 403 to it, this one included. Destroying the gard
+        revokes it. Only a tenant key may call this.
+      tags: [Workers]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, scope]
+              properties:
+                name:
+                  type: string
+                  description: Unique within the tenant; used to revoke.
+                scope:
+                  $ref: "#/components/schemas/ApiKeyScope"
+      responses:
+        "201":
+          description: Created, with the one-time token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    allOf:
+                      - $ref: "#/components/schemas/ApiKey"
+                      - type: object
+                        properties:
+                          token:
+                            type: string
+        "422":
+          description: Validation error
+
+  /api_keys/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema:
+          type: string
+    delete:
+      operationId: revokeApiKey
+      summary: Revoke a scoped key
+      description: >-
+        A worker channel joined on the key is told (`key_revoked`) and
+        closed; a socket opened on it can no longer join.
+      tags: [Workers]
+      responses:
+        "204":
+          description: Revoked
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1074,5 +1156,35 @@ components:
           type: string
           format: date-time
         updated_at:
+          type: string
+          format: date-time
+
+    ApiKeyScope:
+      type: object
+      description: What a scoped key is for. The one kind today is a gard's worker.
+      required: [kind, gard_id, capabilities]
+      properties:
+        kind:
+          type: string
+          enum: [worker]
+        gard_id:
+          type: integer
+        capabilities:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [llm, tools]
+          description: The most a worker joining on this key may declare.
+
+    ApiKey:
+      type: object
+      description: A scoped key, as listed. The token is returned only on create.
+      properties:
+        name:
+          type: string
+        scope:
+          $ref: "#/components/schemas/ApiKeyScope"
+        inserted_at:
           type: string
           format: date-time
