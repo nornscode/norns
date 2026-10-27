@@ -27,6 +27,7 @@ defmodule NornsWeb.Router do
     live "/workers", WorkersLive
     live "/gards", GardsLive
     live "/telemetry", TelemetryLive
+    post "/sign-out", SignOutController, :create
   end
 
   pipeline :api_public do
