@@ -1,8 +1,29 @@
 # Decision Log
 
-Last updated: 2026-10-14
+Last updated: 2026-11-06
 
 ## Product Decisions
+
+### Coding agents are not Norns runs (decided 2026-10-25)
+
+Norns is for the agent that is always on and waits for days: Fulla. A
+coding agent is a process the user talks to the whole time, and its
+durability is the disk, git and `claude --resume`, not replay. So the
+"close the lid and it keeps going" setup is Claude Code in tmux on an
+always-on Linux box (`nornscode/egdir`), with Fulla reaching it through
+her `fulla-host` worker and hearing from it through Claude Code's hooks.
+Norns's whole role there is running Fulla; no gard worker, observed-run
+kind, events ingress or Norns-owned coding loop is to be added for it.
+Rejected: the journal thesis in `plan-journal-harness.md` (the agent as a
+durable, forkable log advanced by disposable workers), because owning the
+loop means a worse editor than Claude Code, fork and step replay were the
+only things it bought, and the user's prior was that neither would be
+used; competing with or depending on Herdr and the other multiplexers,
+since none of them is awake when the user is not and that gap, the
+manager above the agents, is Fulla's. HumanLayer's pivot from an
+approvals SDK to a coding-agent workspace is the market saying the
+manager does not sell alone; fine for a tool the user uses rather than
+sells.
 
 ### Slowing down (decided 2026-10-14)
 
