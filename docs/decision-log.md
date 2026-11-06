@@ -384,6 +384,7 @@ worker is the reference core tests against, and it is test support.
 - Fired by a minutely Oban job (`TriggerScheduler` via the Cron plugin). Dedupe is an atomic `last_fired_at` claim: at most one firing per trigger per matching minute, however many schedulers observe it.
 - Runs started by a trigger carry `trigger_type: "schedule"`. Cron expressions validated with `Oban.Cron.Expression` at write time.
 - Default is task mode (fresh conversation per firing); setting `conversation_key` opts into shared history across firings.
+- A firing never answers `ask_human` (decided 2026-11-06). A trigger that shares a conversation with a chat used to land as the answer to whatever question was open there: Fulla's check-in closed two parked runs with the text "[scheduled] check-in". A `send_message` with `trigger_type: "schedule"` to a parked process is now refused as busy, like a sub-agent launch, and the firing is skipped as it already is when the conversation is working. Skipped rather than queued: a question can stay open for days, and a backlog of timers delivered after the answer is worse than the ones missed. The cost is that an unanswered question silences that conversation's triggers until someone replies.
 
 ### Gards Phase 1
 - `Norns.Gards` — gard registry with server-generated 256-bit claim tokens, atomic claim (one winner among simultaneous claimants), idempotent disconnect marking, soft-delete destroy with active-run guard and worker kick.
