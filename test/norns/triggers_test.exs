@@ -2,6 +2,7 @@ defmodule Norns.TriggersTest do
   use Norns.DataCase, async: false
 
   alias Norns.{Runs, Triggers}
+  alias Norns.Agents.Registry
   alias Norns.TestWorker.LLM
 
   setup do
@@ -127,6 +128,44 @@ defmodule Norns.TriggersTest do
       await_run_completion(agent.id)
 
       assert length(Runs.list_runs(agent.id)) == 2
+    end
+
+    test "a firing does not answer a question open in its conversation", %{tenant: tenant, agent: agent} do
+      LLM.set_responses([
+        %{
+          content: [
+            %{"type" => "tool_use", "id" => "call_ask", "name" => "ask_human", "input" => %{"question" => "Book the 7pm show?"}}
+          ],
+          stop_reason: "tool_use"
+        },
+        %{content: [%{"type" => "text", "text" => "Booked."}], stop_reason: "end_turn"}
+      ])
+
+      {:ok, trigger} =
+        Triggers.create_trigger(trigger_attrs(tenant, agent, %{conversation_key: "chat", message: "check in"}))
+
+      Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{agent.id}")
+      {:ok, run_id} = Registry.send_message(tenant.id, agent.id, "Buy me tickets", conversation_key: "chat")
+      assert_receive {:waiting_for_user, _}, 5000
+
+      # Skipped, as when the conversation is busy working. The question stays open.
+      assert {0, 1} = Triggers.fire_due(minute())
+      assert {:error, :busy} = Triggers.fire(trigger)
+      assert %{"question" => "Book the 7pm show?"} = Runs.pending_question(Runs.get_run!(run_id))
+      assert length(Runs.list_runs(agent.id)) == 1
+
+      # The human's reply is still the answer.
+      assert {:ok, ^run_id} = Registry.send_message(tenant.id, agent.id, "yes", conversation_key: "chat")
+      assert_receive {:completed, _}, 5000
+      # Let the process finish the run before the test's connection goes.
+      {:ok, pid} = Registry.lookup(tenant.id, agent.id, "chat")
+      assert %{status: :idle} = Norns.Agents.Process.get_state(pid)
+
+      answer =
+        Runs.list_events(run_id)
+        |> Enum.find(&(&1.event_type == "tool_result" and &1.payload["name"] == "ask_human"))
+
+      assert answer.payload["content"] == "yes"
     end
 
     test "skips disabled and non-matching triggers", %{tenant: tenant, agent: agent} do

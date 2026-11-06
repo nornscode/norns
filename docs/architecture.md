@@ -45,7 +45,9 @@ answer it:
   UI) don't have to track agent state or switch endpoints mid-conversation.
   This is the primary path. A sub-agent launch is never an answer: a message
   carrying lineage to a parked agent is refused as busy (see § "Sub-agent
-  conversations").
+  conversations"). Neither is a cron trigger: one that fires into a parked
+  conversation is refused as busy and that firing is skipped, so the question
+  stays open for the human.
 - **Answer a specific run.** `POST /api/v1/runs/:id/reply` (`{"answer": "..."}`)
   targets one run explicitly — useful for programmatic clients and for agents
   with several conversations parked at once.

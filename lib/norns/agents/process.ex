@@ -185,13 +185,24 @@ defmodule Norns.Agents.Process do
   # otherwise land as the answer to the child's question — and a harness that
   # asks permission through ask_human would read the parent's instructions as
   # the user saying yes. A launch is refused as busy; the question stays open.
+  #
+  # A cron trigger is not a human either. Firing into a conversation it shares
+  # with a chat, its message would close whatever question was open there with
+  # the trigger's own text. It is refused the same way and that firing is
+  # skipped, as it is when the conversation is busy working.
   def handle_call({:send_message, content, opts}, _from, %{status: :waiting, pending_human: pending} = state)
       when not is_nil(pending) do
-    if launch?(opts) do
-      Logger.warning("Agent #{state.agent_id} refused a sub-agent launch while waiting on a human")
-      {:reply, {:error, :busy}, state}
-    else
-      deliver_human_answer(state, content, {:ok, state.run.id})
+    cond do
+      launch?(opts) ->
+        Logger.warning("Agent #{state.agent_id} refused a sub-agent launch while waiting on a human")
+        {:reply, {:error, :busy}, state}
+
+      scheduled?(opts) ->
+        Logger.warning("Agent #{state.agent_id} refused a scheduled message while waiting on a human")
+        {:reply, {:error, :busy}, state}
+
+      true ->
+        deliver_human_answer(state, content, {:ok, state.run.id})
     end
   end
 
@@ -254,6 +265,9 @@ defmodule Norns.Agents.Process do
   # Lineage is only ever set by launch_agent; depth covers a launch whose
   # parent run id was somehow nil.
   defp launch?(opts), do: not is_nil(Keyword.get(opts, :parent_run_id)) or Keyword.get(opts, :depth, 0) > 0
+
+  # Only `Norns.Triggers.fire/1` sends this; no API caller can set it.
+  defp scheduled?(opts), do: Keyword.get(opts, :trigger_type) == "schedule"
 
   # Resolve the parked ask_human call with the human's answer and resume.
   # Shared by the dedicated reply call and by a plain message arriving while
