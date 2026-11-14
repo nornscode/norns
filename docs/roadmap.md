@@ -5,13 +5,11 @@
 `decision-log.md` § Slowing down)
 
 > **Paused 2026-10-14.** Everything below the shipped items is on hold:
-> D0–D5, chains (step 8), P2a, tenant self-serve, E1–E4. They serve an
-> adopter who is not there yet, and the decision log says why and what
-> would resume them. The runtime keeps running and bugs that bite it still
-> get fixed; the filter for new work is "does Mimir or sleipnir need it?",
-> not "does this advance the platform". Steps 1–7 are shipped and the
+> D0–D5, chains (step 8), P2a, tenant self-serve, E1–E4. The runtime
+> keeps running and bugs that bite it still get fixed; the filter for new
+> work is "does Mimir or sleipnir need it?". Steps 1–7 are shipped and the
 > sequence below is kept as the plan to pick back up, not the plan in
-> progress.
+> progress. See `decision-log.md` § Slowing down.
 
 Sequencing for the next phase of work. For what's already built and why, see
 `decision-log.md`. For the product direction this sequence serves, see
@@ -153,11 +151,10 @@ secrets + workload shape), gard optional.
 
 Shape: thin stateless Go CLI, docker driver, Docker restart policy as the
 supervisor. Secrets from `--env-file`, baked into container env, never sent
-to Norns. **Proprietary** (decided 2026-08-14): volund is the platform's
-killer feature — private repo, closed at every phase. The self-host path
-stays open and documented (gard API + templates' Dockerfile +
-`docker run --restart unless-stopped`); what volund sells is the
-operational layer on top.
+to Norns. **Proprietary** (decided 2026-08-14): private repo, closed at every
+phase. The self-host path stays open and documented (gard API +
+templates' Dockerfile + `docker run --restart unless-stopped`); volund is
+the operational layer on top.
 
 - **P0 (MVP):** `up`/`down`/`list`/`logs`/`restart`; first real workload is
   the `slack-bot` scaffold run as a supervised connector.
