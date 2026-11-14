@@ -1,59 +1,24 @@
 # Decision Log
 
-Last updated: 2026-10-14
+Last updated: 2026-11-14
 
 ## Product Decisions
 
 ### Slowing down (decided 2026-10-14)
 
-Active development on Norns is paused. Not abandoned, not announced, and
-nothing is being deleted or turned off — the hosted instance keeps running,
-Mimir and sleipnir keep using it, and bugs that bite a running system still
-get fixed. What stops is building against an adopter who is not there.
+Active development on the roadmap is paused. The hosted instance keeps
+running, Mimir and sleipnir keep using it, and bugs in a running system
+still get fixed. New work is filtered by one question: does Mimir or
+sleipnir need it?
 
-**The reasoning.** Norns is a platform in search of a problem. Most people
-building agents bring their own database and model transcripts, tool results
-and context with ordinary tables; persistence is not their hard part. The
-minority who do want durability reach for Temporal, where an agent loop on
-top of durable execution is a couple hundred lines. Every step of that funnel
-leaks — need durability at all, then want a platform rather than three tables,
-then want one that is not Temporal, then accept a solo-maintained Elixir one
-— and the product is the same multiplied four times. The model vendors also
-keep absorbing this layer: server-side tool loops, hosted sessions, managed
-agents.
-
-The Elixir/Python split is real for generating buzz — no community owns a
-thing whose surface is in another language — but it is not the cause.
-Temporal is Go and nearly nobody who uses it writes Go. Implementation
-language becomes a reason not to adopt only when there is no strong reason to
-adopt.
-
-**What is probably true.** We may simply be early. Agents that run for days,
-coordinate in trees, and need crash recovery mid-tool-call likely do become a
-real problem. But early is indistinguishable from wrong unless you can afford
-to wait, and we can. What you do while waiting is keep the thing cheap and
-alive, not spec D0 through D5.
-
-**The test for resuming.** Build agents the way we would build them anyway,
-picking the best tool each time with no loyalty to Norns. If we keep reaching
-for it, it is earning its keep and the problem it solves will be discovered by
-living it. If we keep reaching past it, that is the answer, arrived at without
-having to decide it in the abstract. The failure mode to avoid is bending an
-agent to fit the platform in order to justify the platform.
-
-Someone external turning up and wanting this is the other resume condition.
-
-**What this changes in the roadmap.** D0–D5, chains, P2a, tenant self-serve
-and E1–E4 are parked — all of them serve an adopter who is not there.
+Parked: D0–D5, chains, P2a, tenant self-serve, E1–E4.
 `plan-differentiation.md` carries a parked header; its two durable findings
-are the gard-is-a-runner split and the private-network exposure. Features are
-now filtered by one question: does Mimir or sleipnir need it?
+are the gard-is-a-runner split and the private-network exposure. A docs
+site and a community channel are also deferred; GitHub Discussions is the
+contact point.
 
-Also decided and not built, for the same reason: a docs site, and a Slack or
-Discord community. An empty community channel is worse than none — it
-advertises that nobody is home, where no channel reads as early. If a tripwire
-is wanted, GitHub Discussions costs nothing and notifies us when a real person
-arrives.
+Resumes when building agents keeps leading back to the runtime, or when an
+external user needs something that is parked.
 
 
 ### Pure orchestrator — no execution
@@ -108,9 +73,9 @@ sessions you look at), with the loop in Norns: pi's experience with pi's
 loop replaced. Two processes to install and start was the usability gap.
 Language: Python with Textual, because the worker and the SDK already
 exist in Python, the worker loop and the TUI share one asyncio process,
-and we have no user of the tool yet, so a week of use will change the
-design more than the language will; `uv tool install` is close enough to
-a binary for the developers it is for. Rust (single static binary,
+and a week of use will change the design more than the language will;
+`uv tool install` is close enough to a binary for the developers it is
+for. Rust (single static binary,
 in-process sandboxing, Codex's path) is the decision to revisit after H4,
 and only as the whole shape: a Rust sleipnir absorbs the worker, and the
 Python one becomes the reference and library path. Rejected: growing
@@ -128,19 +93,19 @@ alone (a fourth language to draw text).
 - Connector workers (Slack, Discord — anything needing credentials or a persistent connection) stay outside core. The line: if it speaks HTTP to us, core can receive it; if we must hold credentials or a connection, it's a connector.
 
 ### The fork: own the provisioner (decided 2026-08-08)
-- We sell compute (managed gards), not just durability semantics. Fabricated workers need somewhere durable to run; that somewhere is ours to operate.
+- The managed product includes compute (managed gards), not only the runtime. Fabricated workers need somewhere durable to run.
 - The orchestrator stays pure — the provisioner is a separate product, per `gards.md`.
 - Durable MCP → custom workflows is parked, not dead.
 
 ### The cloud boundary (decided 2026-08-10)
 - The builder is an agent — it makes LLM calls and runs a loop — which is exactly what the orchestrator must never do. It cannot live in core without breaking purity. Structurally it is a client of the API: read the tool catalog, write defs, send test messages, read events.
 - Open-core split: **core (OSS)** is the runtime plus the primitives — tool selection, triggers, webhooks, tool catalog, gard registry. Each is independently useful; none is builder-only. **Cloud** is the builder (run as an agent on Norns with a cloud-operated worker), the provisioner, managed gards, and managed connectors.
-- Cloud sells "you don't run anything." Sharpened 2026-08-14: core ships *complete primitives* plus a documented self-host path (templates ship a Dockerfile; `docker run --restart unless-stopped --env-file .env` is the documented recipe) — no core capability is withheld. Volund, the operational layer on top of those primitives, is a cloud product (see below).
+- Cloud is the hosted form: nothing to run yourself. Sharpened 2026-08-14: core ships *complete primitives* plus a documented self-host path (templates ship a Dockerfile; `docker run --restart unless-stopped --env-file .env` is the documented recipe) — no core capability is withheld. Volund, the operational layer on top of those primitives, is a cloud product (see below).
 - **Managed connectors are the provisioner's first product.** A connector worker needs none of the hard parts of the coding-agent workload — no snapshots, no tunnels (Socket Mode is outbound), no code extraction. It is "run this container with these env vars, restart it if it dies": the provisioner's minimum viable form, answering a pain that exists before any builder does. Coding-agent gards come after. *(Corrected 2026-08-14: connectors run as no-gard workers — see below.)*
 
 ### The provisioner's unit is a deployment (decided 2026-08-14)
 - Earlier framing had connectors as the first *gard* workload. That was wrong: dispatch is gard-strict in both directions, so a gard-bound connector's tools would be invisible to ordinary no-gard runs — the opposite of a tenant-wide capability layer. Connectors are supervised **no-gard** service workers; gards are for workloads needing filesystem affinity (coding agents).
-- The provisioner is named **`volund`** (separate Go repo, **proprietary — decided 2026-08-14**) — Völundr the master smith, anglicized the way *garðr* became *gard*. Volund is the platform's killer feature and showcase, not an OSS component: the *interface* it programs against (gard API, claim tokens, worker registration, workers endpoint) is fully open and documented in `gards.md`, so anyone can build their own provisioner; volund itself — the CLI and drivers — is closed. *(The control plane was originally slated for volund too; relocated to the cloud app 2026-09-03 — see § The control plane is Elixir, in the cloud app.)* The repo starts private (easy to open later, impossible to unpublish), and the CLI and control plane co-evolve without a public-interface stability commitment. It manages **deployments** — name + image + secrets + workload shape — with a gard as an optional per-deployment property, not the unit itself.
+- The provisioner is named **`volund`** (separate Go repo, **proprietary — decided 2026-08-14**) — Völundr the master smith, anglicized the way *garðr* became *gard*. The *interface* it programs against (gard API, claim tokens, worker registration, workers endpoint) is open and documented in `gards.md`, so anyone can build their own provisioner; volund itself — the CLI and drivers — is closed. *(The control plane was originally slated for volund too; relocated to the cloud app 2026-09-03 — see § The control plane is Elixir, in the cloud app.)* It manages **deployments** — name + image + secrets + workload shape — with a gard as an optional per-deployment property, not the unit itself.
 - MVP shape: thin stateless CLI over Docker; `--restart unless-stopped` is the supervisor, no daemon. Secrets read from `--env-file` at `up`, baked into container env; state file remembers the env-file path, never values; nothing secret goes to Norns. Driver interface (`docker` now, `fly`/`firecracker` later) so the managed service is a control plane over the same interface, not a rewrite.
 - Phasing: P0 connectors (`up`/`down`/`list`/`logs`/`restart`), P1 gard workloads (`up --gard`, workspace copy-in, code extraction, port mapping), P2 managed (control plane, prebuilt images, tunnels, snapshots, billing).
 - Prerequisites in existing repos: `GET /api/v1/workers` (expose `WorkerRegistry.connected_workers/1` over REST so `list` can join container state with worker-connected state) and the Python SDK serial-task fix (24/7 connectors are the workload it bites). *Both shipped 2026-08-15 (workers endpoint; SDK 0.3.1).*
@@ -226,7 +191,7 @@ gets `message_cache_miss` back and core resends in full at the same step,
 no retry counted. Core never has to know why a worker forgot.
 
 Rejected: moving the loop into the worker (saves the most bytes, costs the
-thesis — see § Slowing down); and having the registry alone decide when a
+orchestrator/worker split); and having the registry alone decide when a
 delta is safe, since eviction is the worker's business and a miss protocol
 is cheaper than being right about another process's memory.
 
@@ -498,7 +463,7 @@ that.
 ### A content-blind core
 - Core already routes on the envelope and stores content without reading it
   (`Norns.Runtime.Content`, the opaque-content suite). What a hosted core
-  that *cannot* read content would take, who would buy it, and what still
+  that *cannot* read content would take, and what still
   touches plaintext (webhook ingress, the dashboard, the def's prompt) is
   in `plan-opaque-core.md` (2026-10-16). Documented, not scheduled: it
   only matters when someone other than the tenant runs core.
