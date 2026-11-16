@@ -37,6 +37,12 @@ defmodule Norns.Agents.Process do
       `"schedule"` (cron trigger).
     * `:gard_id` — bind this run to a gard: all tool dispatch goes only to
       workers in that gard. Per-run, not per-process.
+    * `:interject` — when a run is already under way, take the message
+      into it instead of refusing as busy. It is logged at once
+      (`user_message`) and joins the history before the run's next LLM
+      call; if the run ends first, it starts the next run. Ignored for a
+      launch or a scheduled message, and while parked on `ask_human`,
+      where a message is the answer.
 
   `content` is whatever the caller's client and worker agree it is — a
   string, an opaque block, or a list of blocks when a turn carries a
@@ -47,7 +53,7 @@ defmodule Norns.Agents.Process do
   def send_message(pid, content, opts \\ []) when not is_nil(content) do
     lineage =
       opts
-      |> Keyword.take([:context, :parent_run_id, :depth, :trigger_type, :gard_id])
+      |> Keyword.take([:context, :parent_run_id, :depth, :trigger_type, :gard_id, :interject])
       |> Keyword.put_new(:depth, 0)
 
     GenServer.call(pid, {:send_message, content, lineage}, 10_000)
@@ -135,7 +141,10 @@ defmodule Norns.Agents.Process do
       # task in flight, if any.
       summary: nil,
       last_input_tokens: nil,
-      pending_compaction: nil
+      pending_compaction: nil,
+      # Messages taken in while the run worked (`:interject`), oldest first,
+      # waiting for the next LLM call or the next run.
+      interjections: []
     }
 
     state = load_conversation_state(state)
@@ -149,34 +158,8 @@ defmodule Norns.Agents.Process do
 
   @impl true
   def handle_call({:send_message, content, opts}, _from, %{status: :idle} = state) do
-    context = Keyword.get(opts, :context)
-    gard_id = Keyword.get(opts, :gard_id)
-    state = load_conversation_state(state)
-    messages = messages_for_new_run(state, content, context)
-
-    input = %{"user_message" => content}
-    input = if context, do: Map.put(input, "context", context), else: input
-
-    {:ok, run} =
-      Runs.create_run(%{
-        agent_id: state.agent_id,
-        tenant_id: state.tenant_id,
-        conversation_id: state.conversation && state.conversation.id,
-        trigger_type: Keyword.get(opts, :trigger_type, "message"),
-        input: input,
-        status: "pending",
-        parent_run_id: Keyword.get(opts, :parent_run_id),
-        depth: Keyword.get(opts, :depth, 0),
-        gard_id: gard_id
-      })
-
-    append(run, Events.run_started())
-    {:ok, run} = Runs.update_run(run, %{status: "running"})
-
-    state = %{state | run: run, messages: messages, step: 0, retry_count: 0, status: :running, gard_id: gard_id, resume_action: nil}
-
-    broadcast(state, :agent_started, %{run_id: run.id})
-    {:reply, {:ok, run.id}, state, {:continue, :llm_loop}}
+    state = start_run(state, content, opts)
+    {:reply, {:ok, state.run.id}, state, {:continue, :llm_loop}}
   end
 
   # A message arriving while parked on ask_human is the answer. Conversational
@@ -206,6 +189,23 @@ defmodule Norns.Agents.Process do
 
       true ->
         deliver_human_answer(state, content, {:ok, state.run.id})
+    end
+  end
+
+  # A person speaking while the run works. Refusing as busy would make the
+  # client hold the message until the run ends, and the person wait on a
+  # slow turn to say something it could have used. Logged now, so a resume
+  # finds it; it joins the history at the next LLM call (`dispatch_llm`),
+  # where the last step's tool results are complete, or starts the next run
+  # if this one ends first (`finish_run`). The reply names the run under way.
+  def handle_call({:send_message, content, opts}, _from, %{run: %{} = run} = state) do
+    if Keyword.get(opts, :interject, false) and not launch?(opts) and not scheduled?(opts) do
+      append(run, Events.user_message(%{"content" => content, "step" => state.step}))
+      broadcast(state, :user_message, %{run_id: run.id, content: content})
+      {:reply, {:ok, run.id}, %{state | interjections: state.interjections ++ [content]}}
+    else
+      Logger.warning("Agent #{state.agent_id} received message while #{state.status}, ignoring")
+      {:reply, {:error, :busy}, state}
     end
   end
 
@@ -241,7 +241,10 @@ defmodule Norns.Agents.Process do
         pending_human: nil,
         pending_wait: nil,
         pending_subagents: %{},
-        pending_compaction: nil
+        pending_compaction: nil,
+        # A cancel is the person's word on the run; what they said into it
+        # goes with it rather than starting another.
+        interjections: []
     }
 
     # A tool call still queued for a worker that is not here would otherwise
@@ -1142,10 +1145,28 @@ defmodule Norns.Agents.Process do
     {:noreply, state}
   end
 
+  # The run ended with words taken in that never reached the model: they
+  # start the next run, on the gard the last one had. The first is its
+  # message and the rest follow it, each a turn of its own as typed.
+  def handle_info(:start_interjected, %{status: :idle, interjections: [first | rest]} = state) do
+    state = start_run(%{state | interjections: []}, first, trigger_type: "message", gard_id: state.gard_id)
+    Enum.each(rest, &append(state.run, Events.user_message(%{"content" => &1, "step" => 0})))
+    {:noreply, %{state | interjections: rest}, {:continue, :llm_loop}}
+  end
+
+  # Another message started a run first. The words are this run's now, so
+  # they go in its log too, where a resume will look for them.
+  def handle_info(:start_interjected, %{run: %{} = run, interjections: [_ | _]} = state) do
+    Enum.each(state.interjections, &append(run, Events.user_message(%{"content" => &1, "step" => state.step})))
+    {:noreply, state}
+  end
+
+  def handle_info(:start_interjected, state), do: {:noreply, state}
+
   # -- Internal --
 
   defp dispatch_llm(state) do
-    state = %{state | step: state.step + 1}
+    state = state |> fold_interjections() |> Map.update!(:step, &(&1 + 1))
 
     # Resolved at dispatch time, through the same catalog the API and the
     # tools page read, so what an agent is offered and what we say it is
@@ -1493,7 +1514,53 @@ defmodule Norns.Agents.Process do
   end
 
   defp finish_run(state) do
+    # What was said into the run and never reached the model is the next
+    # run's message. Sent to ourselves because the many ways a run ends
+    # return state, not a continue; a message that slips in first starts its
+    # own run, and these join it instead (`:start_interjected`).
+    if state.interjections != [], do: send(self(), :start_interjected)
     %{state | status: :idle, retry_count: 0, llm_cache: nil}
+  end
+
+  # Before an LLM call the history ends on a user message or on a complete
+  # set of tool results, so a person's words can follow either. Replay folds
+  # at the same point: the next `llm_request` after a `user_message`.
+  defp fold_interjections(%{interjections: []} = state), do: state
+
+  defp fold_interjections(state) do
+    said = Enum.map(state.interjections, &%{role: "user", content: &1})
+    %{state | messages: state.messages ++ said, interjections: []}
+  end
+
+  defp start_run(state, content, opts) do
+    context = Keyword.get(opts, :context)
+    gard_id = Keyword.get(opts, :gard_id)
+    state = load_conversation_state(state)
+    messages = messages_for_new_run(state, content, context)
+
+    input = %{"user_message" => content}
+    input = if context, do: Map.put(input, "context", context), else: input
+
+    {:ok, run} =
+      Runs.create_run(%{
+        agent_id: state.agent_id,
+        tenant_id: state.tenant_id,
+        conversation_id: state.conversation && state.conversation.id,
+        trigger_type: Keyword.get(opts, :trigger_type, "message"),
+        input: input,
+        status: "pending",
+        parent_run_id: Keyword.get(opts, :parent_run_id),
+        depth: Keyword.get(opts, :depth, 0),
+        gard_id: gard_id
+      })
+
+    append(run, Events.run_started())
+    {:ok, run} = Runs.update_run(run, %{status: "running"})
+
+    state = %{state | run: run, messages: messages, step: 0, retry_count: 0, status: :running, gard_id: gard_id, resume_action: nil}
+
+    broadcast(state, :agent_started, %{run_id: run.id})
+    state
   end
 
   # A run that fails mid-step (cancelled, a tool task timed out) would persist

@@ -37,6 +37,13 @@ Each agent is a GenServer managed by a DynamicSupervisor:
 - `:waiting_timer` — paused on the `wait` builtin until a timer fires
 - `:waiting` — paused on the `ask_human` builtin until a human answers
 
+A message sent while a run is working (not parked) is refused as busy (409),
+unless it carries `"interject": true`. Then it is taken into the run under
+way: logged as a `user_message` event at once, added to the history just
+before the run's next LLM call, or, if the run ends first, sent as the
+message of the next run in that conversation. A cancel drops it with the
+run. A launch or a cron firing is never taken this way.
+
 A run parked in `:waiting` stays parked indefinitely. There are two ways to
 answer it:
 

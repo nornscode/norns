@@ -22,6 +22,7 @@ defmodule Norns.Runtime.EventValidator do
     "retry" => ["error"],
     "waiting_for_user" => ["question"],
     "user_response" => ["content"],
+    "user_message" => ["content"],
     "subagent_launched" => ["context"]
   }
 
@@ -109,6 +110,7 @@ defmodule Norns.Runtime.EventValidator do
       "waiting_for_timer" -> [schema_version_validator(), required_string("tool_call_id"), required_integer("seconds"), required_integer("step")]
       "waiting_for_user" -> [schema_version_validator(), required_content("question"), required_string("tool_call_id"), required_integer("step")]
       "user_response" -> [schema_version_validator(), required_content("content"), required_string("tool_call_id"), required_integer("step")]
+      "user_message" -> [schema_version_validator(), required_content("content"), required_integer("step")]
       "retry" -> [schema_version_validator(), required_content("error"), required_integer("attempt"), required_integer("delay_ms"), required_integer("step"), required_string("error_class"), required_string("error_code"), required_string("retry_decision")]
       legacy when legacy in ["agent_started", "agent_completed", "agent_error", "checkpoint"] -> [schema_version_validator()]
       _ -> [schema_version_validator()]

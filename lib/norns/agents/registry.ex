@@ -41,7 +41,7 @@ defmodule Norns.Agents.Registry do
         AgentProcess.send_message(
           pid,
           content,
-          Keyword.take(opts, [:context, :parent_run_id, :depth, :trigger_type, :gard_id])
+          Keyword.take(opts, [:context, :parent_run_id, :depth, :trigger_type, :gard_id, :interject])
         )
 
       {:error, reason} ->

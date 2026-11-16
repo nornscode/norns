@@ -37,7 +37,10 @@ defmodule Norns.Agents.Replay do
     else
       base_state = restore_conversation_for_run(base_state, run)
       {initial_messages, initial_summary} = opening_history(events, base_state, run)
-      {messages, step, resume_action, summary} = replay_from_events(initial_messages, initial_summary, events)
+
+      {messages, step, resume_action, summary, said} =
+        replay_from_events(initial_messages, initial_summary, events)
+
       {input_tokens, output_tokens} = sum_token_usage(events)
 
       {:ok,
@@ -48,6 +51,7 @@ defmodule Norns.Agents.Replay do
        |> Map.put(:step, step)
        |> Map.put(:status, :running)
        |> Map.put(:resume_action, resume_action)
+       |> Map.put(:interjections, said)
        |> Map.put(:input_tokens, input_tokens)
        |> Map.put(:output_tokens, output_tokens)
        # The gard rides on the run row — a resumed run must keep its
@@ -76,9 +80,14 @@ defmodule Norns.Agents.Replay do
     {initial_messages, initial_summary} =
       opening_history(all_events, %{conversation: nil, messages: [], summary: nil}, run)
 
-    {messages, _step, resume_action, summary} = replay_from_events(initial_messages, initial_summary, events)
+    {messages, _step, resume_action, summary, _said} =
+      replay_from_events(initial_messages, initial_summary, events)
 
-    %{messages: messages, summary: summary, pending_tools?: match?({:resume_tools, _}, resume_action)}
+    %{
+      messages: messages,
+      summary: summary,
+      pending_tools?: match?({:resume_tools, _}, resume_action)
+    }
   end
 
   # What the run started from is what its first LLM request carried. The
@@ -101,7 +110,11 @@ defmodule Norns.Agents.Replay do
     conversation = run.conversation || state.conversation
     messages = if conversation, do: Messages.normalize(conversation.messages), else: []
     summary = if conversation, do: conversation.summary, else: nil
-    state |> Map.put(:conversation, conversation) |> Map.put(:messages, messages) |> Map.put(:summary, summary)
+
+    state
+    |> Map.put(:conversation, conversation)
+    |> Map.put(:messages, messages)
+    |> Map.put(:summary, summary)
   end
 
   defp initial_messages_for_replay(state, run) do
@@ -125,11 +138,20 @@ defmodule Norns.Agents.Replay do
 
     case snapshot do
       %{payload: %{"messages" => messages, "step" => step} = payload} ->
-        post_snapshot = Enum.drop_while(events, fn event -> event.sequence <= snapshot.sequence end)
-        replay_events_onto(Messages.normalize(messages), step, [], payload["summary"] || initial_summary, post_snapshot)
+        post_snapshot =
+          Enum.drop_while(events, fn event -> event.sequence <= snapshot.sequence end)
+
+        replay_events_onto(
+          Messages.normalize(messages),
+          step,
+          [],
+          payload["summary"] || initial_summary,
+          post_snapshot,
+          true
+        )
 
       nil ->
-        replay_events_onto(initial_messages, 0, [], initial_summary, events)
+        replay_events_onto(initial_messages, 0, [], initial_summary, events, false)
     end
   end
 
@@ -141,86 +163,119 @@ defmodule Norns.Agents.Replay do
 
   defp snapshot?(_event), do: false
 
-  defp replay_events_onto(messages, step, pending_tool_calls, summary, events) do
-    {msgs, current_step, pending_calls, summary} =
-      Enum.reduce(events, {messages, step, pending_tool_calls, summary}, fn event,
-                                                                             {msgs, current_step, pending_calls, summary} ->
-        case event.event_type do
-          "llm_response" ->
-            content = event.payload["content"] || ""
-            tool_calls = event.payload["tool_calls"] || []
-
-            assistant_msg =
-              if tool_calls != [] do
-                %{role: "assistant", content: content, tool_calls: tool_calls}
-              else
-                %{role: "assistant", content: content}
-              end
-
-            {msgs ++ [assistant_msg], event.payload["step"] || current_step, tool_calls, summary}
-
-          "tool_result" ->
-            tool_msg =
-              %{
-                role: "tool",
-                tool_call_id: event.payload["tool_call_id"],
-                name: event.payload["name"],
-                content: event.payload["content"]
-              }
-              |> Messages.maybe_put(:kind, event.payload["kind"])
-              |> Messages.maybe_put(:data, event.payload["data"])
-
-            tool_msg =
-              if event.payload["is_error"] do
-                Map.put(tool_msg, :is_error, true)
-              else
-                tool_msg
-              end
-
-            {msgs ++ [tool_msg], current_step,
-             remove_pending_tool_call(pending_calls, event.payload["tool_call_id"]), summary}
-
-          "tool_duplicate" ->
-            {msgs, current_step, remove_pending_tool_call(pending_calls, event.payload["tool_call_id"]), summary}
-
-          "subagent_launched" ->
-            {msgs, current_step, track_subagent_launch(pending_calls, event.payload), summary}
-
-          # The folded prefix is gone; the summary stands in for it.
-          "context_compacted" ->
-            {Enum.drop(msgs, event.payload["dropped"] || 0), current_step, pending_calls, event.payload["summary"]}
-
-          # Both pauses are re-derived from the still-pending tool call that
-          # caused them, so the event itself replays as a no-op.
-          type when type in ["waiting_for_timer", "waiting_for_user"] ->
-            {msgs, current_step, pending_calls, summary}
-
-          type when type in ["checkpoint_saved", "checkpoint"] ->
-            case event.payload do
-              %{"messages" => messages} when is_list(messages) ->
-                {Messages.normalize(messages), event.payload["step"], [], event.payload["summary"] || summary}
-
-              # A marker: the history is what the fold has built so far.
-              _ ->
-                {msgs, event.payload["step"] || current_step, pending_calls, event.payload["summary"] || summary}
-            end
-
-          _ ->
-            {msgs, current_step, pending_calls, summary}
-        end
+  # `said` is what a person said into the run (`user_message`) that has not
+  # reached the history yet. The process folds it in just before an LLM
+  # call, so the fold here is at the `llm_request` that call logged — except
+  # the run's first, whose history (the fold's starting point) already
+  # carries anything said before it. Left over at the end, it is still
+  # waiting, and the resumed process holds it again.
+  defp replay_events_onto(messages, step, pending_tool_calls, summary, events, opened?) do
+    {msgs, current_step, pending_calls, summary, said, _opened?} =
+      Enum.reduce(events, {messages, step, pending_tool_calls, summary, [], opened?}, fn event,
+                                                                                         acc ->
+        replay_event(event, acc)
       end)
 
     resume_action =
       if pending_calls != [], do: {:resume_tools, pending_calls}, else: :llm_loop
 
-    {msgs, current_step, resume_action, summary}
+    {msgs, current_step, resume_action, summary, said}
+  end
+
+  defp replay_event(
+         %{event_type: "user_message"} = event,
+         {msgs, step, calls, summary, said, opened?}
+       ),
+       do: {msgs, step, calls, summary, said ++ [event.payload["content"]], opened?}
+
+  defp replay_event(%{event_type: "llm_request"}, {msgs, step, calls, summary, said, true}),
+    do: {msgs ++ Enum.map(said, &%{role: "user", content: &1}), step, calls, summary, [], true}
+
+  defp replay_event(%{event_type: "llm_request"}, {msgs, step, calls, summary, _said, false}),
+    do: {msgs, step, calls, summary, [], true}
+
+  defp replay_event(event, {msgs, step, calls, summary, said, opened?}) do
+    {msgs, step, calls, summary} = replay_step(event, {msgs, step, calls, summary})
+    {msgs, step, calls, summary, said, opened?}
+  end
+
+  defp replay_step(event, {msgs, current_step, pending_calls, summary}) do
+    case event.event_type do
+      "llm_response" ->
+        content = event.payload["content"] || ""
+        tool_calls = event.payload["tool_calls"] || []
+
+        assistant_msg =
+          if tool_calls != [] do
+            %{role: "assistant", content: content, tool_calls: tool_calls}
+          else
+            %{role: "assistant", content: content}
+          end
+
+        {msgs ++ [assistant_msg], event.payload["step"] || current_step, tool_calls, summary}
+
+      "tool_result" ->
+        tool_msg =
+          %{
+            role: "tool",
+            tool_call_id: event.payload["tool_call_id"],
+            name: event.payload["name"],
+            content: event.payload["content"]
+          }
+          |> Messages.maybe_put(:kind, event.payload["kind"])
+          |> Messages.maybe_put(:data, event.payload["data"])
+
+        tool_msg =
+          if event.payload["is_error"] do
+            Map.put(tool_msg, :is_error, true)
+          else
+            tool_msg
+          end
+
+        {msgs ++ [tool_msg], current_step,
+         remove_pending_tool_call(pending_calls, event.payload["tool_call_id"]), summary}
+
+      "tool_duplicate" ->
+        {msgs, current_step,
+         remove_pending_tool_call(pending_calls, event.payload["tool_call_id"]), summary}
+
+      "subagent_launched" ->
+        {msgs, current_step, track_subagent_launch(pending_calls, event.payload), summary}
+
+      # The folded prefix is gone; the summary stands in for it.
+      "context_compacted" ->
+        {Enum.drop(msgs, event.payload["dropped"] || 0), current_step, pending_calls,
+         event.payload["summary"]}
+
+      # Both pauses are re-derived from the still-pending tool call that
+      # caused them, so the event itself replays as a no-op.
+      type when type in ["waiting_for_timer", "waiting_for_user"] ->
+        {msgs, current_step, pending_calls, summary}
+
+      type when type in ["checkpoint_saved", "checkpoint"] ->
+        case event.payload do
+          %{"messages" => messages} when is_list(messages) ->
+            {Messages.normalize(messages), event.payload["step"], [],
+             event.payload["summary"] || summary}
+
+          # A marker: the history is what the fold has built so far.
+          _ ->
+            {msgs, event.payload["step"] || current_step, pending_calls,
+             event.payload["summary"] || summary}
+        end
+
+      _ ->
+        {msgs, current_step, pending_calls, summary}
+    end
   end
 
   defp sum_token_usage(events) do
     Enum.reduce(events, {0, 0}, fn event, {in_acc, out_acc} ->
       case event do
-        %{event_type: type, payload: %{"usage" => usage}} when type in ["llm_response", "context_compacted"] and is_map(usage) ->
+        %{event_type: type, payload: %{"usage" => usage}}
+        when type in ["llm_response", "context_compacted"] and is_map(usage) ->
           {in_acc + (usage["input_tokens"] || 0), out_acc + (usage["output_tokens"] || 0)}
+
         _ ->
           {in_acc, out_acc}
       end
