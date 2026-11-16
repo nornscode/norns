@@ -226,6 +226,10 @@ defmodule Norns.Agents.Process do
     # `timer_complete` has no clause outside :waiting_timer, so it must go.
     cancel_timer(state.task_timer)
 
+    # Settle before the pending state is cleared: the results already in hand
+    # live there, and calls that did come back must not be recorded as failed.
+    state = settle_open_tool_calls(state, Norns.Runs.Cancel.error().message)
+
     state = %{
       state
       | pending_llm_task: nil,
@@ -862,8 +866,7 @@ defmodule Norns.Agents.Process do
 
       wait_blocks != [] ->
         [wait_block | _] = wait_blocks
-        seconds = get_in(wait_block, ["arguments", "seconds"]) || 0
-        seconds = if is_binary(seconds), do: String.to_integer(seconds), else: seconds
+        seconds = wait_seconds(get_in(wait_block, ["arguments", "seconds"]))
         reason = get_in(wait_block, ["arguments", "reason"]) || "Agent requested a delay"
 
         if log_calls? do
@@ -1083,8 +1086,14 @@ defmodule Norns.Agents.Process do
     {:noreply, state}
   end
 
-  def handle_info(:retry_llm, state) do
+  def handle_info({:retry_llm, run_id}, %{status: :running, run: %{id: run_id}} = state) do
     {:noreply, state, {:continue, :llm_loop}}
+  end
+
+  # The run it was scheduled for was cancelled during the backoff (and maybe
+  # another started since): retrying would resume a finished run.
+  def handle_info({:retry_llm, _run_id}, state) do
+    {:noreply, state}
   end
 
   # Child agent completed — convert to task_result for existing pipeline
@@ -1425,7 +1434,7 @@ defmodule Norns.Agents.Process do
       )
 
       state = %{state | step: state.step - 1, retry_count: retry_count}
-      Process.send_after(self(), :retry_llm, decision.delay_ms)
+      Process.send_after(self(), {:retry_llm, state.run.id}, decision.delay_ms)
       {:noreply, state}
     else
       Logger.error("LLM call failed: #{inspect(reason)}")
@@ -1505,6 +1514,21 @@ defmodule Norns.Agents.Process do
         %{state | messages: state.messages ++ results}
     end
   end
+
+  # The model's argument, not ours: `send_after` and the event's integer
+  # field take only a whole, non-negative count, and anything else crashed
+  # the process.
+  defp wait_seconds(seconds) when is_integer(seconds), do: max(seconds, 0)
+  defp wait_seconds(seconds) when is_float(seconds), do: max(ceil(seconds), 0)
+
+  defp wait_seconds(seconds) when is_binary(seconds) do
+    case Integer.parse(String.trim(seconds)) do
+      {n, _rest} -> max(n, 0)
+      :error -> 0
+    end
+  end
+
+  defp wait_seconds(_seconds), do: 0
 
   # The last assistant turn's tool calls that no tool message after it answers.
   defp open_tool_calls(messages) do

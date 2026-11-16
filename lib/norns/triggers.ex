@@ -36,12 +36,14 @@ defmodule Norns.Triggers do
   def create_trigger(attrs) do
     %Trigger{}
     |> Trigger.changeset(attrs)
+    |> Norns.Agents.validate_agent_in_tenant()
     |> Repo.insert()
   end
 
   def update_trigger(%Trigger{} = trigger, attrs) do
     trigger
     |> Trigger.changeset(attrs)
+    |> Norns.Agents.validate_agent_in_tenant()
     |> Repo.update()
   end
 

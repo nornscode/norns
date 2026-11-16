@@ -14,6 +14,23 @@ defmodule Norns.Agents do
   """
   def get_agent!(id), do: Repo.get!(Agent, id)
 
+  @doc """
+  Changeset check for anything that points at an agent (hooks, triggers):
+  the agent must belong to the changeset's tenant. The foreign key alone
+  only proves the agent exists — in any tenant.
+  """
+  def validate_agent_in_tenant(%Ecto.Changeset{} = changeset) do
+    tenant_id = Ecto.Changeset.get_field(changeset, :tenant_id)
+    agent_id = Ecto.Changeset.get_change(changeset, :agent_id)
+
+    if is_nil(agent_id) or is_nil(tenant_id) or
+         Repo.exists?(from a in Agent, where: a.id == ^agent_id and a.tenant_id == ^tenant_id) do
+      changeset
+    else
+      Ecto.Changeset.add_error(changeset, :agent_id, "does not exist")
+    end
+  end
+
   def list_agents(tenant_id) do
     Agent
     |> where([a], a.tenant_id == ^tenant_id and is_nil(a.archived_at))

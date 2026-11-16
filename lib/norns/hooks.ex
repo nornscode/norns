@@ -27,12 +27,14 @@ defmodule Norns.Hooks do
   def create_hook(attrs) do
     %Hook{}
     |> Hook.changeset(attrs)
+    |> Norns.Agents.validate_agent_in_tenant()
     |> Repo.insert()
   end
 
   def update_hook(%Hook{} = hook, attrs) do
     hook
     |> Hook.changeset(attrs)
+    |> Norns.Agents.validate_agent_in_tenant()
     |> Repo.update()
   end
 

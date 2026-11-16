@@ -196,6 +196,47 @@ defmodule Norns.Agents.ProcessTest do
     end
   end
 
+  describe "LLM retry" do
+    test "retry_last_step retries a transient LLM failure and completes", %{tenant: tenant} do
+      agent = create_agent(tenant, %{model_config: %{"on_failure" => "retry_last_step"}})
+
+      LLM.set_responses([
+        {:error, "worker disconnected"},
+        %{content: [%{"type" => "text", "text" => "Recovered."}], stop_reason: "end_turn"}
+      ])
+
+      {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
+      subscribe_and_send(pid, agent.id, "Hi")
+
+      assert %{output: "Recovered."} = wait_for(:completed, 5000)
+      run = hd(Runs.list_runs(agent.id))
+      assert run.status == "completed"
+      assert Enum.any?(Runs.list_events(run.id), &(&1.event_type == "retry"))
+    end
+  end
+
+  describe "wait" do
+    for seconds <- [0.2, "1s", -5, "soon", nil] do
+      test "survives a malformed seconds argument: #{inspect(seconds)}", %{tenant: tenant, agent: agent} do
+        LLM.set_responses([
+          %{
+            content: [%{"type" => "tool_use", "id" => "call_wait", "name" => "wait", "input" => %{"seconds" => unquote(seconds)}}],
+            stop_reason: "tool_use"
+          },
+          %{content: [%{"type" => "text", "text" => "Woke."}], stop_reason: "end_turn"}
+        ])
+
+        {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
+        Elixir.Process.unlink(pid)
+        ref = Elixir.Process.monitor(pid)
+        subscribe_and_send(pid, agent.id, "nap")
+
+        assert %{output: "Woke."} = wait_for(:completed, 3000)
+        refute_received {:DOWN, ^ref, _, _, _}
+      end
+    end
+  end
+
   describe "tool use flow" do
     test "executes tool calls and continues LLM loop", %{tenant: tenant, agent: agent} do
       LLM.set_responses([
