@@ -92,6 +92,7 @@ defmodule NornsWeb.AgentController do
     context = Map.get(params, "context")
     opts = if is_binary(conversation_key) and conversation_key != "", do: [conversation_key: conversation_key], else: []
     opts = if is_map(context), do: Keyword.put(opts, :context, context), else: opts
+    opts = if Map.get(params, "interject") == true, do: Keyword.put(opts, :interject, true), else: opts
 
     with {:ok, agent} <- fetch_agent(agent_id, tenant.id),
          {:ok, opts} <- put_gard_opt(opts, tenant.id, Map.get(params, "gard_id")) do
