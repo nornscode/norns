@@ -42,6 +42,14 @@ defmodule NornsWeb.TriggerControllerTest do
       conn = post(conn, "/api/v1/triggers", %{"agent_id" => agent.id})
       assert %{"error" => _} = json_response(conn, 422)
     end
+
+    test "rejects another tenant's agent", %{conn: conn} do
+      other_agent = create_agent(create_tenant())
+
+      conn = post(conn, "/api/v1/triggers", valid_params(other_agent))
+      assert %{"error" => %{"agent_id" => _}} = json_response(conn, 422)
+      assert Norns.Repo.aggregate(Norns.Triggers.Trigger, :count) == 0
+    end
   end
 
   describe "GET /api/v1/triggers" do

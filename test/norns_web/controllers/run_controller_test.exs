@@ -370,6 +370,88 @@ defmodule NornsWeb.RunControllerTest do
       assert_receive {:completed, %{run_id: ^next_id, output: "Again."}}, 5000
     end
 
+    test "keeps the step's results already in hand rather than erroring them",
+         %{conn: conn, tenant: tenant, agent: agent} do
+      Norns.TestWorker.LLM.set_responses([
+        %{
+          content: [
+            %{"type" => "tool_use", "id" => "call_list", "name" => "list_agents", "input" => %{}},
+            %{"type" => "tool_use", "id" => "call_ask", "name" => "ask_human", "input" => %{"question" => "Proceed?"}}
+          ],
+          stop_reason: "tool_use"
+        }
+      ])
+
+      Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{agent.id}")
+      {:ok, run_id} = Norns.Agents.Registry.send_message(tenant.id, agent.id, "look around", conversation_key: "cancel-in-hand")
+      assert_receive {:waiting_for_user, %{question: "Proceed?"}}, 5000
+
+      assert %{"status" => "cancelled"} = json_response(post(conn, "/api/v1/runs/#{run_id}/cancel"), 200)
+      assert_receive {:error, %{run_id: ^run_id}}, 5000
+
+      conversation = Norns.Conversations.get_conversation_by_agent_key(agent.id, "cancel-in-hand")
+      tool_messages = Enum.filter(conversation.messages, &(&1["role"] == "tool"))
+
+      listed = Enum.find(tool_messages, &(&1["tool_call_id"] == "call_list"))
+      assert %{"kind" => "list_agents", "data" => %{"agents" => _}} = listed
+      refute listed["is_error"]
+      assert %{"is_error" => true, "kind" => "unanswered"} = Enum.find(tool_messages, &(&1["tool_call_id"] == "call_ask"))
+    end
+
+    test "keeps the step's results already in hand when cancelled during a wait",
+         %{conn: conn, tenant: tenant, agent: agent} do
+      Norns.TestWorker.LLM.set_responses([
+        %{
+          content: [
+            %{"type" => "tool_use", "id" => "call_list", "name" => "list_agents", "input" => %{}},
+            %{"type" => "tool_use", "id" => "call_wait", "name" => "wait", "input" => %{"seconds" => 60}}
+          ],
+          stop_reason: "tool_use"
+        }
+      ])
+
+      Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{agent.id}")
+      {:ok, run_id} = Norns.Agents.Registry.send_message(tenant.id, agent.id, "look, then nap", conversation_key: "cancel-wait-in-hand")
+      assert_receive {:waiting_timer, %{run_id: ^run_id}}, 5000
+
+      assert %{"status" => "cancelled"} = json_response(post(conn, "/api/v1/runs/#{run_id}/cancel"), 200)
+      assert_receive {:error, %{run_id: ^run_id}}, 5000
+
+      conversation = Norns.Conversations.get_conversation_by_agent_key(agent.id, "cancel-wait-in-hand")
+      tool_messages = Enum.filter(conversation.messages, &(&1["role"] == "tool"))
+
+      listed = Enum.find(tool_messages, &(&1["tool_call_id"] == "call_list"))
+      assert %{"kind" => "list_agents", "data" => %{"agents" => _}} = listed
+      refute listed["is_error"]
+      assert %{"is_error" => true, "kind" => "unanswered"} = Enum.find(tool_messages, &(&1["tool_call_id"] == "call_wait"))
+    end
+
+    test "cancels a run backing off before an LLM retry without the retry firing later",
+         %{conn: conn, tenant: tenant} do
+      agent = create_agent(tenant, %{model_config: %{"on_failure" => "retry_last_step"}})
+
+      Norns.TestWorker.LLM.set_responses([
+        {:error, "worker disconnected"},
+        %{content: [%{"type" => "text", "text" => "Too late."}], stop_reason: "end_turn"}
+      ])
+
+      Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{agent.id}")
+      {:ok, run_id} = Norns.Agents.Registry.send_message(tenant.id, agent.id, "hi", conversation_key: "cancel-retry")
+
+      retry_scheduled = fn -> Enum.any?(Norns.Runs.list_events(run_id), &(&1.event_type == "retry")) end
+      Enum.find(1..50, fn _ -> retry_scheduled.() || (Process.sleep(20) && false) end)
+      assert retry_scheduled.()
+
+      assert %{"status" => "cancelled"} = json_response(post(conn, "/api/v1/runs/#{run_id}/cancel"), 200)
+      assert_receive {:error, %{run_id: ^run_id}}, 5000
+
+      # Past the 1s backoff: the cancelled run stays failed and is not resumed.
+      Process.sleep(1500)
+      refute_received {:completed, %{run_id: ^run_id}}
+      assert Norns.Runs.get_run!(run_id).status == "failed"
+      refute Enum.any?(Norns.Runs.list_events(run_id), &(&1.event_type == "run_completed"))
+    end
+
     test "cancels a run sleeping on wait without a stale timer firing later",
          %{conn: conn, tenant: tenant, agent: agent} do
       Norns.TestWorker.LLM.set_responses([

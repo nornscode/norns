@@ -51,6 +51,14 @@ defmodule NornsWeb.HookControllerTest do
       assert %{"error" => %{"signing_secret" => _}} = json_response(conn, 422)
     end
 
+    test "rejects another tenant's agent", %{conn: conn} do
+      other_agent = create_agent(create_tenant())
+
+      conn = post(conn, "/api/v1/hooks", %{"agent_id" => other_agent.id, "name" => "theirs"})
+      assert %{"error" => %{"agent_id" => _}} = json_response(conn, 422)
+      assert Norns.Repo.aggregate(Norns.Hooks.Hook, :count) == 0
+    end
+
     test "a client-supplied token is ignored", %{conn: conn, agent: agent} do
       data = create_hook(conn, agent, %{"token" => "attacker-chosen"})
       refute data["token"] == "attacker-chosen"
