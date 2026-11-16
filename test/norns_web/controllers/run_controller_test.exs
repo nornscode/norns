@@ -398,6 +398,34 @@ defmodule NornsWeb.RunControllerTest do
       assert %{"is_error" => true, "kind" => "unanswered"} = Enum.find(tool_messages, &(&1["tool_call_id"] == "call_ask"))
     end
 
+    test "keeps the step's results already in hand when cancelled during a wait",
+         %{conn: conn, tenant: tenant, agent: agent} do
+      Norns.TestWorker.LLM.set_responses([
+        %{
+          content: [
+            %{"type" => "tool_use", "id" => "call_list", "name" => "list_agents", "input" => %{}},
+            %{"type" => "tool_use", "id" => "call_wait", "name" => "wait", "input" => %{"seconds" => 60}}
+          ],
+          stop_reason: "tool_use"
+        }
+      ])
+
+      Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{agent.id}")
+      {:ok, run_id} = Norns.Agents.Registry.send_message(tenant.id, agent.id, "look, then nap", conversation_key: "cancel-wait-in-hand")
+      assert_receive {:waiting_timer, %{run_id: ^run_id}}, 5000
+
+      assert %{"status" => "cancelled"} = json_response(post(conn, "/api/v1/runs/#{run_id}/cancel"), 200)
+      assert_receive {:error, %{run_id: ^run_id}}, 5000
+
+      conversation = Norns.Conversations.get_conversation_by_agent_key(agent.id, "cancel-wait-in-hand")
+      tool_messages = Enum.filter(conversation.messages, &(&1["role"] == "tool"))
+
+      listed = Enum.find(tool_messages, &(&1["tool_call_id"] == "call_list"))
+      assert %{"kind" => "list_agents", "data" => %{"agents" => _}} = listed
+      refute listed["is_error"]
+      assert %{"is_error" => true, "kind" => "unanswered"} = Enum.find(tool_messages, &(&1["tool_call_id"] == "call_wait"))
+    end
+
     test "cancels a run backing off before an LLM retry without the retry firing later",
          %{conn: conn, tenant: tenant} do
       agent = create_agent(tenant, %{model_config: %{"on_failure" => "retry_last_step"}})

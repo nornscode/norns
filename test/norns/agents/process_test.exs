@@ -235,6 +235,28 @@ defmodule Norns.Agents.ProcessTest do
         refute_received {:DOWN, ^ref, _, _, _}
       end
     end
+
+    # Past `send_after`'s 2^32 - 1 ms limit, which raised before the clamp.
+    for seconds <- [10_000_000_000, 1.0e20, "99999999999"] do
+      test "clamps an oversized seconds argument: #{inspect(seconds)}", %{tenant: tenant, agent: agent} do
+        LLM.set_responses([
+          %{
+            content: [%{"type" => "tool_use", "id" => "call_wait", "name" => "wait", "input" => %{"seconds" => unquote(seconds)}}],
+            stop_reason: "tool_use"
+          }
+        ])
+
+        {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
+        Elixir.Process.unlink(pid)
+        ref = Elixir.Process.monitor(pid)
+        subscribe_and_send(pid, agent.id, "nap")
+
+        assert %{seconds: 4_294_967} = wait_for(:waiting_timer, 3000)
+        refute_receive {:DOWN, ^ref, _, _, _}, 100
+        assert %{status: :waiting_timer} = AgentProcess.get_state(pid)
+        GenServer.stop(pid)
+      end
+    end
   end
 
   describe "tool use flow" do

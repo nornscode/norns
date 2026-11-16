@@ -118,6 +118,9 @@ defmodule Norns.Agents.Process do
       task_timer: nil,
       pending_subagents: %{},
       pending_human: nil,
+      # The step's results already in hand while a `wait` sleeps; the timer
+      # message carries them too, but a cancel needs them from state.
+      pending_wait: nil,
       gard_id: nil,
       resume_action: nil,
       # The LLM worker connection that holds this run's history, and the
@@ -236,6 +239,7 @@ defmodule Norns.Agents.Process do
         pending_tool_tasks: nil,
         task_timer: nil,
         pending_human: nil,
+        pending_wait: nil,
         pending_subagents: %{},
         pending_compaction: nil
     }
@@ -889,7 +893,7 @@ defmodule Norns.Agents.Process do
 
         timer_ref = Process.send_after(self(), {:timer_complete, wait_block["id"], regular_results, log_calls?}, seconds * 1000)
 
-        {:noreply, %{state | status: :waiting_timer, task_timer: timer_ref}}
+        {:noreply, %{state | status: :waiting_timer, task_timer: timer_ref, pending_wait: %{pending_results: regular_results}}}
 
       true ->
         messages = state.messages ++ regular_results
@@ -1038,7 +1042,7 @@ defmodule Norns.Agents.Process do
     wait_result = make_system_result(state, %{"id" => tool_call_id}, "wait", "timer_completed", %{}, "", false)
 
     all_results = pending_results ++ [wait_result]
-    state = %{state | task_timer: nil}
+    state = %{state | task_timer: nil, pending_wait: nil}
 
     handle_pause_or_continue(state, [], [], all_results, log_calls?)
   end
@@ -1515,15 +1519,19 @@ defmodule Norns.Agents.Process do
     end
   end
 
+  # `send_after` takes at most 2^32 - 1 ms; past that it raises.
+  @max_wait_seconds div(4_294_967_295, 1000)
+
   # The model's argument, not ours: `send_after` and the event's integer
-  # field take only a whole, non-negative count, and anything else crashed
-  # the process.
-  defp wait_seconds(seconds) when is_integer(seconds), do: max(seconds, 0)
-  defp wait_seconds(seconds) when is_float(seconds), do: max(ceil(seconds), 0)
+  # field take only a whole count in 0..@max_wait_seconds, and anything else
+  # crashed the process. Coerce what reads as a number, clamp it into range,
+  # and treat the rest as no wait at all.
+  defp wait_seconds(seconds) when is_integer(seconds), do: seconds |> max(0) |> min(@max_wait_seconds)
+  defp wait_seconds(seconds) when is_float(seconds), do: wait_seconds(ceil(seconds))
 
   defp wait_seconds(seconds) when is_binary(seconds) do
     case Integer.parse(String.trim(seconds)) do
-      {n, _rest} -> max(n, 0)
+      {n, _rest} -> wait_seconds(n)
       :error -> 0
     end
   end
@@ -1549,6 +1557,9 @@ defmodule Norns.Agents.Process do
     do: results
 
   defp results_in_hand(%{status: :waiting, pending_human: %{pending_results: results}}) when is_list(results),
+    do: Map.new(results, &{&1.tool_call_id, &1})
+
+  defp results_in_hand(%{status: :waiting_timer, pending_wait: %{pending_results: results}}) when is_list(results),
     do: Map.new(results, &{&1.tool_call_id, &1})
 
   defp results_in_hand(_state), do: %{}
