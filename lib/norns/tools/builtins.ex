@@ -4,7 +4,7 @@ defmodule Norns.Tools.Builtins do
   alias Norns.Tools.Tool
 
   def all do
-    [wait(), ask_human(), launch_agent(), list_agents()]
+    [wait(), ask_human(), launch_agent(), list_agents(), list_runs(), inspect_run()]
   end
 
   defp wait do
@@ -77,6 +77,42 @@ defmodule Norns.Tools.Builtins do
         "type" => "object",
         "properties" => %{},
         "required" => []
+      },
+      source: :builtin
+    }
+  end
+
+  defp list_runs do
+    %Tool{
+      name: "list_runs",
+      description: "List recent runs across all agents, newest first: who ran, their status, the task they were given, and their output, error, or pending question. Use this to see what other agents are doing or have done.",
+      input_schema: %{
+        "type" => "object",
+        "properties" => %{
+          "agent_name" => %{"type" => "string", "description" => "Only runs of this agent"},
+          "status" => %{
+            "type" => "string",
+            "enum" => ["pending", "running", "waiting", "completed", "failed"],
+            "description" => "Only runs in this status. \"waiting\" means parked on a question for a human."
+          },
+          "limit" => %{"type" => "integer", "description" => "How many runs to return (default 20, max 50)"}
+        },
+        "required" => []
+      },
+      source: :builtin
+    }
+  end
+
+  defp inspect_run do
+    %Tool{
+      name: "inspect_run",
+      description: "Inspect one run in detail: its task, outcome, the tool calls it made, and detected problems such as loops or failing tools. Get run ids from list_runs or launch_agent results.",
+      input_schema: %{
+        "type" => "object",
+        "properties" => %{
+          "run_id" => %{"type" => "integer", "description" => "The run to inspect"}
+        },
+        "required" => ["run_id"]
       },
       source: :builtin
     }

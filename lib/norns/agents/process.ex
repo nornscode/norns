@@ -10,6 +10,7 @@ defmodule Norns.Agents.Process do
 
   alias Norns.{Agents, Conversations, Runs}
   alias Norns.Agents.{AgentDef, HistoryDelta, Messages, Replay, SubagentConversation, SubagentPolicy, ToolPolicy}
+  alias Norns.Runs.Introspection
   alias Norns.Runtime.{Content, ErrorPolicy, Errors, Events}
   alias Norns.Workers.WorkerRegistry
   alias Norns.Tools.{Catalog, Idempotency, Tool}
@@ -433,6 +434,9 @@ defmodule Norns.Agents.Process do
     {list_agents_blocks, remaining} =
       Enum.split_with(remaining, fn block -> block["name"] == "list_agents" end)
 
+    {inspect_blocks, remaining} =
+      Enum.split_with(remaining, fn block -> block["name"] in ["list_runs", "inspect_run"] end)
+
     {launch_agent_blocks, regular_blocks} =
       Enum.split_with(remaining, fn block -> block["name"] == "launch_agent" end)
 
@@ -449,11 +453,14 @@ defmodule Norns.Agents.Process do
     # Resolve list_agents synchronously — results go into the pool immediately
     list_agents_results = resolve_list_agents(state, list_agents_blocks, log_calls?)
 
+    # list_runs / inspect_run read the event log, so they resolve here too
+    inspect_results = resolve_inspect_runs(state, inspect_blocks, log_calls?)
+
     # Resolve launch_agent — may produce immediate error results or async pending tasks
     {launch_results, launch_pending, state} =
       resolve_launch_agents(state, launch_agent_blocks, log_calls?)
 
-    sync_results = denied_results ++ list_agents_results ++ launch_results
+    sync_results = denied_results ++ list_agents_results ++ inspect_results ++ launch_results
 
     # Idempotency keys are derived from the run, the step, and the tool call
     # id — all of which survive in the log — so a call re-dispatched after a
@@ -589,6 +596,46 @@ defmodule Norns.Agents.Process do
             |> Enum.map(fn a -> %{"name" => a.name, "purpose" => a.purpose || ""} end)
 
           make_system_result(state, block, "list_agents", "list_agents", %{"agents" => agents}, "", false)
+      end
+    end)
+  end
+
+  # Reads of the tenant's runs. Errors (denied, unknown run or agent) go back
+  # to the model as recoverable tool errors; the tool_call event is the audit.
+  defp resolve_inspect_runs(state, blocks, log_calls?) do
+    Enum.map(blocks, fn block ->
+      name = block["name"]
+      args = block["arguments"] || %{}
+
+      if log_calls? do
+        append(state.run, Events.tool_call(%{
+          "tool_call_id" => block["id"],
+          "name" => name,
+          "arguments" => args,
+          "step" => state.step
+        }))
+      end
+
+      result =
+        with :ok <- SubagentPolicy.authorize_inspect(state.agent_def.subagents) do
+          case name do
+            "list_runs" ->
+              with {:ok, runs} <- Introspection.list_runs(state.tenant_id, args), do: {:ok, %{"runs" => runs}}
+
+            "inspect_run" ->
+              Introspection.inspect_run(state.tenant_id, args["run_id"])
+          end
+        end
+
+      case result do
+        {:ok, data} ->
+          # Round-trip so the live result matches what replay reads back from
+          # the log: string keys, timestamps as ISO strings.
+          data = data |> Jason.encode!() |> Jason.decode!()
+          make_system_result(state, block, name, name, data, "", false)
+
+        {:error, reason} ->
+          make_system_result(state, block, name, "#{name}_error", %{"error" => reason}, "", true)
       end
     end)
   end

@@ -2,11 +2,9 @@ defmodule Norns.Runs.TraceSummary do
   @moduledoc """
   A fixed-size, machine-readable account of what a run did.
 
-  Built for an agent reading another agent's run — the agent-builder
-  direction in `docs/plan-agent-builder.md`, not the coding harness. Nothing
-  calls `GET /runs/:id/summary` today: not sleipnir, not nornsctl, not the
-  dashboard. It is kept deliberately, against that plan, rather than being
-  surface someone forgot to remove.
+  Built for an agent reading another agent's run: it is the body of the
+  `inspect_run` built-in (`Norns.Runs.Introspection`) and of
+  `GET /runs/:id/summary`.
 
   Raw event logs don't work for that: a long run holds hundreds of events,
   full tool results among them, so fetching one is both large and mostly

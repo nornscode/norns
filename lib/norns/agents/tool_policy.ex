@@ -19,9 +19,9 @@ defmodule Norns.Agents.ToolPolicy do
       `allowed_tools`
 
   The policy governs worker-provided tools only. Built-ins (`wait`,
-  `ask_human`, `launch_agent`, `list_agents`) are orchestrator semantics and
-  are never filtered here — `launch_agent` and `list_agents` have their own
-  policy in `Norns.Agents.SubagentPolicy`.
+  `ask_human`, `launch_agent`, `list_agents`, `list_runs`, `inspect_run`) are
+  orchestrator semantics and are never filtered here — all but `wait` and
+  `ask_human` have their own policy in `Norns.Agents.SubagentPolicy`.
 
   The policy is enforced twice: the allowlist filters which tools are
   advertised to the LLM, and dispatch rejects a call to a tool outside it —

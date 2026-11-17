@@ -71,6 +71,90 @@ defmodule Norns.Agents.ProcessSubagentTest do
     end
   end
 
+  describe "list_runs and inspect_run tools" do
+    defp tool_use(id, name, input) do
+      %{content: [%{"type" => "tool_use", "id" => id, "name" => name, "input" => input}], stop_reason: "tool_use"}
+    end
+
+    defp tool_result(pid, name) do
+      state = AgentProcess.get_state(pid)
+      Enum.find(Runs.list_events(state.run_id), &(&1.event_type == "tool_result" && &1.payload["name"] == name))
+    end
+
+    test "an agent can list another agent's runs and inspect one", %{tenant: tenant, agent: agent} do
+      other = create_agent(tenant, %{name: "busy-agent"})
+
+      {:ok, other_run} =
+        Runs.create_run(%{
+          tenant_id: tenant.id,
+          agent_id: other.id,
+          trigger_type: "message",
+          status: "completed",
+          input: %{"user_message" => "fix the build"},
+          output: "fixed"
+        })
+
+      LLM.set_responses([
+        tool_use("call_runs", "list_runs", %{"agent_name" => "busy-agent"}),
+        tool_use("call_inspect", "inspect_run", %{"run_id" => other_run.id}),
+        %{content: [%{"type" => "text", "text" => "busy-agent fixed the build."}], stop_reason: "end_turn"}
+      ])
+
+      {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
+      subscribe_and_send(pid, agent.id, "what is busy-agent up to?")
+      wait_for(:completed)
+
+      listed = tool_result(pid, "list_runs")
+      assert listed.payload["is_error"] == false
+      assert [%{"run_id" => run_id, "task" => "fix the build", "output" => "fixed"}] = listed.payload["data"]["runs"]
+      assert run_id == other_run.id
+
+      inspected = tool_result(pid, "inspect_run")
+      assert inspected.payload["is_error"] == false
+      assert inspected.payload["data"]["run_id"] == other_run.id
+      assert inspected.payload["data"]["verdict"] == "completed"
+      assert inspected.payload["data"]["task"] == "fix the build"
+    end
+
+    test "an unknown run comes back as a tool error and the run continues", %{tenant: tenant, agent: agent} do
+      LLM.set_responses([
+        tool_use("call_inspect", "inspect_run", %{"run_id" => 999_999_999}),
+        %{content: [%{"type" => "text", "text" => "no such run"}], stop_reason: "end_turn"}
+      ])
+
+      {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
+      subscribe_and_send(pid, agent.id, "inspect it")
+      wait_for(:completed)
+
+      result = tool_result(pid, "inspect_run")
+      assert result.payload["is_error"] == true
+      assert result.payload["kind"] == "inspect_run_error"
+      assert result.payload["data"]["error"] == "run_not_found"
+    end
+
+    test "allow_inspect_runs=false denies both tools", %{tenant: tenant} do
+      agent =
+        create_agent(tenant, %{
+          name: "blind-agent",
+          model_config: %{"subagents" => %{"allow_inspect_runs" => false}}
+        })
+
+      LLM.set_responses([
+        tool_use("call_runs", "list_runs", %{}),
+        %{content: [%{"type" => "text", "text" => "ok"}], stop_reason: "end_turn"}
+      ])
+
+      {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
+      subscribe_and_send(pid, agent.id, "look around")
+      wait_for(:completed)
+
+      result = tool_result(pid, "list_runs")
+      assert result.payload["is_error"] == true
+      assert result.payload["data"]["error"] == "inspect_runs_disabled"
+      refute Map.has_key?(result.payload["data"], "runs")
+    end
+  end
+
   describe "launch_agent tool" do
     test "launches child agent and returns its output", %{tenant: tenant, agent: agent} do
       _child_agent = create_agent(tenant, %{name: "child-agent", purpose: "Child worker"})
