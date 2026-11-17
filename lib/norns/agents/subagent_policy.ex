@@ -1,7 +1,8 @@
 defmodule Norns.Agents.SubagentPolicy do
   @moduledoc """
   Authorization policy for an agent's use of the `launch_agent` and
-  `list_agents` built-ins.
+  `list_agents` built-ins, and of `list_runs` and `inspect_run`, which let it
+  read other agents' runs.
 
   Parsed from an agent's `model_config` under the `"subagents"` key:
 
@@ -10,6 +11,7 @@ defmodule Norns.Agents.SubagentPolicy do
           "mode": "allowlist",
           "allowed_agents": ["hello-bot"],
           "allow_list_agents": false,
+          "allow_inspect_runs": false,
           "max_depth": 3
         }
       }
@@ -21,7 +23,9 @@ defmodule Norns.Agents.SubagentPolicy do
     * `:allowlist` — may launch only the agents named in `allowed_agents`
     * `:disabled` — may not launch sub-agents at all
 
-  `allow_list_agents` controls whether `list_agents` is permitted.
+  `allow_list_agents` controls whether `list_agents` is permitted, and
+  `allow_inspect_runs` whether `list_runs` and `inspect_run` are. Both read
+  only within the agent's tenant.
 
   `max_depth` bounds how deeply runs may nest, counted from the root run (which
   is depth 0). It stops runaway recursion — an agent that launches an agent that
@@ -37,7 +41,11 @@ defmodule Norns.Agents.SubagentPolicy do
 
   @default_max_depth 3
 
-  defstruct mode: :open, allowed_agents: [], allow_list_agents: true, max_depth: @default_max_depth
+  defstruct mode: :open,
+            allowed_agents: [],
+            allow_list_agents: true,
+            allow_inspect_runs: true,
+            max_depth: @default_max_depth
 
   @type mode :: :open | :allowlist | :disabled
 
@@ -45,6 +53,7 @@ defmodule Norns.Agents.SubagentPolicy do
           mode: mode(),
           allowed_agents: [String.t()],
           allow_list_agents: boolean(),
+          allow_inspect_runs: boolean(),
           max_depth: non_neg_integer()
         }
 
@@ -60,6 +69,7 @@ defmodule Norns.Agents.SubagentPolicy do
           mode: parse_mode(Map.get(settings, "mode")),
           allowed_agents: parse_allowed(Map.get(settings, "allowed_agents")),
           allow_list_agents: parse_boolean(Map.get(settings, "allow_list_agents"), true),
+          allow_inspect_runs: parse_boolean(Map.get(settings, "allow_inspect_runs"), true),
           max_depth: parse_max_depth(Map.get(settings, "max_depth"))
         }
 
@@ -93,6 +103,16 @@ defmodule Norns.Agents.SubagentPolicy do
   @spec authorize_list(t()) :: :ok | {:error, String.t()}
   def authorize_list(%__MODULE__{allow_list_agents: true}), do: :ok
   def authorize_list(%__MODULE__{}), do: {:error, "list_agents_disabled"}
+
+  @doc """
+  Whether this agent may read the tenant's runs with `list_runs` and
+  `inspect_run`.
+
+  Returns `:ok` or `{:error, "inspect_runs_disabled"}`.
+  """
+  @spec authorize_inspect(t()) :: :ok | {:error, String.t()}
+  def authorize_inspect(%__MODULE__{allow_inspect_runs: true}), do: :ok
+  def authorize_inspect(%__MODULE__{}), do: {:error, "inspect_runs_disabled"}
 
   @doc """
   Whether a child at `child_depth` may be launched.

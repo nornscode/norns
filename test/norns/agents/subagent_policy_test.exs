@@ -9,7 +9,15 @@ defmodule Norns.Agents.SubagentPolicyTest do
 
       assert policy.mode == :open
       assert policy.allow_list_agents == true
+      assert policy.allow_inspect_runs == true
       assert policy.max_depth == SubagentPolicy.default_max_depth()
+    end
+
+    test "allow_inspect_runs can be turned off" do
+      policy = SubagentPolicy.from_config(%{"subagents" => %{"allow_inspect_runs" => false}})
+
+      assert policy.allow_inspect_runs == false
+      assert SubagentPolicy.authorize_inspect(policy) == {:error, "inspect_runs_disabled"}
     end
 
     test "reads max_depth when configured" do

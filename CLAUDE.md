@@ -80,7 +80,7 @@ When debugging a failing run, start with `nornsctl runs show <id>` to check the 
 ## Conventions
 
 - The orchestrator NEVER executes anything — all work goes through connected workers
-- Four built-in tools (`wait`, `ask_human`, `launch_agent`, `list_agents`) are intercepted by the orchestrator; all other tools are defined and registered by workers
+- Six built-in tools (`wait`, `ask_human`, `launch_agent`, `list_agents`, `list_runs`, `inspect_run`) are intercepted by the orchestrator; all other tools are defined and registered by workers
 - Follow standard Phoenix project conventions
 - Keep contexts in `lib/norns/`, web layer in `lib/norns_web/`
 - Every table has `tenant_id` — multi-tenancy enforced at the data model level
