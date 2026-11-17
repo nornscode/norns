@@ -152,6 +152,26 @@ defmodule Norns.Agents.ProcessSubagentTest do
       assert result.payload["is_error"] == true
       assert result.payload["data"]["error"] == "inspect_runs_disabled"
       refute Map.has_key?(result.payload["data"], "runs")
+
+      state = AgentProcess.get_state(pid)
+      denied = Enum.find(Runs.list_events(state.run_id), &(&1.event_type == "subagent_inspect_denied"))
+      assert denied.payload["requesting_agent_id"] == agent.id
+      assert denied.payload["tool_name"] == "list_runs"
+      assert denied.payload["reason"] == "inspect_runs_disabled"
+    end
+
+    test "allowed reads are not audited as decisions", %{tenant: tenant, agent: agent} do
+      LLM.set_responses([
+        tool_use("call_runs", "list_runs", %{}),
+        %{content: [%{"type" => "text", "text" => "ok"}], stop_reason: "end_turn"}
+      ])
+
+      {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
+      subscribe_and_send(pid, agent.id, "look around")
+      wait_for(:completed)
+
+      state = AgentProcess.get_state(pid)
+      refute Enum.any?(Runs.list_events(state.run_id), &(&1.event_type == "subagent_inspect_denied"))
     end
   end
 
