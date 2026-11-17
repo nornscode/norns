@@ -193,7 +193,7 @@ All state is captured as versioned, validated events (`schema_version: 1`). Even
 - **Tools:** `tool_call`, `tool_result`, `tool_duplicate`
 - **Checkpointing:** `checkpoint_saved`, `context_compacted`
 - **Human-in-the-loop:** `waiting_for_user`, `user_response`
-- **Sub-agents:** `subagent_launched`, `subagent_launch_allowed`, `subagent_launch_denied`, `subagent_list_allowed`, `subagent_list_denied`
+- **Sub-agents:** `subagent_launched`, `subagent_launch_allowed`, `subagent_launch_denied`, `subagent_list_allowed`, `subagent_list_denied`, `subagent_inspect_denied`
 - **Retry:** `retry`
 
 `llm_request` records `tools`: the names of every tool offered to the model on

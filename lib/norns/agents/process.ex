@@ -601,7 +601,9 @@ defmodule Norns.Agents.Process do
   end
 
   # Reads of the tenant's runs. Errors (denied, unknown run or agent) go back
-  # to the model as recoverable tool errors; the tool_call event is the audit.
+  # to the model as recoverable tool errors. A policy denial is also audited
+  # as `subagent_inspect_denied`; allowed reads are not, since the tool_call
+  # event already records them.
   defp resolve_inspect_runs(state, blocks, log_calls?) do
     Enum.map(blocks, fn block ->
       name = block["name"]
@@ -616,8 +618,10 @@ defmodule Norns.Agents.Process do
         }))
       end
 
+      policy = state.agent_def.subagents
+
       result =
-        with :ok <- SubagentPolicy.authorize_inspect(state.agent_def.subagents) do
+        with :ok <- authorize_inspect(state, policy, name) do
           case name do
             "list_runs" ->
               with {:ok, runs} <- Introspection.list_runs(state.tenant_id, args), do: {:ok, %{"runs" => runs}}
@@ -638,6 +642,21 @@ defmodule Norns.Agents.Process do
           make_system_result(state, block, name, "#{name}_error", %{"error" => reason}, "", true)
       end
     end)
+  end
+
+  defp authorize_inspect(state, policy, tool_name) do
+    with {:error, reason} = denied <- SubagentPolicy.authorize_inspect(policy) do
+      append(state.run, Events.build("subagent_inspect_denied", %{
+        "requesting_agent_id" => state.agent_id,
+        "requesting_agent_name" => (state.agent && state.agent.name) || "",
+        "mode" => to_string(policy.mode),
+        "tool_name" => tool_name,
+        "reason" => reason,
+        "step" => state.step
+      }))
+
+      denied
+    end
   end
 
   # Audit trail for every subagent permission decision, allowed or denied.
