@@ -1,10 +1,23 @@
 # Decision Log
 
-Last updated: 2026-11-14
+Last updated: 2026-11-18
 
 ## Product Decisions
 
-### Slowing down (decided 2026-10-14)
+### The pause that didn't take (recorded 2026-11-16)
+
+The pause below never really happened. The month after it brought 22
+commits: serverless workers, run webhooks, cancel, round-robin dispatch,
+Postgres leases for multi-node, gard-bound runs reaching no-gard tools,
+gard-scoped API keys. All of it came from building Fulla, egdir and the
+coding environments, which is the pause's own resume condition.
+Development is active.
+
+New work is filtered by: does it serve an agent we run, or teach us
+something about harnessing agents? The items parked for an outside adopter
+stay parked until we pick one up. Don't bend an agent to fit the platform.
+
+### Slowing down (decided 2026-10-14; never really took, see above)
 
 Active development on the roadmap is paused. The hosted instance keeps
 running, Mimir and sleipnir keep using it, and bugs in a running system
