@@ -28,6 +28,23 @@ defmodule Norns.Runs.CostTest do
       assert Cost.price("claude-opus-5-7") == nil
     end
 
+    test "the current models are priced, each at its own cache-read rate" do
+      for {model, input, output, cache_read} <- [
+            {"claude-fable-5-2", "8", "40", "0.20"},
+            {"claude-mythos-5-2", "8", "40", "0.20"},
+            {"claude-sonnet-5-5", "2", "10", "0.10"},
+            {"claude-haiku-5-5", "0.10", "0.50", "0.01"}
+          ] do
+        price = Cost.price(model)
+        assert Decimal.equal?(price.input, Decimal.new(input)), model
+        assert Decimal.equal?(price.output, Decimal.new(output)), model
+        assert Decimal.equal?(price.cache_read, Decimal.new(cache_read)), model
+      end
+
+      # Fable 5.2 is not priced as Fable 5.
+      assert Decimal.equal?(Cost.price("anthropic/claude-fable-5-2").input, Decimal.new(8))
+    end
+
     test "unknown and missing models have no price" do
       assert Cost.price("gpt-5") == nil
       assert Cost.price(nil) == nil

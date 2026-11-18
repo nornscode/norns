@@ -9,10 +9,11 @@ defmodule Norns.Runs.Cost do
   `input_tokens` counts cache reads and writes too; each is priced at its own
   rate. Cache writes are priced at the 5-minute rate (1.25x input) — the
   usage report does not say which TTL a write used, and 1-hour writes cost
-  2x. Long-context tiers are not modelled.
+  2x. Long-context tiers are not modelled: Haiku 5.5 is priced at its rate
+  for prompts up to 100K tokens (5x above that).
 
   Prices are USD per million tokens, Anthropic first-party API rates as of
-  2026-09-25. Bedrock and Vertex bill their own rates. Operators can add or
+  2026-11-18. Bedrock and Vertex bill their own rates. Operators can add or
   override models:
 
       config :norns, Norns.Runs.Cost,
@@ -22,6 +23,8 @@ defmodule Norns.Runs.Cost do
   """
 
   @prices %{
+    "claude-fable-5-2" => %{input: "8", output: "40", cache_read: "0.20"},
+    "claude-mythos-5-2" => %{input: "8", output: "40", cache_read: "0.20"},
     "claude-fable-5-1" => %{input: "10", output: "50", cache_read: "0.25"},
     "claude-mythos-5-1" => %{input: "10", output: "50", cache_read: "0.25"},
     "claude-fable-5" => %{input: "10", output: "50", cache_read: "1"},
@@ -31,9 +34,10 @@ defmodule Norns.Runs.Cost do
     "claude-opus-4-8" => %{input: "5", output: "25", cache_read: "0.50"},
     "claude-opus-4-7" => %{input: "5", output: "25", cache_read: "0.50"},
     "claude-opus-4-6" => %{input: "5", output: "25", cache_read: "0.50"},
-    "claude-sonnet-5-5" => %{input: "2", output: "10", cache_read: "0.20"},
+    "claude-sonnet-5-5" => %{input: "2", output: "10", cache_read: "0.10"},
     "claude-sonnet-5" => %{input: "2", output: "10", cache_read: "0.20"},
     "claude-sonnet-4-6" => %{input: "3", output: "15", cache_read: "0.30"},
+    "claude-haiku-5-5" => %{input: "0.10", output: "0.50", cache_read: "0.01"},
     "claude-haiku-4-5" => %{input: "1", output: "5", cache_read: "0.10"}
   }
 
