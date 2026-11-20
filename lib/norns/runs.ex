@@ -60,7 +60,38 @@ defmodule Norns.Runs do
     |> Repo.all()
   end
 
+  @doc """
+  One page of the tenant's runs across all agents, newest first, for the
+  runs screen. Agent and conversation are preloaded.
+
+  Options: `:status` (a status or a list of them), `:agent_id`, `:page`
+  (1-based, default 1) and `:per_page` (default 50). Returns
+  `%{runs: runs, page: page, has_next: boolean}`; one extra row is read to
+  know whether there is a next page, so there is no count query.
+  """
+  def page_runs_for_tenant(tenant_id, opts \\ []) do
+    per_page = Keyword.get(opts, :per_page, 50)
+    page = max(Keyword.get(opts, :page, 1), 1)
+
+    rows =
+      Run
+      |> where([r], r.tenant_id == ^tenant_id)
+      |> maybe_filter(:status, Keyword.get(opts, :status))
+      |> maybe_filter(:agent_id, Keyword.get(opts, :agent_id))
+      |> order_by([r], desc: r.inserted_at, desc: r.id)
+      |> limit(^(per_page + 1))
+      |> offset(^((page - 1) * per_page))
+      |> preload([:agent, :conversation])
+      |> Repo.all()
+
+    %{runs: Enum.take(rows, per_page), page: page, has_next: length(rows) > per_page}
+  end
+
   defp maybe_filter(query, _field, nil), do: query
+
+  defp maybe_filter(query, field, values) when is_list(values),
+    do: where(query, [r], field(r, ^field) in ^values)
+
   defp maybe_filter(query, field, value), do: where(query, [r], field(r, ^field) == ^value)
 
   def create_run(attrs) do
