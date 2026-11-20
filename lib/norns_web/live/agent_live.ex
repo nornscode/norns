@@ -32,6 +32,7 @@ defmodule NornsWeb.AgentLive do
              events: [],
              message: "",
              editing_config: false,
+             prompt_expanded: false,
              config: config
            )}
         end
@@ -56,8 +57,18 @@ defmodule NornsWeb.AgentLive do
 
     <%!-- Agent info --%>
     <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded p-4 mb-4">
-      <div class="text-xs text-gray-500 mb-1">System Prompt</div>
-      <.markdown text={@agent.system_prompt} class="text-sm text-gray-700 dark:text-gray-300" />
+      <% long_prompt = long_prompt?(@agent.system_prompt) %>
+      <% clamped = long_prompt and not @prompt_expanded %>
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-xs text-gray-500">System Prompt</span>
+        <button :if={long_prompt} phx-click="toggle_prompt" class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-400">
+          <%= if @prompt_expanded, do: "collapse", else: "show all" %>
+        </button>
+      </div>
+      <div id="system-prompt" class={clamped && "relative max-h-24 overflow-hidden"}>
+        <.markdown text={@agent.system_prompt} class="text-sm text-gray-700 dark:text-gray-300" />
+        <div :if={clamped} class="absolute inset-x-0 bottom-0 h-10 bg-linear-to-t from-gray-50 dark:from-gray-900 to-transparent"></div>
+      </div>
     </div>
 
     <div class="flex items-center gap-6 text-sm mb-6 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded px-4 py-2">
@@ -212,6 +223,10 @@ defmodule NornsWeb.AgentLive do
     {:noreply, assign(socket, editing_config: !socket.assigns.editing_config)}
   end
 
+  def handle_event("toggle_prompt", _params, socket) do
+    {:noreply, assign(socket, prompt_expanded: !socket.assigns.prompt_expanded)}
+  end
+
   def handle_event("save_config", params, socket) do
     agent = socket.assigns.agent
 
@@ -322,6 +337,18 @@ defmodule NornsWeb.AgentLive do
         %{status: :stopped, step: 0}
     end
   end
+
+  # Past this the prompt pushes the runs and message box off the first screen,
+  # so it starts clamped behind a "show all" toggle.
+  @prompt_max_lines 6
+  @prompt_max_chars 500
+
+  defp long_prompt?(prompt) when is_binary(prompt) do
+    String.length(prompt) > @prompt_max_chars or
+      length(String.split(prompt, "\n")) > @prompt_max_lines
+  end
+
+  defp long_prompt?(_), do: false
 
   defp status_color(%{status: :running}), do: "bg-green-400 animate-pulse-dot"
   defp status_color(%{status: :waiting_timer}), do: "bg-yellow-400 animate-pulse-dot"
