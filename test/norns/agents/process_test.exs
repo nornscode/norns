@@ -568,6 +568,48 @@ defmodule Norns.Agents.ProcessTest do
       assert tool_result_ids == ["call_2"]
       assert Enum.all?(tool_result_ids, &(&1 in tool_use_ids))
     end
+
+    test "drops in chunks, so a step is sent what the last step was and more", %{tenant: tenant} do
+      agent = create_agent(tenant, %{model_config: %{"context_window" => 4}})
+
+      search = fn id ->
+        %{
+          content: [%{"type" => "tool_use", "id" => id, "name" => "web_search", "input" => %{"query" => id}}],
+          stop_reason: "tool_use"
+        }
+      end
+
+      LLM.set_responses([
+        search.("call_1"),
+        search.("call_2"),
+        search.("call_3"),
+        %{content: [%{"type" => "text", "text" => "Done."}], stop_reason: "end_turn"}
+      ])
+
+      {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
+      subscribe_and_send(pid, agent.id, "Search three times")
+      wait_for(:completed)
+
+      state = AgentProcess.get_state(pid)
+
+      counts =
+        Runs.list_events(state.run_id)
+        |> Enum.filter(&(&1.event_type == "llm_request"))
+        |> Enum.sort_by(& &1.payload["step"])
+        |> Enum.map(& &1.payload["message_count"])
+
+      # The history is 1, 3, 5 then 7 messages long. One over the window drops
+      # nothing, so step 3 still opens on the user's message and a prompt
+      # cache reads steps 1 and 2 back. Three over drops half a window, which
+      # lands on a tool result and backs up to its call: one message goes.
+      assert counts == [1, 3, 5, 6]
+
+      [_, second, third, fourth] = LLM.calls()
+      role = fn msg -> msg["role"] || msg[:role] end
+      assert Enum.map(third.messages, role) |> Enum.take(3) == Enum.map(second.messages, role)
+      assert role.(hd(third.messages)) == "user"
+      assert role.(hd(fourth.messages)) == "assistant"
+    end
   end
 
   describe "empty final output fallback" do

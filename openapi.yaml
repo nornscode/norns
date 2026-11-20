@@ -941,6 +941,11 @@ components:
           enum: [sliding_window, none]
         context_window:
           type: integer
+          description: >-
+            Under `sliding_window`, the fewest messages an LLM call is sent
+            once the history is longer. Older messages are dropped half a
+            window at a time, so a call is sent up to one and a half times
+            this many.
         max_steps:
           type: integer
           nullable: true

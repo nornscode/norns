@@ -9,7 +9,7 @@ defmodule Norns.Agents.Process do
   require Logger
 
   alias Norns.{Agents, Conversations, Runs}
-  alias Norns.Agents.{AgentDef, HistoryDelta, Messages, Replay, SubagentConversation, SubagentPolicy, ToolPolicy}
+  alias Norns.Agents.{AgentDef, ContextWindow, HistoryDelta, Messages, Replay, SubagentConversation, SubagentPolicy, ToolPolicy}
   alias Norns.Runs.Introspection
   alias Norns.Runtime.{Content, ErrorPolicy, Errors, Events}
   alias Norns.Workers.WorkerRegistry
@@ -1348,7 +1348,7 @@ defmodule Norns.Agents.Process do
 
   defp compaction_needed(%{agent_def: %{context_policy: %{compact_at: at, keep: keep}}, last_input_tokens: tokens} = state)
        when is_integer(tokens) and tokens >= at do
-    drop = backtrack_to_pair_boundary(state.messages, max(length(state.messages) - keep, 0))
+    drop = ContextWindow.pair_boundary(state.messages, max(length(state.messages) - keep, 0))
     if drop > 0, do: %{drop: drop}, else: nil
   end
 
@@ -1780,27 +1780,10 @@ defmodule Norns.Agents.Process do
     end)
   end
 
-  defp apply_context_strategy(%{agent_def: %{context_strategy: :sliding_window}} = state) do
-    window = max(state.agent_def.context_window, 1)
-    drop = max(length(state.messages) - window, 0)
-    drop = backtrack_to_pair_boundary(state.messages, drop)
-    Enum.drop(state.messages, drop)
-  end
+  defp apply_context_strategy(%{agent_def: %{context_strategy: :sliding_window}} = state),
+    do: ContextWindow.apply(state.messages, state.agent_def.context_window)
 
   defp apply_context_strategy(%{messages: messages}), do: messages
-
-  # A tool_use message is always immediately followed by its tool_result
-  # message(s) (see handle_wait_or_continue/4), so a window boundary that
-  # lands on a "tool" message means the boundary split a pair. Back up
-  # until the boundary lands on the owning assistant message instead.
-  defp backtrack_to_pair_boundary(messages, drop) when drop > 0 do
-    case Enum.at(messages, drop) do
-      %{role: "tool"} -> backtrack_to_pair_boundary(messages, drop - 1)
-      _ -> drop
-    end
-  end
-
-  defp backtrack_to_pair_boundary(_messages, drop), do: drop
 
   # `run_id` identifies *which* run of this agent emitted the event. A parent
   # awaiting two concurrent launches of the same child agent can only tell the
