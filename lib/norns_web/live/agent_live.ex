@@ -177,7 +177,10 @@ defmodule NornsWeb.AgentLive do
     <% end %>
 
     <%!-- Runs --%>
-    <h2 class="text-sm font-bold text-gray-600 dark:text-gray-400 mb-2">Runs</h2>
+    <div class="flex items-center justify-between mb-2">
+      <h2 class="text-sm font-bold text-gray-600 dark:text-gray-400">Runs</h2>
+      <a href={"/runs?agent_id=#{@agent.id}"} class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-400">filter in runs &rarr;</a>
+    </div>
     <%= if @runs == [] do %>
       <p class="text-gray-500 dark:text-gray-600 text-xs">No runs yet.</p>
     <% else %>
