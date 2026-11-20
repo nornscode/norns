@@ -45,7 +45,7 @@ defmodule Norns.Runs do
   The tenant's runs, newest first.
 
   Options: `:limit` (default 50), `:status` and `:agent_id`, which narrow
-  the query itself. A client looking for the runs parked on `ask_human`
+  the query itself, and `:preload`. A client looking for the runs parked on `ask_human`
   asks for `status: "waiting"` rather than scanning the newest N by count.
   """
   def list_runs_for_tenant(tenant_id, opts \\ []) do
@@ -57,6 +57,7 @@ defmodule Norns.Runs do
     |> maybe_filter(:agent_id, Keyword.get(opts, :agent_id))
     |> order_by([r], desc: r.inserted_at)
     |> limit(^limit)
+    |> preload(^Keyword.get(opts, :preload, []))
     |> Repo.all()
   end
 
