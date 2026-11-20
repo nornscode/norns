@@ -76,7 +76,7 @@ The agent is never blocked — it always responds to status queries. Agent proce
 
 **Conversation mode** — messages append to a persistent conversation. The LLM sees full history from previous runs. One agent can handle multiple concurrent conversations, each identified by an external key (e.g., Slack channel ID).
 
-Context management via sliding window (configurable size) prevents unbounded token growth.
+Context management via sliding window (configurable size) prevents unbounded token growth. The window keeps at least `context_window` messages and drops older ones half a window at a time (`Norns.Agents.ContextWindow`), so the front of the list holds still between drops and a provider's prompt cache can read the history back.
 
 ## Worker Protocol
 

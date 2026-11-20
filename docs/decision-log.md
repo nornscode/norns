@@ -212,6 +212,24 @@ What remains quadratic: nothing in the log. The conversation row is
 rewritten whole at compaction and run end, which is O(n) per run, not per
 step. A `context_policy` bounds n besides.
 
+### The window drops in chunks (decided 2026-11-20)
+
+The sliding window kept exactly `context_window` messages, so once a
+conversation was longer than its window every appended message pushed one
+out of the front. A provider's prompt cache reads back an unchanged prefix
+and nothing else: the front moved on every call, so every step of every run
+wrote the whole history to the cache again and read none of it. Measured on
+Fulla's manager over a week (784 calls, window of 50): in 102 of the 161
+runs with three or more calls the cached read did not move by a token from
+step to step, and those later steps were half of all cache writes.
+
+The window is now a floor. It keeps at least `context_window` messages and
+drops half a window at a time (`Norns.Agents.ContextWindow`), so a call is
+sent between one and one and a half times the window and the front holds
+still for half a window of messages. No new setting: the chunk follows from
+the window. Rejected: keeping the window as a ceiling and dropping below it,
+which would hand an agent as little as half the history its def asked for.
+
 ### Idempotency reaches the worker (decided 2026-09-13)
 
 The keys had been computed since gards landed and nothing had ever read
