@@ -28,8 +28,11 @@ defmodule Norns.Tools.Catalog do
   Options, all of which narrow the list the way dispatch narrows it:
 
     * `:extra` — tools handed straight to an agent (its def's own list)
-    * `:policy` — a `Norns.Agents.ToolPolicy`; filters `:extra` and worker
-      tools, never built-ins, which are orchestrator semantics
+    * `:policy` — a `Norns.Agents.ToolPolicy`; its allowlist filters
+      `:extra` and worker tools, and its `builtins` list filters the
+      built-ins. A withheld built-in's name stays reserved: a worker tool by
+      that name is not offered in its place, since dispatch would intercept
+      it as the built-in
     * `:gard` — worker tools from that gard plus the no-gard workers', the
       gard winning a name collision; each carries the gard dispatch will
       send it to (`Tool.gard`). Without it, no-gard workers' tools only. A
@@ -46,8 +49,10 @@ defmodule Norns.Tools.Catalog do
     extra = ToolPolicy.filter(policy, Keyword.get(opts, :extra, []))
     worker = ToolPolicy.filter(policy, WorkerRegistry.available_tools(tenant_id, gard: Keyword.get(opts, :gard)))
 
-    (Builtins.all() ++ extra ++ worker)
-    |> Enum.uniq_by(& &1.name)
+    builtins = ToolPolicy.filter(policy, Builtins.all())
+    others = Enum.reject(extra ++ worker, &Builtins.builtin?(&1.name))
+
+    Enum.uniq_by(builtins ++ others, & &1.name)
   end
 
   @doc """

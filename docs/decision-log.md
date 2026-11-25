@@ -373,6 +373,7 @@ worker is the reference core tests against, and it is test support.
 ### Per-agent tool selection
 - `Norns.Agents.ToolPolicy` — per-agent allowlist of worker-provided tools, parsed from `model_config["tools"]` (same shape and defaults philosophy as `SubagentPolicy`). Defaults open; existing agents unaffected.
 - Enforced twice: the allowlist filters the tool list advertised to the LLM, and dispatch rejects a call outside it (error result back to the model, `tool_call_denied` audit event). Built-ins are exempt — `launch_agent`/`list_agents` are governed by `SubagentPolicy`.
+- Built-ins have their own list, `builtins` (decided 2026-11-25, #54): absent offers all six, a list offers only those named, `[]` none. It is enforced at the same two points — the catalog drops a withheld built-in and dispatch checks the policy before built-ins are intercepted, answering a call to one with `tool_call_denied` (`reason: builtin_withheld`). A withheld name stays reserved, so a worker tool can't take its place. This moves the withholding Fulla did in its worker (`wake.WITHHELD`) into the definition core enforces. `launch_agent`/`list_agents`, when offered, still answer to `SubagentPolicy`.
 - The compose-mode prerequisite from `plan-agent-builder.md`: agents can now be assembled from a subset of the tenant's capability layer.
 
 ### Cron triggers

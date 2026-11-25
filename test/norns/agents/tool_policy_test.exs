@@ -42,6 +42,26 @@ defmodule Norns.Agents.ToolPolicyTest do
     end
   end
 
+  describe "from_config/1 builtins" do
+    test "absent offers every built-in" do
+      assert ToolPolicy.from_config(%{"tools" => %{}}).builtins == :all
+      assert ToolPolicy.from_config(%{}).builtins == :all
+    end
+
+    test "a list names the built-ins offered, dropping unknown names" do
+      policy = ToolPolicy.from_config(%{"tools" => %{"builtins" => ["list_runs", "post_to_slack", 3]}})
+      assert policy.builtins == ["list_runs"]
+    end
+
+    test "an empty list withholds all of them" do
+      assert ToolPolicy.from_config(%{"tools" => %{"builtins" => []}}).builtins == []
+    end
+
+    test "a non-list falls back to all" do
+      assert ToolPolicy.from_config(%{"tools" => %{"builtins" => "none"}}).builtins == :all
+    end
+  end
+
   describe "authorize/2" do
     test "open mode allows anything" do
       assert ToolPolicy.authorize(%ToolPolicy{}, "anything") == :ok
@@ -58,6 +78,25 @@ defmodule Norns.Agents.ToolPolicyTest do
       policy = %ToolPolicy{mode: :allowlist, allowed_tools: []}
       assert ToolPolicy.authorize(policy, "anything") == {:error, "not_allowlisted"}
     end
+
+    test "built-ins answer to builtins, not the allowlist" do
+      policy = %ToolPolicy{mode: :allowlist, allowed_tools: ["wait"], builtins: ["ask_human"]}
+
+      assert ToolPolicy.authorize(policy, "ask_human") == :ok
+      # Naming a built-in in allowed_tools does not grant it.
+      assert ToolPolicy.authorize(policy, "wait") == {:error, "builtin_withheld"}
+    end
+
+    test "every built-in can be withheld, list_runs and inspect_run included" do
+      policy = %ToolPolicy{builtins: []}
+
+      for name <- Norns.Tools.Builtins.names() do
+        assert ToolPolicy.authorize(policy, name) == {:error, "builtin_withheld"}
+      end
+
+      # Withholding built-ins leaves an open policy open for everything else.
+      assert ToolPolicy.authorize(policy, "post_to_slack") == :ok
+    end
   end
 
   describe "filter/2" do
@@ -73,6 +112,13 @@ defmodule Norns.Agents.ToolPolicyTest do
       tools = [tool("a"), tool("b"), %{"name" => "a"}, %{"name" => "c"}]
 
       assert ToolPolicy.filter(policy, tools) == [tool("a"), %{"name" => "a"}]
+    end
+
+    test "builtins filters built-ins even in open mode" do
+      policy = %ToolPolicy{builtins: ["wait"]}
+      tools = Norns.Tools.Builtins.all() ++ [tool("a")]
+
+      assert Enum.map(ToolPolicy.filter(policy, tools), & &1.name) == ["wait", "a"]
     end
   end
 end
