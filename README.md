@@ -63,7 +63,8 @@ Every LLM call, tool call and tool result is an event in a Postgres log. A worke
 - [CLI (`nornsctl`)](https://github.com/nornscode/nornsctl)
 - [Hello example](https://github.com/nornscode/norns-hello-agent)
 - [Mimir](https://github.com/nornscode/norns-mimir-agent) — a Slack knowledge bot, and the steward described above
-- [Sleipnir](https://github.com/nornscode/sleipnir) — the coding agent the steward hands off to
+- [egdir](https://github.com/nornscode/egdir) — coding agents on machines you own, from a terminal
+- [Sleipnir](https://github.com/nornscode/sleipnir) — archived 2026-11-25; the Norns-native coding harness, superseded by egdir
 
 ## Status
 

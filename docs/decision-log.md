@@ -1,8 +1,18 @@
 # Decision Log
 
-Last updated: 2026-11-18
+Last updated: 2026-11-25
 
 ## Product Decisions
+
+### Sleipnir is archived (decided 2026-11-25)
+
+egdir (Claude Code and Codex in tmux on a box that stays on) became how
+coding is done, and sleipnir's last push was 2026-10-23. The repository is
+archived, not deleted: it is the only Norns-native coding loop (loop in
+Norns, tools on the worker), and it was the only real user of gards.
+What it leaves in core stays: the sessions API, fork from step and
+gard-bound runs are generic. A Norns-native loop is now an open question,
+to be answered by Bubbo's "gard by proxy" spike if it is wanted at all.
 
 ### The pause that didn't take (recorded 2026-11-16)
 
