@@ -69,6 +69,32 @@ defmodule Norns.Tools.CatalogTest do
     WorkerRegistry.unregister_worker(tid, "w")
   end
 
+  test "builtins withholds built-ins, and a withheld name stays reserved" do
+    tid = tenant_id()
+    :ok = WorkerRegistry.register_worker(tid, "w", self(), [tool_def("wait"), tool_def("search")])
+    policy = %ToolPolicy{builtins: ["list_agents"]}
+
+    tools = Catalog.for_tenant(tid, policy: policy, extra: [tool("ask_human"), tool("mine")])
+    names = names(tools)
+
+    assert "list_agents" in names
+    assert "search" in names
+    assert "mine" in names
+
+    for withheld <- ["wait", "ask_human", "launch_agent", "list_runs", "inspect_run"] do
+      refute withheld in names
+    end
+
+    WorkerRegistry.unregister_worker(tid, "w")
+  end
+
+  test "an empty builtins list offers no built-ins at all" do
+    tid = tenant_id()
+    tools = Catalog.for_tenant(tid, policy: %ToolPolicy{builtins: []}, extra: [tool("mine")])
+
+    assert names(tools) == ["mine"]
+  end
+
   test "with no worker of its own, a tenant still has the built-ins and the agent's own" do
     tid = tenant_id()
     names = names(Catalog.for_tenant(tid, extra: [tool("mine")]))

@@ -189,4 +189,86 @@ defmodule Norns.Agents.ProcessToolPolicyTest do
       assert result.payload["content"] =~ "Search results"
     end
   end
+
+  describe "withheld built-ins" do
+    defp builtins_agent(tenant, builtins) do
+      create_agent(tenant, %{model_config: %{"tools" => %{"builtins" => builtins}}})
+    end
+
+    test "are not offered to the model", %{tenant: tenant} do
+      agent = builtins_agent(tenant, ["list_agents"])
+
+      LLM.set_responses([
+        %{content: [%{"type" => "text", "text" => "done"}], stop_reason: "end_turn"}
+      ])
+
+      {:ok, pid} =
+        AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id, tools: [tool("worker_tool")])
+
+      subscribe_and_send(pid, agent.id, "hello")
+      wait_for(:completed)
+
+      run = Runs.get_run!(AgentProcess.get_state(pid).run_id)
+      request = Enum.find(Runs.list_events(run.id), &(&1.event_type == "llm_request"))
+      offered = request.payload["tools"]
+
+      assert "list_agents" in offered
+      assert "worker_tool" in offered
+
+      for withheld <- ["wait", "ask_human", "launch_agent", "list_runs", "inspect_run"] do
+        refute withheld in offered
+      end
+    end
+
+    for name <- ["wait", "ask_human", "launch_agent", "list_agents", "list_runs", "inspect_run"] do
+      test "a call to a withheld #{name} is denied, not executed", %{tenant: tenant} do
+        name = unquote(name)
+        agent = builtins_agent(tenant, [])
+
+        input =
+          case name do
+            "wait" -> %{"seconds" => 60}
+            "ask_human" -> %{"question" => "Which channel?"}
+            "launch_agent" -> %{"agent_name" => "anyone", "message" => "go"}
+            "inspect_run" -> %{"run_id" => 1}
+            _ -> %{}
+          end
+
+        LLM.set_responses([
+          %{
+            content: [%{"type" => "tool_use", "id" => "call_1", "name" => name, "input" => input}],
+            stop_reason: "tool_use"
+          },
+          %{content: [%{"type" => "text", "text" => "understood"}], stop_reason: "end_turn"}
+        ])
+
+        {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id)
+        subscribe_and_send(pid, agent.id, "go")
+        wait_for(:completed)
+
+        run = Runs.get_run!(AgentProcess.get_state(pid).run_id)
+        events = Runs.list_events(run.id)
+        assert run.status == "completed"
+
+        denial = Enum.find(events, &(&1.event_type == "tool_call_denied"))
+        assert denial.payload["tool_name"] == name
+        assert denial.payload["reason"] == "builtin_withheld"
+
+        result =
+          Enum.find(events, fn e ->
+            e.event_type == "tool_result" and e.payload["tool_call_id"] == "call_1"
+          end)
+
+        assert result.payload["is_error"] == true
+        assert result.payload["kind"] == "tool_denied"
+
+        # None of the built-in's own effects happened.
+        for type <- ["waiting_for_timer", "waiting_for_user", "subagent_launched", "subagent_launch_denied", "subagent_list_allowed"] do
+          refute Enum.any?(events, &(&1.event_type == type)), "unexpected #{type}"
+        end
+
+        assert Enum.count(events, &(&1.event_type == "llm_request")) == 2
+      end
+    end
+  end
 end

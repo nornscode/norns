@@ -34,7 +34,15 @@ defmodule Norns.Agents.ProcessInterjectTest do
     }
 
     {:ok, worker} = Norns.TestWorker.start_link(tenant: tenant.id, name: nil, tools: [gate])
-    on_exit(fn -> if Process.alive?(worker), do: GenServer.stop(worker) end)
+    # The worker is linked to the test process and can die between an
+    # alive? check and the stop, so tolerate it being gone.
+    on_exit(fn ->
+      try do
+        GenServer.stop(worker)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
 
     Phoenix.PubSub.subscribe(Norns.PubSub, "agent:#{agent.id}")
     {:ok, pid} = AgentProcess.start_link(agent_id: agent.id, tenant_id: tenant.id, conversation_key: "chat")

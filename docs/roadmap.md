@@ -82,7 +82,8 @@ flowchart TB
 Shipped as `Norns.Agents.ToolPolicy`: a per-agent allowlist of worker tools
 in `model_config["tools"]`, same shape and defaults philosophy as
 `SubagentPolicy`. Filters the advertised tool list and rejects out-of-policy
-calls at dispatch with a `tool_call_denied` audit event; built-ins exempt.
+calls at dispatch with a `tool_call_denied` audit event. Built-ins sit outside
+the allowlist and have their own `builtins` list (2026-11-25, #54).
 See `decision-log.md` § Implemented.
 
 ### 2. Cron triggers — done (2026-08-10)

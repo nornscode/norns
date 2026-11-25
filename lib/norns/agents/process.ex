@@ -425,6 +425,15 @@ defmodule Norns.Agents.Process do
   end
 
   defp dispatch_tool_execution(state, tool_use_blocks, log_calls?) do
+    # Enforce the tool policy at dispatch, not just at advertisement — the
+    # model can name a tool it was never offered, or the policy can have
+    # changed mid-conversation. This runs before built-ins are intercepted
+    # so a withheld built-in is denied rather than executed.
+    {denied_blocks, tool_use_blocks} =
+      Enum.split_with(tool_use_blocks, fn block ->
+        ToolPolicy.authorize(state.agent_def.tool_policy, block["name"]) != :ok
+      end)
+
     {wait_blocks, remaining} =
       Enum.split_with(tool_use_blocks, fn block -> block["name"] == "wait" end)
 
@@ -439,14 +448,6 @@ defmodule Norns.Agents.Process do
 
     {launch_agent_blocks, regular_blocks} =
       Enum.split_with(remaining, fn block -> block["name"] == "launch_agent" end)
-
-    # Enforce the tool policy at dispatch, not just at advertisement — the
-    # model can name a tool it was never offered, or the allowlist can have
-    # changed mid-conversation. Built-ins were already split out above.
-    {denied_blocks, regular_blocks} =
-      Enum.split_with(regular_blocks, fn block ->
-        ToolPolicy.authorize(state.agent_def.tool_policy, block["name"]) != :ok
-      end)
 
     denied_results = resolve_denied_tools(state, denied_blocks, log_calls?)
 
@@ -553,13 +554,14 @@ defmodule Norns.Agents.Process do
       end
 
       policy = state.agent_def.tool_policy
+      {:error, reason} = ToolPolicy.authorize(policy, block["name"])
 
       append(state.run, Events.build("tool_call_denied", %{
         "requesting_agent_id" => state.agent_id,
         "requesting_agent_name" => (state.agent && state.agent.name) || "",
         "mode" => to_string(policy.mode),
         "tool_name" => block["name"],
-        "reason" => "not_allowlisted",
+        "reason" => reason,
         "step" => state.step
       }))
 

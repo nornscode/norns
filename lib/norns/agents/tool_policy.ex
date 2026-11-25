@@ -18,10 +18,24 @@ defmodule Norns.Agents.ToolPolicy do
     * `:allowlist` — the agent is offered only the tools named in
       `allowed_tools`
 
-  The policy governs worker-provided tools only. Built-ins (`wait`,
-  `ask_human`, `launch_agent`, `list_agents`, `list_runs`, `inspect_run`) are
-  orchestrator semantics and are never filtered here — all but `wait` and
-  `ask_human` have their own policy in `Norns.Agents.SubagentPolicy`.
+  `mode` and `allowed_tools` govern worker-provided tools and the agent's
+  own. Built-ins (`wait`, `ask_human`, `launch_agent`, `list_agents`,
+  `list_runs`, `inspect_run`) are orchestrator semantics and are never
+  selected by the allowlist; they have a separate `builtins` list instead,
+  naming the ones the agent is offered:
+
+      {
+        "tools": {
+          "builtins": ["list_agents", "launch_agent"]
+        }
+      }
+
+  Leaving `builtins` out offers all of them; `[]` withholds all of them. An
+  agent that answers in a shared conversation should not `wait`, and one a
+  waiting parent calls should not `ask_human` — the definition says so here
+  rather than a worker stripping the tools before the model sees them.
+  `launch_agent` and `list_agents` additionally answer to
+  `Norns.Agents.SubagentPolicy` when offered.
 
   The policy is enforced twice: the allowlist filters which tools are
   advertised to the LLM, and dispatch rejects a call to a tool outside it —
@@ -34,13 +48,16 @@ defmodule Norns.Agents.ToolPolicy do
   change behaviour for agents that don't configure it.
   """
 
-  defstruct mode: :open, allowed_tools: []
+  alias Norns.Tools.Builtins
+
+  defstruct mode: :open, allowed_tools: [], builtins: :all
 
   @type mode :: :open | :allowlist
 
   @type t :: %__MODULE__{
           mode: mode(),
-          allowed_tools: [String.t()]
+          allowed_tools: [String.t()],
+          builtins: :all | [String.t()]
         }
 
   @doc "Parse a policy out of an agent's `model_config`. Unknown values fall back to the permissive default."
@@ -50,7 +67,8 @@ defmodule Norns.Agents.ToolPolicy do
       settings when is_map(settings) ->
         %__MODULE__{
           mode: parse_mode(Map.get(settings, "mode")),
-          allowed_tools: parse_allowed(Map.get(settings, "allowed_tools"))
+          allowed_tools: parse_allowed(Map.get(settings, "allowed_tools")),
+          builtins: parse_builtins(Map.get(settings, "builtins"))
         }
 
       _ ->
@@ -63,19 +81,32 @@ defmodule Norns.Agents.ToolPolicy do
   @doc """
   Whether this agent may call `tool_name`.
 
-  Returns `:ok`, or `{:error, "not_allowlisted"}` — a stable code suitable
-  for the audit event.
+  A built-in's name answers to `builtins`, anything else to the allowlist.
+  Returns `:ok`, or `{:error, reason}` with a stable code suitable for the
+  audit event: `"builtin_withheld"` or `"not_allowlisted"`.
   """
   @spec authorize(t(), String.t()) :: :ok | {:error, String.t()}
-  def authorize(%__MODULE__{mode: :open}, _tool_name), do: :ok
+  def authorize(%__MODULE__{} = policy, tool_name) do
+    if Builtins.builtin?(tool_name),
+      do: authorize_builtin(policy, tool_name),
+      else: authorize_regular(policy, tool_name)
+  end
 
-  def authorize(%__MODULE__{mode: :allowlist, allowed_tools: allowed}, tool_name) do
+  defp authorize_builtin(%__MODULE__{builtins: :all}, _name), do: :ok
+
+  defp authorize_builtin(%__MODULE__{builtins: offered}, name) do
+    if name in offered, do: :ok, else: {:error, "builtin_withheld"}
+  end
+
+  defp authorize_regular(%__MODULE__{mode: :open}, _tool_name), do: :ok
+
+  defp authorize_regular(%__MODULE__{mode: :allowlist, allowed_tools: allowed}, tool_name) do
     if tool_name in allowed, do: :ok, else: {:error, "not_allowlisted"}
   end
 
   @doc "Filter a tool list down to those the policy allows. Accepts `Norns.Tools.Tool` structs or map-shaped tool defs."
   @spec filter(t(), [Norns.Tools.Tool.t() | map()]) :: [Norns.Tools.Tool.t() | map()]
-  def filter(%__MODULE__{mode: :open}, tools), do: tools
+  def filter(%__MODULE__{mode: :open, builtins: :all}, tools), do: tools
 
   def filter(%__MODULE__{} = policy, tools) do
     Enum.filter(tools, fn tool -> authorize(policy, tool_name(tool)) == :ok end)
@@ -90,4 +121,9 @@ defmodule Norns.Agents.ToolPolicy do
 
   defp parse_allowed(names) when is_list(names), do: Enum.filter(names, &is_binary/1)
   defp parse_allowed(_), do: []
+
+  # Unknown names are dropped rather than rejected, like the rest of the
+  # policy: a typo withholds a built-in, it never grants a new one.
+  defp parse_builtins(names) when is_list(names), do: Enum.filter(names, &Builtins.builtin?/1)
+  defp parse_builtins(_), do: :all
 end

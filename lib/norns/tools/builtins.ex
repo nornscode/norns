@@ -3,9 +3,19 @@ defmodule Norns.Tools.Builtins do
 
   alias Norns.Tools.Tool
 
+  @names ~w(wait ask_human launch_agent list_agents list_runs inspect_run)
+
   def all do
     [wait(), ask_human(), launch_agent(), list_agents(), list_runs(), inspect_run()]
   end
+
+  @doc "Names of every built-in, in `all/0` order."
+  @spec names() :: [String.t()]
+  def names, do: @names
+
+  @doc "Whether `name` is a built-in's — one the agent process intercepts rather than dispatches."
+  @spec builtin?(term()) :: boolean()
+  def builtin?(name), do: name in @names
 
   defp wait do
     %Tool{
