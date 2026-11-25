@@ -252,6 +252,9 @@ weeks of delay to tenant self-serve, which nobody external is waiting on.
   § Sleipnir is the tool): every conversation across every gard with
   live status from `GET /api/v1/sessions`, tabs, live events, permissions
   inline, `/fork` and `/resume`. Spaces are gards: one per repository.
+- **Sleipnir archived 2026-11-25:** egdir replaced it for day-to-day
+  coding (`decision-log.md` § Sleipnir is archived). H4 will not happen in
+  this form, and D0–D5 lose the client they were written for.
 - **H4:** a week of dogfooding on norns; the README demo on a real repo.
 - **D0–D5 (after H4):** the features no terminal-bound harness can copy —
   a gard that is awake when you are not, answering a parked run from
